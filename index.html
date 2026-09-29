@@ -800,7 +800,7 @@ select.field { padding-right: 4px; }
       <div class="omni-list" id="omniList"></div>
     </div>
     <div class="top-actions">
-      <button class="iconbtn upd-btn" id="updateBtn" title="Reload pgquire and pull the latest version from the server"><svg class="ic"><use href="#i-update"/></svg></button>
+      <button class="iconbtn upd-btn" id="updateBtn" title="Reload"><svg class="ic"><use href="#i-update"/></svg></button>
       <button class="iconbtn" id="shareBtn" title="Share as link"><svg class="ic"><use href="#i-share"/></svg></button>
       <button class="iconbtn hide-sm" id="journalToggle" title="Journal (Ctrl+Shift+J)"><svg class="ic"><use href="#i-book"/></svg></button>
       <button class="iconbtn" id="themeToggle" title="Day / night"><svg class="ic"><use href="#i-moon"/></svg></button>
@@ -1185,7 +1185,7 @@ function persistTabs() {
   if (!S.id || !S.db) return;
   store.set(`tabs:${S.id}`, {
     activeIndex: S.tabs.findIndex(t => t.id === S.active),
-    tabs: S.tabs.map(t => t.type === 'table' ? { type: 'table', key: t.key, view: t.view } : t.type === 'query' ? { type: 'query', title: t.title, sql: t.sql, savedId: t.savedId || null } : { type: t.type }),
+    tabs: S.tabs.map(t => t.type === 'table' ? { type: 'table', key: t.key, view: t.view } : t.type === 'query' ? { type: 'query', title: t.title, sql: t.sql, savedId: t.savedId || null } : t.type === 'map' ? { type: 'map', schema: t.schema || '' } : { type: t.type }),
   });
 }
 function restoreTabs() {
@@ -1196,7 +1196,7 @@ function restoreTabs() {
   saved.tabs.forEach((t, i) => {
     const tab = t.type === 'table' ? (S.byKey[t.key] ? mkTableTab(t.key, t.view) : null)
       : t.type === 'query' ? Object.assign(mkQueryTab(t.sql, t.title), { savedId: t.savedId || null })
-      : t.type === 'map' ? { id: uid(), type: 'map' } : null;
+      : t.type === 'map' ? { id: uid(), type: 'map', schema: t.schema || '' } : null;
     if (!tab) return;
     S.tabs.push(tab);
     if (i === saved.activeIndex) activeIdx = S.tabs.length - 1;
@@ -1225,7 +1225,12 @@ function openQuery(sql = '', { title, run } = {}) {
 }
 function openMap() {
   let tab = S.tabs.find(t => t.type === 'map');
-  if (!tab) { tab = { id: uid(), type: 'map' }; S.tabs.push(tab); }
+  if (!tab) {
+    // A new ERD shows everything — unless you've pointed the search path somewhere yourself.
+    const sp = S.schema, custom = sp?.cur && sp.path.replace(/\s+/g, '') !== sp.def?.replace(/\s+/g, '');
+    tab = { id: uid(), type: 'map', schema: custom && S.tables.some(t => t.schema === sp.cur) ? sp.cur : '' };
+    S.tabs.push(tab);
+  }
   activate(tab.id);
 }
 function activate(id) { S.active = id; persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx(); closeIndexMobile(); }
@@ -1807,7 +1812,7 @@ async function deleteSelected(tab) {
   const t = S.byKey[tab.key];
   const idxs = [...tab.sel].sort((a, b) => a - b);
   if (!idxs.length) return;
-  if (!(await confirmDlg({ title: `Delete ${plural(idxs.length, 'row')}?`, body: `From ${t.key}. You can undo this right after.`, ok: 'Delete', danger: true }))) return;
+  if (!(await confirmDlg({ title: `Delete ${plural(idxs.length, 'row')}?`, body: `From ${t.key}.`, ok: 'Delete', danger: true }))) return;
   const insertable = t.cols.filter(c => c.gen !== 's');
   const overriding = t.cols.some(c => c.ident === 'a') ? ' overriding system value' : '';
   const stmts = [], undo = [];
@@ -2433,9 +2438,9 @@ async function loadSample() {
 /* ==========================================================================
    Chart — ER map
    ========================================================================== */
-/* The ERD can show one schema at a time (remembered per database). Everything it draws or exports —
+/* The ERD can show one schema at a time, for as long as its tab is open. Everything it draws or exports —
    cards, wires, SVG/PNG, Mermaid/DBML/text — goes through erdTables(), so they always agree. */
-const erdSchema = () => { const sc = store.get(`erdSchema:${S.id}`, ''); return sc && S.tables.some(t => t.schema === sc) ? sc : ''; };
+const erdSchema = () => { const sc = S.tabs.find(t => t.type === 'map')?.schema; return sc && S.tables.some(t => t.schema === sc) ? sc : ''; };
 const erdTables = () => { const sc = erdSchema(); return sc ? S.tables.filter(t => t.schema === sc) : S.tables; };
 
 function renderMap(tab, pane) {
@@ -2447,7 +2452,7 @@ function renderMap(tab, pane) {
   svg.setAttribute('class', 'wires'); svg.setAttribute('width', '1'); svg.setAttribute('height', '1');
   world.append(svg);
   const schemas = [...new Set(S.tables.map(t => t.schema))].sort((a, b) => (a !== 'public') - (b !== 'public') || a.localeCompare(b));
-  const pick = schemas.length > 1 && h('select', { class: 'field map-schema', title: 'Show one schema', onchange: e => { store.set(`erdSchema:${S.id}`, e.target.value); tab.fitNext = true; renderPane(); } },
+  const pick = schemas.length > 1 && h('select', { class: 'field map-schema', title: 'Show one schema', onchange: e => { tab.schema = e.target.value; persistTabs(); tab.fitNext = true; renderPane(); } },
     h('option', { value: '' }, `All schemas (${schemas.length})`), schemas.map(sc => h('option', { value: sc, selected: sc === erdSchema() }, sc)));
   map.append(world, pick || '',
     h('div', { class: 'map-legend' }, S.tables.length ? 'Drag cards to arrange · double-click to open · scroll to zoom' : 'No tables to diagram yet.'),
@@ -5310,7 +5315,7 @@ async function checkForUpdate() {
   } catch { return null; }
   const b = $('updateBtn');
   b.classList.toggle('has-update', upd.available);
-  b.title = upd.available ? 'New version available — reload to update' : 'Reload pgquire and pull the latest version from the server';
+  b.title = upd.available ? 'New version available — reload to update' : 'Reload';
   return upd.available;
 }
 async function reloadApp() {
@@ -5324,7 +5329,7 @@ async function reloadApp() {
 $('updateBtn').onclick = reloadApp;
 $('appVer').textContent = `v${APP_VERSION}`;
 $('appVer').closest('.wordmark').title = `pgquire v${APP_VERSION} · pg, inquire`;
-if (!HOSTED) $('updateBtn').title = 'Reload pgquire (your work is saved first)';
+if (!HOSTED) $('updateBtn').title = 'Reload';
 if (new URL(location.href).searchParams.has('_v')) {          // tidy the address after an update reload
   const u = new URL(location.href); u.searchParams.delete('_v'); history.replaceState(null, '', u);
 }
