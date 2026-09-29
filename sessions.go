@@ -44,6 +44,7 @@ func (m *sessionManager) listDatabases(ctx context.Context, p *Profile) ([]strin
 type session struct {
 	id       string
 	profile  string
+	database string // "" = the one in the profile's connection string
 	readOnly bool
 	conn     *pgx.Conn
 
@@ -160,7 +161,7 @@ func (m *sessionManager) open(ctx context.Context, p *Profile, database string) 
 	if err != nil {
 		return nil, err
 	}
-	s := &session{id: randomHex(16), profile: p.Name, readOnly: p.ReadOnly, conn: conn}
+	s := &session{id: randomHex(16), profile: p.Name, database: database, readOnly: p.ReadOnly, conn: conn}
 	s.lastUsed.Store(time.Now().UnixNano())
 	m.mu.Lock()
 	m.byID[s.id] = s

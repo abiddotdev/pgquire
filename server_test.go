@@ -372,3 +372,56 @@ func TestVersionMatchesPage(t *testing.T) {
 		t.Fatalf("index.html APP_VERSION %q, server Version %q: bump both", m[1], Version)
 	}
 }
+
+func TestRemoteTestConnectionAndCSVExport(t *testing.T) {
+	c, sp := remote(t, 5, false) // max-rows 5: the export must still stream everything
+	var probe struct {
+		ServerVersion string
+		TLS           bool
+		Database      string
+	}
+	if code := c.do("POST", "/api/profiles/test", map[string]any{"dsn": os.Getenv("PGQUIRE_TEST_DSN")}, &probe); code != 200 || probe.ServerVersion == "" || probe.Database != "postgres" {
+		t.Fatalf("test connection: %d %+v", code, probe)
+	}
+	var bad apiErr
+	if code := c.do("POST", sp+"/exports", map[string]any{"sql": "select * from no_such_table"}, &bad); code != 400 || bad.Error["code"] != "42P01" {
+		t.Fatalf("bad export not caught up front: %d %v", code, bad.Error)
+	}
+	var prep struct{ URL string }
+	if code := c.do("POST", sp+"/exports", map[string]any{"sql": "select g, 'x,\"y' as s from generate_series(1, 20) g;", "filename": "../evil name"}, &prep); code != 200 {
+		t.Fatalf("prepare: %d", code)
+	}
+	resp, err := c.hc.Get(c.base + prep.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if resp.StatusCode != 200 || len(lines) != 21 || lines[0] != "g,s" || lines[1] != `1,"x,""y"` {
+		t.Fatalf("csv: %d, %d lines, first %q %q", resp.StatusCode, len(lines), lines[0], lines[1])
+	}
+	if cd := resp.Header.Get("Content-Disposition"); cd != `attachment; filename="evil name.csv"` {
+		t.Fatalf("filename not sanitised: %s", cd)
+	}
+	again, _ := c.hc.Get(c.base + prep.URL)
+	again.Body.Close()
+	if again.StatusCode != http.StatusGone {
+		t.Fatalf("export link reusable: %d", again.StatusCode)
+	}
+	// The export runs in a read-only transaction, even for a query that would write.
+	c.do("POST", sp+"/exec", map[string]any{"sql": "drop table if exists pgq_export_ro; create table pgq_export_ro(a int)"}, nil)
+	defer c.do("POST", sp+"/exec", map[string]any{"sql": "drop table if exists pgq_export_ro"}, nil)
+	var w struct{ URL string }
+	if code := c.do("POST", sp+"/exports", map[string]any{"sql": "insert into pgq_export_ro values (1) returning a"}, &w); code != 200 {
+		t.Fatalf("prepare write: %d", code)
+	}
+	resp, _ = c.hc.Get(c.base + w.URL)
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	var n apiResult
+	c.do("POST", sp+"/query", map[string]any{"sql": "select count(*) from pgq_export_ro"}, &n)
+	if !strings.Contains(string(body), "read-only transaction") || *n.Rows[0][0] != "0" {
+		t.Fatalf("export wrote data: %q, rows %s", body, *n.Rows[0][0])
+	}
+}

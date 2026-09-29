@@ -32,6 +32,7 @@ type server struct {
 	cfg      serverConfig
 	sessions *sessionManager
 	mux      *http.ServeMux
+	exports  exportStore
 }
 
 func newServer(cfg serverConfig) *server {
@@ -43,6 +44,9 @@ func newServer(cfg serverConfig) *server {
 	s.mux.HandleFunc("POST /api/profiles", s.auth(s.addProfile))
 	s.mux.HandleFunc("DELETE /api/profiles/{name}", s.auth(s.deleteProfile))
 	s.mux.HandleFunc("GET /api/profiles/{name}/databases", s.auth(s.listDatabases))
+	s.mux.HandleFunc("POST /api/profiles/test", s.auth(s.testProfile))
+	s.mux.HandleFunc("POST /api/sessions/{id}/exports", s.auth(s.withSession(s.prepareExport)))
+	s.mux.HandleFunc("GET /api/exports/{token}", s.auth(s.runExport))
 	s.mux.HandleFunc("POST /api/sessions", s.auth(s.openSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/query", s.auth(s.withSession(s.query)))
 	s.mux.HandleFunc("POST /api/sessions/{id}/exec", s.auth(s.withSession(s.exec)))
@@ -157,20 +161,51 @@ func (s *server) addProfile(w http.ResponseWriter, r *http.Request) {
 		p.ReadOnly = *in.ReadOnly
 	}
 	// Try it before keeping it.
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
-	sess, err := s.sessions.open(ctx, p, "")
+	probe, err := s.probe(r.Context(), p)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
 		return
 	}
-	ver := sess.conn.PgConn().ParameterStatus("server_version")
-	s.sessions.close(sess.id)
 	if err := s.cfg.profiles.put(p); err != nil {
 		writeErr(w, http.StatusInternalServerError, "connected, but couldn't save: "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"profile": p.public(), "serverVersion": ver})
+	probe["profile"] = p.public()
+	writeJSON(w, http.StatusOK, probe)
+}
+
+// probe connects once and reports the server version and whether the link is encrypted.
+func (s *server) probe(ctx context.Context, p *Profile) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	sess, err := s.sessions.open(ctx, p, "")
+	if err != nil {
+		return nil, err
+	}
+	defer s.sessions.close(sess.id)
+	pc := sess.conn.PgConn()
+	_, encrypted := pc.Conn().(*tls.Conn)
+	return map[string]any{"serverVersion": pc.ParameterStatus("server_version"), "tls": encrypted, "database": sess.conn.Config().Database, "user": sess.conn.Config().User}, nil
+}
+
+// testProfile tries a connection string without keeping anything.
+func (s *server) testProfile(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		DSN string `json:"dsn"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if strings.TrimSpace(in.DSN) == "" {
+		writeErr(w, http.StatusBadRequest, "a connection string is needed")
+		return
+	}
+	probe, err := s.probe(r.Context(), &Profile{Name: "(test)", DSN: strings.TrimSpace(in.DSN)})
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
+		return
+	}
+	writeJSON(w, http.StatusOK, probe)
 }
 
 func (s *server) deleteProfile(w http.ResponseWriter, r *http.Request) {
