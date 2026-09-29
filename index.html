@@ -109,6 +109,9 @@ select.field { padding-right: 4px; }
 .wordmark b { font-style: normal; font-weight: 600; }
 .dbswitch { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; padding: 4px 8px; border-radius: var(--radius); max-width: 220px; }
 .dbswitch:hover { background: var(--rule2); }
+.schema-chip { font: 500 11px/1 var(--mono); color: var(--ink2); padding: 4px 7px; border: 1px dashed var(--ink3); border-radius: var(--radius); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.schema-chip:hover { background: var(--rule2); }
+.schema-chip[hidden] { display: none; }
 .dbswitch .smallcaps { font-size: 9px; }
 .dbswitch .name { font: 500 15px/1.2 var(--serif); display: flex; gap: 4px; align-items: center; max-width: 100%; }
 .db-spine { width: 4px; height: 17px; border-radius: 1px; background: var(--db, var(--red)); flex-shrink: 0; margin-right: 3px; }
@@ -452,6 +455,7 @@ select.field { padding-right: 4px; }
 .wordmark .pg { font: italic 500 21px/1 var(--serif); color: var(--red); letter-spacing: -.01em; margin-right: 1px; }
 .db-kind { font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 3px 5px 2px; margin-left: 6px; border: 1px solid currentColor; border-radius: 3px; color: var(--ink3); }
 .db-kind:empty { display: none; }
+.dbswitch .name .db-kind { flex: none; overflow: visible; }   /* the name truncates, not the chip */
 .db-kind.prod { color: #fff; background: var(--red); border-color: var(--red); }
 .remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
 .remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; }
@@ -760,6 +764,7 @@ select.field { padding-right: 4px; }
       <span class="smallcaps">Database</span>
       <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span><span class="db-kind" id="dbKind"></span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
     </button>
+    <button class="schema-chip" id="schemaChip" hidden></button>
     <div class="omni" id="omni">
       <div class="omni-box">
         <svg class="ic" style="color:var(--ink3)"><use href="#i-search"/></svg>
@@ -1081,7 +1086,36 @@ async function refreshSchema({ initial } = {}) {
   if (!initial) for (const t of tables) if (counts[t.key] !== S.counts[t.key] || !S.byKey[t.key]) S.flash.add(t.key);
   S.tables = tables; S.counts = counts; S.approx = approx;
   S.exts = await installedExtensions(S.db).catch(() => []);
+  await readSearchPath();
   S.byKey = Object.fromEntries(tables.map(t => [t.key, t]));
+}
+/* ---------- the search path: a header chip whenever it differs from the connection's default ----------
+   Read from Postgres rather than parsed from the SQL, so SET, SET LOCAL, RESET and set_config() all show.
+   The default (reset_val) varies: PGlite uses public; servers usually "$user", public, or a role's own. */
+async function readSearchPath() {
+  try { S.schema = (await q(`select current_schema() as cur, current_setting('search_path') as path, (select reset_val from pg_settings where name = 'search_path') as def`)).rows[0]; }
+  catch { S.schema = null; }                // e.g. inside a failed transaction: hide rather than guess
+  const el = $('schemaChip'), sp = S.schema;
+  el.hidden = !sp || sp.path.replace(/\s+/g, '') === sp.def?.replace(/\s+/g, '');
+  if (el.hidden) return;
+  el.textContent = `schema: ${sp.cur ?? 'none'}`;
+  el.title = `search_path = ${sp.path}${sp.cur ? '' : ' — none of these schemas exist'}\nUnqualified table names resolve here. Click to change.`;
+}
+$('schemaChip').onclick = e => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const schemas = [...new Set(['public', ...S.tables.map(t => t.schema)])].sort();
+  showMenu(r.left, r.bottom + 4, [
+    { label: 'Search path', header: true },
+    ...schemas.map(sc => ({ label: sc, cur: sc === S.schema?.cur, hint: sc === S.schema?.cur ? 'current' : '', run: () => setSearchPath(`set search_path to ${qi(sc)}${sc === 'public' ? '' : ', public'}`) })),
+    '-',
+    { label: 'Reset to default', icon: 'undo', run: () => setSearchPath('reset search_path') },
+  ]);
+};
+async function setSearchPath(sql) {
+  const t0 = performance.now();
+  try { await S.db.exec(sql); journalAdd({ src: 'you', sql, info: 'ok', ms: Math.round(performance.now() - t0) }); }
+  catch (e) { toast(e.message, 'bad'); }
+  await readSearchPath();
 }
 // Always schema-qualified: a SET search_path in the editor must not break the app's own queries.
 function qt(t) { return `${qi(t.schema)}.${qi(t.name)}`; }
@@ -1970,6 +2004,7 @@ async function runQueryTab(tab, sql) {
   const rowsN = tab.results?.reduce((a, r) => a + (r.fields.length ? r.rows.length : r.affected || 0), 0);
   journalAdd({ src: 'you', sql, ms: tab.ms, error: tab.error, info: tab.error ? null : plural(rowsN || 0, 'row') });
   if (!isReadish(sql)) await afterWrite();
+  else await readSearchPath();         // reads can change it too: set_config(), SET LOCAL ending
   if (activeTab() === tab) renderPane();
 }
 
