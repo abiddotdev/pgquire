@@ -105,6 +105,15 @@ func (m *sessionManager) connConfig(p *Profile) (*pgx.ConnConfig, error) {
 	if m.stmtTO > 0 {
 		cfg.RuntimeParams["statement_timeout"] = strconv.FormatInt(m.stmtTO.Milliseconds(), 10)
 	}
+	for k, v := range map[string]string{
+		"bytea_output": "hex", // the page decodes hex
+		// Transactions span requests: don't let a closed tab hold locks for long.
+		"idle_in_transaction_session_timeout": "120000",
+	} {
+		if _, ok := cfg.RuntimeParams[k]; !ok {
+			cfg.RuntimeParams[k] = v
+		}
+	}
 	if p.ReadOnly {
 		// A guard rail, not a security boundary: SQL can turn it off. Use a read-only role for that.
 		cfg.RuntimeParams["default_transaction_read_only"] = "on"
@@ -285,32 +294,6 @@ func queryParams(ctx context.Context, c *pgconn.PgConn, sql string, params [][]b
 type stmt struct {
 	SQL    string            `json:"sql"`
 	Params []json.RawMessage `json:"params"`
-}
-
-// runTx runs statements in one transaction, rolling back on the first error.
-func runTx(ctx context.Context, c *pgconn.PgConn, stmts []stmt, max int) ([]result, error) {
-	if _, err := c.Exec(ctx, "begin").ReadAll(); err != nil {
-		return nil, err
-	}
-	out := make([]result, 0, len(stmts))
-	for _, s := range stmts {
-		params, err := encodeParams(s.Params)
-		if err == nil {
-			var r result
-			r, err = queryParams(ctx, c, s.SQL, params, max)
-			out = append(out, r)
-		}
-		if err != nil {
-			rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			c.Exec(rctx, "rollback").ReadAll()
-			cancel()
-			return nil, err
-		}
-	}
-	if _, err := c.Exec(ctx, "commit").ReadAll(); err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 // encodeParams turns JSON values into Postgres text parameters. The page sends strings (it already

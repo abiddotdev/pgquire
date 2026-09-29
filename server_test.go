@@ -260,17 +260,16 @@ func TestRemoteErrorsCarryPostgresFields(t *testing.T) {
 	}
 }
 
-func TestRemoteTxRollsBack(t *testing.T) {
+func TestRemoteTransactionSpansRequests(t *testing.T) {
 	c, sp := remote(t, 100, false)
 	c.do("POST", sp+"/exec", map[string]any{"sql": "create temp table u(a int primary key)"}, nil)
+	c.do("POST", sp+"/exec", map[string]any{"sql": "begin"}, nil)
+	c.do("POST", sp+"/query", map[string]any{"sql": "insert into u values ($1)", "params": []any{"1"}}, nil)
 	var e apiErr
-	code := c.do("POST", sp+"/tx", map[string]any{"stmts": []map[string]any{
-		{"sql": "insert into u values ($1)", "params": []any{1}},
-		{"sql": "insert into u values ($1)", "params": []any{1}}, // duplicate → whole tx undone
-	}}, &e)
-	if code != 400 || e.Error["code"] != "23505" {
-		t.Fatalf("tx: %d %v", code, e.Error)
+	if code := c.do("POST", sp+"/query", map[string]any{"sql": "insert into u values ($1)", "params": []any{"1"}}, &e); code != 400 || e.Error["code"] != "23505" {
+		t.Fatalf("duplicate: %d %v", code, e.Error)
 	}
+	c.do("POST", sp+"/exec", map[string]any{"sql": "rollback"}, nil)
 	var r apiResult
 	c.do("POST", sp+"/query", map[string]any{"sql": "select count(*) from u"}, &r)
 	if *r.Rows[0][0] != "0" {
@@ -324,7 +323,7 @@ func TestRemoteClosedSessionIsGone(t *testing.T) {
 	c, sp := remote(t, 100, false)
 	c.do("POST", sp+"/close", nil, nil)
 	var e apiErr
-	if code := c.do("POST", sp+"/query", map[string]any{"sql": "select 1"}, &e); code != http.StatusGone || e.Error["code"] != "session_lost" {
+	if code := c.do("POST", sp+"/query", map[string]any{"sql": "select 1"}, &e); code != http.StatusGone || e.Error["code"] != "session_closed" {
 		t.Fatalf("closed session: %d %v", code, e.Error)
 	}
 }

@@ -44,7 +44,6 @@ func newServer(cfg serverConfig) *server {
 	s.mux.HandleFunc("POST /api/sessions", s.auth(s.openSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/query", s.auth(s.withSession(s.query)))
 	s.mux.HandleFunc("POST /api/sessions/{id}/exec", s.auth(s.withSession(s.exec)))
-	s.mux.HandleFunc("POST /api/sessions/{id}/tx", s.auth(s.withSession(s.tx)))
 	s.mux.HandleFunc("POST /api/sessions/{id}/cancel", s.auth(s.cancel))
 	s.mux.HandleFunc("POST /api/sessions/{id}/close", s.auth(s.closeSession))
 	return s
@@ -217,14 +216,16 @@ func (s *server) withSession(next sessionHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess := s.sessions.get(r.PathValue("id"))
 		if sess == nil {
-			writeJSON(w, http.StatusGone, map[string]any{"error": map[string]any{"message": "session closed", "code": "session_lost"}})
+			// Nothing ran, so the page can reconnect and retry.
+			writeJSON(w, http.StatusGone, map[string]any{"error": map[string]any{"message": "session closed", "code": "session_closed"}})
 			return
 		}
 		next(w, r, sess)
 	}
 }
 
-// reply sends results, or the Postgres error (400) — or 410 if the connection itself is gone.
+// reply sends results, or the Postgres error (400) — or 410 if the connection dropped (the
+// statement may or may not have run, so the page reconnects but doesn't retry).
 func (s *server) reply(w http.ResponseWriter, sess *session, v any, err error) {
 	switch {
 	case errors.Is(err, errSessionLost) || (err != nil && sess.conn.IsClosed()):
@@ -267,22 +268,6 @@ func (s *server) exec(w http.ResponseWriter, r *http.Request, sess *session) {
 	err := sess.run(r.Context(), func(ctx context.Context, c pgConn) error {
 		var e error
 		res, e = execScript(ctx, c, in.SQL, s.cfg.maxRows)
-		return e
-	})
-	s.reply(w, sess, res, err)
-}
-
-func (s *server) tx(w http.ResponseWriter, r *http.Request, sess *session) {
-	var in struct {
-		Stmts []stmt `json:"stmts"`
-	}
-	if !readJSON(w, r, &in) {
-		return
-	}
-	var res []result
-	err := sess.run(r.Context(), func(ctx context.Context, c pgConn) error {
-		var e error
-		res, e = runTx(ctx, c, in.Stmts, s.cfg.maxRows)
 		return e
 	})
 	s.reply(w, sess, res, err)

@@ -450,6 +450,12 @@ select.field { padding-right: 4px; }
 
 /* ---------- v2: clerk meta, conversations, attachments ---------- */
 .wordmark .pg { font: italic 500 21px/1 var(--serif); color: var(--red); letter-spacing: -.01em; margin-right: 1px; }
+.db-kind { font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 3px 5px 2px; margin-left: 6px; border: 1px solid currentColor; border-radius: 3px; color: var(--ink3); }
+.db-kind:empty { display: none; }
+.db-kind.prod { color: #fff; background: var(--red); border-color: var(--red); }
+.remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
+.remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; }
+.remote-row .who { color: var(--ink3); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .wordmark .ver { font: 600 9px var(--mono); font-style: normal; color: var(--red); letter-spacing: .08em; margin-left: 3px; align-self: flex-start; margin-top: 3px; }
 .clerk-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .clerk-title h2 { flex: none; }
@@ -752,7 +758,7 @@ select.field { padding-right: 4px; }
     <div class="wordmark" title="pgquire · pg, inquire"><span class="pg">pg</span><b>quire</b><span class="ver" id="appVer"></span></div>
     <button class="dbswitch" id="dbSwitch" title="Switch database">
       <span class="smallcaps">Database</span>
-      <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
+      <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span><span class="db-kind" id="dbKind"></span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
     </button>
     <div class="omni" id="omni">
       <div class="omni-box">
@@ -808,6 +814,7 @@ const PGDUMP_URL = 'https://cdn.jsdelivr.net/npm/@electric-sql/pglite-tools@0.4.
 const DEFAULT_BASE = 'https://openrouter.ai/api/v1';
 const DEFAULT_MODEL = 'xiaomi/mimo-v2.5';
 const PAGE = 100;
+const REMOTE_COUNT_CAP = 100000;   // filtered counts on remote tables stop here
 const MAX_STEPS = 16;
 
 /* ---------- tiny helpers ---------- */
@@ -950,6 +957,7 @@ async function openDb(id, opts = {}) {
   S.id = id; store.set('active', id);
   S.tables = []; S.byKey = {}; S.counts = {}; S.undo = [];
   $('dbName').textContent = currentDb()?.name || '—';
+  showDbKind();
   document.title = `${currentDb()?.name || 'pgquire'} · pgquire`;
   applyDbColor();
   bootMsg('opening the books…', true);
@@ -965,6 +973,11 @@ async function openDb(id, opts = {}) {
     bootMsg(null);
   } catch (e) {
     console.error(e);
+    if (isRemote(id)) {                          // don't strand the user on the boot screen: go back to a local database
+      toast(`Couldn't connect to “${currentDb()?.name}”: ${e.message}`, 'bad');
+      const local = loadDbs().find(d => !d.kind);
+      return openDb((local || newDbMeta()).id);
+    }
     bootMsg(navigator.onLine ? `Couldn't open the database: ${e.message}` : 'Offline — the Postgres engine needs to download once.', true, true);
   }
 }
@@ -1043,8 +1056,22 @@ async function refreshSchema({ initial } = {}) {
 
   // Row counts for base tables (views may be expensive).
   const counted = tables.filter(t => t.kind !== 'v');
-  const counts = {};
-  if (counted.length) {
+  const counts = {}, approx = new Set();
+  if (counted.length && S.db.remote) {
+    // A real server can hold huge tables: count small ones exactly, take the planner's estimate for the rest.
+    const est = await q(`select c.oid::int as oid, pg_relation_size(c.oid) < 8388608 and c.relkind in ('r', 'm') as small,
+        (case when c.relkind = 'p' then (select sum(greatest(ch.reltuples, 0)) from pg_inherits i join pg_class ch on ch.oid = i.inhrelid where i.inhparent = c.oid)
+              else coalesce(nullif(c.reltuples, -1), s.n_live_tup, 0) end)::bigint as n
+      from pg_class c left join pg_stat_all_tables s on s.relid = c.oid where c.oid = any($1::int[])`, [counted.map(t => t.oid)]);
+    const byOid = new Map(counted.map(t => [t.oid, t]));
+    const small = [];
+    for (const r of est.rows) { const t = byOid.get(r.oid); if (!t) continue; if (r.small) small.push(t); else { counts[t.key] = r.n; approx.add(t.key); } }
+    const parts = small.map((t, i) => `select ${i} as i, count(*)::int as n from ${qt(t)}`);
+    for (let i = 0; i < parts.length; i += 60) {
+      const r = await q(parts.slice(i, i + 60).join(' union all '));
+      for (const row of r.rows) counts[small[row.i].key] = row.n;
+    }
+  } else if (counted.length) {
     const parts = counted.map((t, i) => `select ${i} as i, count(*)::int as n from ${qt(t)}`);
     for (let i = 0; i < parts.length; i += 60) {
       const r = await q(parts.slice(i, i + 60).join(' union all '));
@@ -1052,7 +1079,7 @@ async function refreshSchema({ initial } = {}) {
     }
   }
   if (!initial) for (const t of tables) if (counts[t.key] !== S.counts[t.key] || !S.byKey[t.key]) S.flash.add(t.key);
-  S.tables = tables; S.counts = counts;
+  S.tables = tables; S.counts = counts; S.approx = approx;
   S.exts = await installedExtensions(S.db).catch(() => []);
   S.byKey = Object.fromEntries(tables.map(t => [t.key, t]));
 }
@@ -1271,7 +1298,7 @@ function renderIndex() {
   const act = activeTab();
   const shown = S.tables.filter(t => !f || t.key.toLowerCase().includes(f) || t.cols.some(c => c.name.toLowerCase().includes(f)));
   const total = Object.values(S.counts).reduce((a, b) => a + b, 0);
-  $('idxSummary').textContent = S.tables.length ? `${S.tables.length} · ${total.toLocaleString()} rows` : '';
+  $('idxSummary').textContent = S.tables.length ? `${S.tables.length} · ${S.approx?.size ? '~' : ''}${total.toLocaleString()} rows` : '';
   list.replaceChildren();
   if (!S.tables.length) list.append(h('div', { class: 'index-empty' }, 'No tables yet. Create one, import a CSV, or load the sample.'));
   const groups = [['Tables', shown.filter(t => t.kind !== 'v' && t.kind !== 'm')], ['Views', shown.filter(t => t.kind === 'v' || t.kind === 'm')]];
@@ -1286,7 +1313,7 @@ function renderIndex() {
           h('span', { class: 'idx-caret', onclick: e => { e.stopPropagation(); S.expanded.has(t.key) ? S.expanded.delete(t.key) : S.expanded.add(t.key); renderIndex(); } }, ic('caret', 'width:12px;height:12px')),
           h('span', { class: 'idx-name', title: t.key }, t.key),
           h('span', { class: 'idx-leader' }),
-          h('span', { class: 'idx-count' }, t.kind === 'v' ? 'view' : (S.counts[t.key] ?? 0).toLocaleString())),
+          h('span', { class: 'idx-count', title: S.approx?.has(t.key) ? 'estimated' : null }, t.kind === 'v' ? 'view' : (S.approx?.has(t.key) ? '~' : '') + (S.counts[t.key] ?? 0).toLocaleString())),
         h('div', { class: 'idx-cols' }, t.cols.map(c => h('div', { class: 'idx-col', title: `${c.name} ${c.type}` },
           c.pk ? h('span', { class: 'k' }, 'PK') : c.fks?.length ? h('span', { class: 'k fk', title: fkTitle(c) }, fkMark(c)) : null,
           h('span', {}, c.name), h('span', { class: 't' }, c.type)))));
@@ -1397,8 +1424,14 @@ async function loadRows(tab) {
   const order = tab.sort ? ` order by _t.${qi(tab.sort.col)} ${tab.sort.dir} nulls last`
     : t.pk.length ? ` order by ${t.pk.map(p => '_t.' + qi(p)).join(', ')}` : t.editable ? ' order by _t.ctid' : '';
   try {
-    const cnt = await q(`select count(*)::int as n from ${qt(t)} _t${where}`);
-    tab.total = cnt.rows[0].n;
+    if (S.db.remote && !where && S.approx?.has(t.key)) { tab.total = S.counts[t.key]; tab.approx = true; }
+    else if (S.db.remote) {                                  // count, but stop at a limit
+      const cnt = await q(`select count(*)::int as n from (select 1 from ${qt(t)} _t${where} limit ${REMOTE_COUNT_CAP + 1}) _c`);
+      tab.total = cnt.rows[0].n; tab.approx = tab.total > REMOTE_COUNT_CAP;
+    } else {
+      const cnt = await q(`select count(*)::int as n from ${qt(t)} _t${where}`);
+      tab.total = cnt.rows[0].n; tab.approx = false;
+    }
     if (tab.page * PAGE >= tab.total && tab.page > 0) tab.page = Math.max(0, Math.ceil(tab.total / PAGE) - 1);
     const res = await q(`select ${sel} from ${qt(t)} _t${where}${order} limit ${PAGE} offset ${tab.page * PAGE}`, [], true);
     tab.rows = res.rows; tab.error = null;
@@ -1460,15 +1493,15 @@ function renderTableTab(tab, pane) {
       wrap.append(buildGrid(tab, t));
       if (!tab.rows.length && !tab.draft) wrap.append(h('div', { class: 'grid-empty' }, tab.filter ? 'No rows match this filter.' : isView ? 'This view returns no rows.' : 'No entries yet — add a row, import a CSV, or ask the Clerk to fill it.'));
     }
-    const from = tab.total ? tab.page * PAGE + 1 : 0, to = Math.min(tab.total, (tab.page + 1) * PAGE);
+    const from = tab.total ? tab.page * PAGE + 1 : 0, to = tab.approx ? tab.page * PAGE + tab.rows.length : Math.min(tab.total, (tab.page + 1) * PAGE);
     foot.replaceChildren(...[
-      h('span', { class: 'num' }, tab.total ? `${from.toLocaleString()}–${to.toLocaleString()} of ${tab.total.toLocaleString()}` : '0 rows'),
+      h('span', { class: 'num' }, tab.total ? `${from.toLocaleString()}–${to.toLocaleString()} of ${tab.approx ? '~' : ''}${tab.total.toLocaleString()}` : '0 rows'),
       tab.filter && h('span', { style: 'color:var(--red)' }, 'filtered'),
       tab.sort && h('span', {}, `sorted by ${tab.sort.col} ${tab.sort.dir}`),
       h('div', { class: 'spacer' }),
       !isView && h('span', { style: 'color:var(--ink3)' }, 'Double-click or Enter to edit · right-click for more'),
       h('button', { class: 'btn sm ghost', disabled: tab.page === 0, onclick: () => { tab.page--; tab.dirty = true; renderPane(); } }, '‹ Prev'),
-      h('button', { class: 'btn sm ghost', disabled: to >= tab.total, onclick: () => { tab.page++; tab.dirty = true; renderPane(); } }, 'Next ›')].filter(Boolean));
+      h('button', { class: 'btn sm ghost', disabled: tab.approx ? tab.rows.length < PAGE : to >= tab.total, onclick: () => { tab.page++; tab.dirty = true; renderPane(); } }, 'Next ›')].filter(Boolean));
     if (tab.markRow != null) {
       const tr = wrap.querySelector(`tr[data-r="${tab.markRow}"]`);
       if (tr) { tr.classList.add('marked'); tr.scrollIntoView({ block: 'nearest' }); }
@@ -1597,6 +1630,7 @@ function editCell(tab, t, r, c, initial) {
 
 /** Run grid-originated writes in one transaction; record the SQL in the journal; return results. */
 async function gridWrite(label, stmts, undoStmts) {
+  if (!(await prodWriteOk(stmts.map(s => s.sql).join(';\n')))) return null;
   const t0 = performance.now();
   let results;
   try {
@@ -1872,6 +1906,7 @@ const shapeResult = r => ({
   // date (1082) values arrive as JS Dates at UTC midnight — show them as plain dates.
   rows: r.rows.map(row => row.map((v, i) => r.fields[i]?.dataTypeID === 1082 && v instanceof Date && !isNaN(v) ? v.toISOString().slice(0, 10) : fmtVal(v))),
   affected: r.fields.length ? null : r.affectedRows ?? null,
+  truncated: r.truncated ?? null,     // remote: total row count when only the first rows were sent
 });
 
 /** `#` at the start of a line is a comment in the editor (Postgres itself only knows -- and block comments).
@@ -1921,6 +1956,7 @@ function toggleLineComments(ta) {
 async function runQueryTab(tab, sql) {
   sql = (sql ?? tab.sql).trim();
   if (!sql) return;
+  if (!(await prodWriteOk(sql))) return;
   tab.running = true; if (activeTab() === tab) renderPane();
   const t0 = performance.now();
   try {
@@ -1982,7 +2018,7 @@ function renderQueryTab(tab, pane) {
   };
 
   const results = h('div', { class: 'results' });
-  if (tab.running) results.append(h('div', { class: 'placeholder' }, 'Running…'));
+  if (tab.running) results.append(h('div', { class: 'placeholder' }, 'Running…', S.db?.remote && h('button', { class: 'btn sm', style: 'margin-left:10px', onclick: () => S.db.cancel() }, 'Stop')));
   else if (tab.error) results.append(h('div', { class: 'pane-error' }, h('div', {}, tab.error),
     extensionFixButton(tab.error, () => runQueryTab(tab)),
     h('button', { class: 'btn blue sm', onclick: () => clerkAsk(`This query fails with: ${tab.error}\n\n${tab.sql}\n\nFix it and put the corrected SQL in my editor.`) }, ic('quill'), 'Fix with Clerk')));
@@ -1992,7 +2028,7 @@ function renderQueryTab(tab, pane) {
     const cur = rs[tab.ri] || rs[0];
     results.append(h('div', { class: 'results-tabs' },
       rs.length > 1 ? rs.map((r, i) => h('button', { class: 'rt' + (i === tab.ri ? ' on' : ''), onclick: () => { tab.ri = i; renderPane(); } }, `#${i + 1} ${r.fields.length ? plural(r.rows.length, 'row') : r.affected != null ? `${r.affected} affected` : 'ok'}`)) : null,
-      h('span', { class: 'run-meta' }, cur ? (cur.fields.length ? plural(cur.rows.length, 'row') : cur.affected != null ? `OK · ${plural(cur.affected, 'row')} affected` : 'OK') : 'OK', ` · ${tab.ms} ms`),
+      h('span', { class: 'run-meta' }, cur ? (cur.fields.length ? (cur.truncated ? `first ${cur.rows.length.toLocaleString()} of ${plural(cur.truncated, 'row')}` : plural(cur.rows.length, 'row')) : cur.affected != null ? `OK · ${plural(cur.affected, 'row')} affected` : 'OK') : 'OK', ` · ${tab.ms} ms`),
       h('div', { class: 'spacer' }),
       cur?.fields.length > 0 && h('button', { class: 'btn sm ghost', onclick: () => downloadCsv(cur.fields.map(f => f.name), cur.rows, `${tab.title}.csv`) }, ic('download'), 'CSV'),
       cur?.fields.length > 0 && h('button', { class: 'btn sm ghost', onclick: () => { navigator.clipboard?.writeText(toCsv(cur.fields.map(f => f.name), cur.rows, '\t')); toast('Copied as TSV — paste into a spreadsheet'); } }, ic('copy'), 'Copy')));
@@ -2592,21 +2628,23 @@ $('dbSwitch').onclick = e => {
     ...dbs.map(d => {
       const sw = h('span', { class: 'db-sw', role: 'button', title: 'Click for a new colour', style: `--c:${dbColor(d)}` });
       sw.onclick = e => { e.stopPropagation(); sw.style.setProperty('--c', recolorDb(d.id)); };
-      return { label: d.name, cur: d.id === S.id, left: sw, hint: d.id === S.id ? 'open' : '', run: () => d.id !== S.id && openDb(d.id) };
+      const kind = d.kind === 'remote' ? (d.remote?.tag === 'prod' ? 'prod' : 'remote') : '';
+      return { label: d.name, cur: d.id === S.id, left: sw, hint: [kind, d.id === S.id ? 'open' : ''].filter(Boolean).join(' · '), run: () => d.id !== S.id && openDb(d.id) };
     }),
     '-',
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
-    { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
-    { label: 'Share as link…', icon: 'share', run: shareDialog },
+    S.server && { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog },
+    dbCaps().wasmExt && { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
+    dbCaps().share && { label: 'Share as link…', icon: 'share', run: shareDialog },
     { label: 'Export session (.pgquire)…', icon: 'download', run: exportSessionDialog },
     { label: 'Open session file…', icon: 'upload', run: pickSessionFile },
     '-',
-    { label: 'Download SQL dump (.sql)', icon: 'download', run: backupDb },
+    dbCaps().dump && { label: 'Download SQL dump (.sql)', icon: 'download', run: backupDb },
     { label: 'New database from file (.sql, .tar.gz)…', icon: 'upload', run: restoreDb },
     '-',
-    { label: 'Delete this database…', icon: 'trash', danger: true, run: deleteDb },
-  ]);
+    isRemote(S.id) ? { label: 'Remove this connection…', icon: 'trash', run: deleteDb } : { label: 'Delete this database…', icon: 'trash', danger: true, run: deleteDb },
+  ].filter(Boolean));
 };
 /* ---------- SQL dumps (pg_dump) and restores ---------- */
 let pgDumpFn = null;
@@ -2702,7 +2740,9 @@ function restoreDb() {
 }
 async function deleteDb() {
   const d = currentDb();
-  if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
+  if (d.kind === 'remote') {
+    if (!(await confirmDlg({ title: `Remove “${d.name}” from the list?`, body: 'Only this entry goes: its tabs, journal and chats in this browser. The remote database and its data are not touched, and the pgquire server still remembers the connection if it was saved.', ok: 'Remove' }))) return;
+  } else if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
   await S.db.close().catch(() => {}); S.db = null;
   if (!isRemote(d.id)) indexedDB.deleteDatabase(`/pglite/ledger-${d.id}`);
   for (const k of ['tabs', 'journal', 'map', 'clerk', 'clerkv2', 'saved']) store.del(`${k}:${d.id}`);
@@ -3040,6 +3080,195 @@ async function extensionModules(ids) {
 }
 const dbExtensions = id => (loadDbs().find(d => d.id === id)?.extensions || []).filter(x => EXT_BY[x]);
 const setDbExtensions = (id, list) => saveDbs(loadDbs().map(d => d.id === id ? { ...d, extensions: withDeps(list) } : d));
+/* ---------- remote Postgres, through the pgquire server (Go) ----------
+   The server serves this page and adds /api. Without it (GitHub Pages, a file:// copy) pgquireServer()
+   resolves to null and everything stays local. Values arrive in Postgres text format and are parsed the
+   way PGlite parses them, so the rest of the app can't tell the two kinds of database apart. */
+let serverP = null;
+const pgquireServer = () => serverP ??= (/^https?:$/.test(location.protocol)
+  ? fetch('/api/health', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => j?.app === 'pgquire' ? j : null).catch(() => null)
+  : Promise.resolve(null));
+pgquireServer().then(s => { S.server = s; });
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({ error: { message: `${r.status} ${r.statusText}` } }));
+  if (!r.ok || j?.error) throw Object.assign(new Error(j?.error?.message || `HTTP ${r.status}`), j?.error, { status: r.status });
+  return j;
+}
+
+const pgDate = s => { const d = new Date(s); return isNaN(d) ? s : d; };   // infinity, BC dates: keep the text
+const PG_PARSE = {
+  16: s => s === 't',
+  20: s => { const n = BigInt(s); return n >= Number.MIN_SAFE_INTEGER && n <= Number.MAX_SAFE_INTEGER ? Number(n) : n; },
+  21: Number, 23: Number, 26: Number, 700: Number, 701: Number,
+  17: s => { const hx = s.slice(2), b = new Uint8Array(hx.length / 2); for (let i = 0; i < b.length; i++) b[i] = parseInt(hx.substr(i * 2, 2), 16); return b; },
+  114: JSON.parse, 3802: JSON.parse,
+  1082: s => pgDate(s + 'T00:00:00Z'),
+  1114: s => pgDate(s.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1') + 'Z'),
+  1184: s => pgDate(s.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1').replace(/([+-]\d\d)$/, '$1:00')),
+};
+const PG_ARRAY_OF = { 1000: 16, 1001: 17, 1005: 21, 1007: 23, 1016: 20, 1021: 700, 1022: 701, 1028: 26, 199: 114, 3807: 3802, 1182: 1082, 1115: 1114, 1185: 1184, 1009: 25, 1014: 25, 1015: 25, 1231: 25, 2951: 25 };
+/** Parse a Postgres array literal ({a,"b c",NULL,{1,2}}) with `el` for each element. */
+function pgArray(s, el) {
+  let i = s[0] === '[' ? s.indexOf('{') : 0;          // skip explicit bounds: [0:1]={…}
+  const read = () => {
+    const out = []; i++;
+    while (i < s.length && s[i] !== '}') {
+      if (s[i] === '{') out.push(read());
+      else if (s[i] === '"') { let v = ''; i++; while (i < s.length && s[i] !== '"') { if (s[i] === '\\') i++; v += s[i++]; } i++; out.push(el(v)); }
+      else { const j = i; while (i < s.length && s[i] !== ',' && s[i] !== '}') i++; const v = s.slice(j, i); out.push(v === 'NULL' ? null : el(v)); }
+      if (s[i] === ',') i++;
+    }
+    i++;
+    return out;
+  };
+  return read();
+}
+function pgValue(oid, s) {
+  if (s == null) return null;
+  try {
+    if (PG_PARSE[oid]) return PG_PARSE[oid](s);
+    if (oid in PG_ARRAY_OF) return pgArray(s, PG_PARSE[PG_ARRAY_OF[oid]] || (x => x));
+  } catch {}
+  return s;
+}
+/** A JS value as a Postgres text parameter (the server passes it through untyped, like PGlite). */
+const pgParam = v => v == null ? null
+  : v instanceof Date ? v.toISOString()
+  : v instanceof Uint8Array ? '\\x' + Array.from(v, b => b.toString(16).padStart(2, '0')).join('')
+  : Array.isArray(v) ? '{' + v.map(x => x == null ? 'NULL' : Array.isArray(x) ? pgParam(x) : '"' + String(pgParam(x)).replace(/[\\"]/g, '\\$&') + '"').join(',') + '}'
+  : typeof v === 'boolean' ? (v ? 't' : 'f')
+  : typeof v === 'object' ? JSON.stringify(v)
+  : String(v);
+const toResult = (r, opts) => {
+  const rows = r.rows.map(row => row.map((v, i) => pgValue(r.fields[i].dataTypeID, v)));
+  return {
+    rows: opts?.rowMode === 'array' ? rows : rows.map(row => Object.fromEntries(r.fields.map((f, i) => [f.name, row[i]]))),
+    fields: r.fields, affectedRows: r.affectedRows, truncated: r.truncated ? r.totalRows : undefined,
+  };
+};
+
+/** A remote database: one dedicated server connection, driven through the same calls as PGlite.
+ *  Calls run one at a time, and a transaction holds the connection until it ends — as in PGlite. */
+class RemoteDb {
+  remote = true;
+  #lock = Promise.resolve();
+  #inTx = false;
+  constructor(profile) { this.profile = profile; this.sid = null; this.info = null; }
+  async open() { this.info = await api('POST', '/api/sessions', { profile: this.profile }); this.sid = this.info.id; return this; }
+  async #call(op, body, retry = true) {
+    if (!this.sid) await this.open();
+    try { return await api('POST', `/api/sessions/${this.sid}/${op}`, body); }
+    catch (e) {
+      if (e.code === 'session_closed' && retry && !this.#inTx) { this.sid = null; return this.#call(op, body, false); }   // expired while idle; nothing ran
+      if (e.code === 'session_closed' || e.code === 'session_lost') this.sid = null;                                   // reconnect next time
+      throw e;
+    }
+  }
+  #serial(fn) { const run = this.#lock.then(fn, fn); this.#lock = run.catch(() => {}); return run; }
+  async #query(sql, params = [], opts) { return toResult(await this.#call('query', { sql, params: params.map(pgParam) }), opts); }
+  async #exec(sql, opts) { return (await this.#call('exec', { sql })).map(r => toResult(r, opts)); }
+  query(sql, params, opts) { return this.#serial(() => this.#query(sql, params, opts)); }
+  exec(sql, opts) { return this.#serial(() => this.#exec(sql, opts)); }
+  transaction(fn) {
+    return this.#serial(async () => {
+      await this.#exec('BEGIN');
+      this.#inTx = true;
+      let ended = false;
+      const tx = {
+        query: (sql, params, opts) => this.#query(sql, params, opts),
+        exec: (sql, opts) => this.#exec(sql, opts),
+        rollback: async () => { await this.#exec('ROLLBACK'); ended = true; },
+      };
+      try { const out = await fn(tx); if (!ended) await this.#exec('COMMIT'); return out; }
+      catch (e) { if (!ended) await this.#exec('ROLLBACK').catch(() => {}); throw e; }
+      finally { this.#inTx = false; }
+    });
+  }
+  /** Stop the running statement; the connection stays open. */
+  cancel() { if (this.sid) api('POST', `/api/sessions/${this.sid}/cancel`).catch(() => {}); }
+  async close() { const sid = this.sid; this.sid = null; if (sid) await api('POST', `/api/sessions/${sid}/close`).catch(() => {}); }
+}
+// Give the connection back when the tab goes away (a restored tab just reconnects).
+addEventListener('pagehide', () => { if (S.db?.remote && S.db.sid) fetch(`/api/sessions/${S.db.sid}/close`, { method: 'POST', keepalive: true }).catch(() => {}); });
+
+/** The header chip: REMOTE / PROD, plus RO when read-only. */
+function showDbKind() {
+  const d = currentDb(), el = $('dbKind'), r = d?.remote || {};
+  el.textContent = d?.kind === 'remote' ? (r.tag === 'prod' ? 'prod' : 'remote') + (r.readOnly ? ' · ro' : '') : '';
+  el.classList.toggle('prod', r.tag === 'prod');
+  el.title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''}${r.readOnly ? ' · read-only' : ''}` : '';
+}
+/** On a writable production connection, confirm anything that isn't a plain read. */
+async function prodWriteOk(sql) {
+  const d = currentDb();
+  if (d?.kind !== 'remote' || d.remote?.tag !== 'prod' || d.remote.readOnly || isReadish(sql)) return true;
+  return confirmDlg({ title: `Write to production “${d.name}”?`, body: sql.length > 400 ? sql.slice(0, 400) + '…' : sql, ok: 'Run on production', danger: true });
+}
+/** Open (or add, then open) the database entry for a server connection profile. */
+function openRemote(p) {
+  let d = loadDbs().find(x => x.kind === 'remote' && x.profile === p.name);
+  if (!d) {
+    d = { id: uid(), name: p.name, created: Date.now(), hue: randomHue(loadDbs()), kind: 'remote', profile: p.name, remote: p };
+    saveDbs([...loadDbs(), d]);
+  }
+  return openDb(d.id);
+}
+
+async function connectRemoteDialog() {
+  const srv = await pgquireServer();
+  if (!srv) return toast('Remote Postgres needs the pgquire server: run `pgquire` and open the link it prints.', 'bad');
+  if (!srv.authed) return toast('Not signed in to the pgquire server — open the link it printed when it started.', 'bad');
+  let profiles;
+  try { profiles = (await api('GET', '/api/profiles')).profiles; } catch (e) { return toast(e.message, 'bad'); }
+  const name = h('input', { class: 'field', placeholder: 'e.g. staging' });
+  const dsn = h('input', { class: 'field', placeholder: 'postgres://user:password@host:5432/dbname', spellcheck: false, autocomplete: 'off', style: 'font-family:var(--mono)' });
+  const box = (checked, label, hint) => {
+    const i = h('input', { type: 'checkbox', checked });
+    return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, i, h('span', {}, label, hint && h('span', { style: 'color:var(--ink3)' }, ' — ', hint)))];
+  };
+  const [prod, prodL] = box(false, 'Production', 'red marker, read-only unless you untick below');
+  const [ro, roL] = box(false, 'Read-only', 'writes are refused (a guard rail; for a hard guarantee use a read-only role)');
+  const [save, saveL] = box(true, 'Remember on this computer', 'in the pgquire server\'s connections file, readable only by you');
+  let roTouched = false;
+  ro.onchange = () => { roTouched = true; };
+  prod.onchange = () => { if (!roTouched) ro.checked = prod.checked; };
+  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const go = h('button', { class: 'btn ink' }, 'Connect');
+  const saved = profiles.length > 0 && h('div', {},
+    h('div', { class: 'smallcaps', style: 'margin-bottom:4px' }, 'On this server'),
+    h('div', { class: 'remote-list' }, profiles.map(p => {
+      const row = h('div', { class: 'remote-row' },
+        h('b', {}, p.name), p.tag && h('span', { class: 'db-kind' + (p.tag === 'prod' ? ' prod' : '') }, p.tag),
+        h('span', { class: 'who', title: `${p.user}@${p.host}:${p.port}/${p.database}` }, `${p.user}@${p.host}/${p.database}`),
+        h('button', { class: 'btn sm', onclick: () => { m.close(); openRemote(p); } }, 'Open'),
+        h('button', { class: 'btn sm ghost', title: 'Forget this connection on the server', onclick: async () => {
+          if (!(await confirmDlg({ title: `Forget “${p.name}”?`, body: 'The pgquire server stops remembering this connection. The database itself is not touched.', ok: 'Forget' }))) return;
+          try { await api('DELETE', `/api/profiles/${encodeURIComponent(p.name)}`); row.remove(); } catch (e) { toast(e.message, 'bad'); }
+        } }, ic('trash')));
+      return row;
+    })));
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Connect remote Postgres'), h('p', {}, 'The pgquire server connects for you; the password stays with it and never reaches this page. The database shows up in the switcher next to your local ones.')),
+    h('div', { class: 'modal-b' }, saved,
+      h('label', { class: 'lab' }, 'Name', name),
+      h('label', { class: 'lab' }, 'Connection string', dsn),
+      prodL, roL, saveL),
+    h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
+  go.onclick = async () => {
+    if (!name.value.trim() || !dsn.value.trim()) { status.textContent = 'A name and a connection string are both needed.'; return; }
+    go.disabled = true; status.textContent = 'Connecting…';
+    try {
+      const r = await api('POST', '/api/profiles', { name: name.value.trim(), dsn: dsn.value.trim(), tag: prod.checked ? 'prod' : '', readOnly: ro.checked, save: save.checked });
+      m.close();
+      toast(`Connected · PostgreSQL ${r.serverVersion}`);
+      openRemote(r.profile);
+    } catch (e) { status.textContent = e.message; go.disabled = false; }
+  };
+  name.focus();
+}
+
 /* A database is local (PGlite in this browser — the default) or remote (a real Postgres reached through
    the pgquire server). Both expose the same surface the app uses: query(sql, params, { rowMode }),
    exec(sql, { rowMode }), transaction(fn), close(). Anything beyond that is gated by dbCaps(). */
@@ -3049,7 +3278,17 @@ const REMOTE_CAPS = { dataDir: false, wasmExt: false, dump: false, share: false 
 const dbCaps = (id = S.id) => isRemote(id) ? REMOTE_CAPS : LOCAL_CAPS;
 /** Open a connection to database `id`, local or remote. */
 async function connectDb(id, opts = {}) {
-  if (isRemote(id)) throw new Error('Remote databases need the pgquire server.');
+  if (isRemote(id)) {
+    const srv = await pgquireServer();
+    if (!srv) throw new Error('remote databases open only through the pgquire server — run `pgquire` and use the link it prints');
+    if (!srv.authed) throw new Error('not signed in to the pgquire server — open the link it printed when it started');
+    const d = loadDbs().find(x => x.id === id);
+    bootMsg(`connecting to ${d.name}…`, true);
+    const db = await new RemoteDb(d.profile).open();
+    saveDbs(loadDbs().map(x => x.id === id ? { ...x, remote: db.info.profile } : x));   // keep host/tag/read-only current
+    showDbKind();
+    return db;
+  }
   if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
   if (dbExtensions(id).length) bootMsg(`loading ${dbExtensions(id).join(', ')}…`, true);
   return syncExtensions(id, await openInstance(id, opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}));
@@ -3092,6 +3331,7 @@ async function runExtSql(sql, src) {
 }
 /** Enable and/or remove extensions on the open database. Drops happen first (while still loaded). */
 async function applyExtensionChanges(add, remove, { src = 'you' } = {}) {
+  if (!dbCaps().wasmExt) throw new Error('this is a remote database: run CREATE EXTENSION (or DROP EXTENSION) in a query instead');
   const installed = new Set((await installedExtensions(S.db)).map(r => r.extname));
   const removed = [];
   for (const id of remove) {
@@ -3151,6 +3391,7 @@ function extensionFixButton(err, retry) {
 
 /* ---------- the Extensions dialog ---------- */
 function extensionsDialog(focusId) {
+  if (!dbCaps().wasmExt) return toast('On a remote database, extensions are whatever the server has: run CREATE EXTENSION in a query.');
   const installed = new Map((S.exts || []).map(x => [x.extname, x.extversion]));
   const isOn = id => installed.has(extSql(EXT_BY[id]));
   const was = new Set(EXT.filter(e => isOn(e.id)).map(e => e.id));
@@ -3285,6 +3526,7 @@ async function buildSharePayload(sql, { saved, chats, curId }) {   // saved / ch
 }
 const shareBase = () => location.href.replace(/#.*$/, '');
 function shareDialog() {
+  if (!dbCaps().share) return toast('Remote databases can\'t be shared as a link.');
   let sql = null, link = '', building = 0;
   const MAX_CHATS = 5;
   const convList = [...C.convs].filter(c => c.items.length).sort((a, b) => b.updated - a.updated);
@@ -4283,6 +4525,7 @@ async function execRO(sql) {
   return out;
 }
 async function execRW(sql) {
+  if (!(await prodWriteOk(sql))) return { error: 'The user declined to run this on the production database.', ms: 0 };
   const t0 = performance.now();
   try { return { results: (await S.db.exec(sql, { rowMode: 'array' })).map(shapeResult), ms: Math.round(performance.now() - t0) }; }
   catch (e) { return { error: e.message, ms: Math.round(performance.now() - t0) }; }
@@ -4454,7 +4697,7 @@ const clampClerkW = w => Math.round(Math.max(300, Math.min(w, Math.max(320, inne
 }
 $('clerkToggle').onclick = toggleClerk;
 $('journalToggle').onclick = toggleJournal;
-$('shareBtn').onclick = () => !S.db ? toast('Open a database first') : !dbCaps().share ? toast('Remote databases can\'t be shared as a link.') : shareDialog();
+$('shareBtn').onclick = () => S.db ? shareDialog() : toast('Open a database first');
 
 /* ---------- updates & reload ----------
    Opened from a file: browsers don't cache local files, so a reload always runs the latest file.
