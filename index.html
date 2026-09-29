@@ -2715,14 +2715,24 @@ function toast(msg, kind, action) {
 $('dbSwitch').onclick = e => {
   const r = e.currentTarget.getBoundingClientRect();
   const dbs = loadDbs();
+  const entry = (d, label = d.name) => {
+    const sw = h('span', { class: 'db-sw', role: 'button', title: 'Click for a new colour', style: `--c:${dbColor(d)}` });
+    sw.onclick = e => { e.stopPropagation(); sw.style.setProperty('--c', recolorDb(d.id)); };
+    const kind = d.kind === 'remote' && d.remote?.tag === 'prod' ? 'prod' : '';
+    return { label, cur: d.id === S.id, left: sw, hint: [kind, d.id === S.id ? 'open' : ''].filter(Boolean).join(' · '), run: () => d.id !== S.id && openDb(d.id) };
+  };
+  // Grouped by where the data lives: this browser, then each server with the databases added from it.
+  const servers = new Map();
+  for (const d of dbs.filter(d => d.kind === 'remote')) { if (!servers.has(d.profile)) servers.set(d.profile, []); servers.get(d.profile).push(d); }
+  const listed = !servers.size ? [{ label: 'Databases', header: true }, ...dbs.map(d => entry(d))] : [
+    { label: 'In this browser', header: true }, ...dbs.filter(d => d.kind !== 'remote').map(d => entry(d)),
+    ...[...servers].flatMap(([prof, list]) => [
+      { label: `${prof}${list[0].remote?.host ? ' — ' + list[0].remote.host : ''}`, header: true },
+      ...list.map(d => entry(d, remoteDbOf(d) || d.name)),        // the group names the server; entries name databases
+      S.server?.authed && { label: 'Other databases on this server…', icon: 'plus', run: () => pickDatabasesDialog({ ...list[0].remote, name: prof, database: undefined }) }]),
+  ];
   showMenu(r.left, r.bottom + 4, [
-    { label: 'Databases', header: true },
-    ...dbs.map(d => {
-      const sw = h('span', { class: 'db-sw', role: 'button', title: 'Click for a new colour', style: `--c:${dbColor(d)}` });
-      sw.onclick = e => { e.stopPropagation(); sw.style.setProperty('--c', recolorDb(d.id)); };
-      const kind = d.kind === 'remote' ? (d.remote?.tag === 'prod' ? 'prod' : 'remote') : '';
-      return { label: d.name, cur: d.id === S.id, left: sw, hint: [kind, d.id === S.id ? 'open' : ''].filter(Boolean).join(' · '), run: () => d.id !== S.id && openDb(d.id) };
-    }),
+    ...listed,
     '-',
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
@@ -3249,8 +3259,8 @@ class RemoteDb {
   remote = true;
   #lock = Promise.resolve();
   #inTx = false;
-  constructor(profile) { this.profile = profile; this.sid = null; this.info = null; }
-  async open() { this.info = await api('POST', '/api/sessions', { profile: this.profile }); this.sid = this.info.id; return this; }
+  constructor(profile, database) { this.profile = profile; this.database = database; this.sid = null; this.info = null; }
+  async open() { this.info = await api('POST', '/api/sessions', { profile: this.profile, database: this.database }); this.sid = this.info.id; return this; }
   async #call(op, body, retry = true) {
     if (!this.sid) await this.open();
     try { return await api('POST', `/api/sessions/${this.sid}/${op}`, body); }
@@ -3294,10 +3304,10 @@ addEventListener('pagehide', () => { if (S.db?.remote && S.db.sid) fetch(`/api/s
    (null = all); with a cap, foreign keys are added NOT VALID since the sampled rows may not line up.
    Covers schemas, extensions, enums, domains, sequences, functions, tables (identity, generated,
    partitioned), data, constraints, indexes, views, materialized views and triggers. */
-async function remoteToSql(profile, { rows = null, views = true, code = true } = {}, emit, progress) {
+async function remoteToSql(d, { rows = null, views = true, code = true } = {}, emit, progress) {
   const USER = `n.nspname !~ '^pg_' and n.nspname <> 'information_schema'`;
   const NOT_EXT = oid => `not exists (select 1 from pg_depend e where e.objid = ${oid} and e.deptype = 'e')`;
-  const db = await new RemoteDb(profile).open();
+  const db = await new RemoteDb(d.profile, d.database).open();
   try {
     return await db.transaction(async tx => {
       await tx.exec('set transaction isolation level repeatable read, read only');
@@ -3442,7 +3452,7 @@ async function copyToLocalDialog() {
           try { await inst.exec(st.sql); return true; }
           catch (e) { if (!st.quiet) failed.push({ what: [st.kind, st.name].filter(Boolean).join(' '), error: e.message }); return false; }
         };
-        result = await remoteToSql(d.profile, { rows, views: views.checked, code: code.checked }, emit, t => { status.textContent = t; });
+        result = await remoteToSql(d, { rows, views: views.checked, code: code.checked }, emit, t => { status.textContent = t; });
       } }, null);
       m.close();
       copyReport(meta, result, rows, failed);
@@ -3470,7 +3480,7 @@ async function remoteDump() {
   const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, `Dumping “${d.name}”`), status)]);
   const parts = [`-- pgquire v${APP_VERSION} SQL dump of "${d.name}" (${r.user}@${r.host}/${r.database}) · ${new Date().toISOString()}\n-- Load with: psql -d yourdb -f thisfile.sql   (or pgquire → New database from file)\n\n`];
   try {
-    await remoteToSql(d.profile, {}, async st => { parts.push(st.sql + ';\n\n'); return true; }, t => { status.textContent = t; });
+    await remoteToSql(d, {}, async st => { parts.push(st.sql + ';\n\n'); return true; }, t => { status.textContent = t; });
     const blob = new Blob(parts, { type: 'application/sql' });
     downloadBlob(blob, `${fileSafe(d.name)}.sql`);
     toast(`SQL dump downloaded · ${fmtBytes(blob.size)}`);
@@ -3491,14 +3501,46 @@ async function prodWriteOk(sql) {
   if (d?.kind !== 'remote' || d.remote?.tag !== 'prod' || d.remote.readOnly || isReadish(sql)) return true;
   return confirmDlg({ title: `Write to production “${d.name}”?`, body: sql.length > 400 ? sql.slice(0, 400) + '…' : sql, ok: 'Run on production', danger: true });
 }
-/** Open (or add, then open) the database entry for a server connection profile. */
-function openRemote(p) {
-  let d = loadDbs().find(x => x.kind === 'remote' && x.profile === p.name);
+/** The switcher entry for a database on a profile's server, added if it isn't there yet.
+ *  p.database is the one in the connection string; entries for it are named after the profile. */
+const remoteDbOf = x => x.database ?? x.remote?.database;
+function remoteEntry(p, database = p.database) {
+  let d = loadDbs().find(x => x.kind === 'remote' && x.profile === p.name && remoteDbOf(x) === database);
   if (!d) {
-    d = { id: uid(), name: p.name, created: Date.now(), hue: randomHue(loadDbs()), kind: 'remote', profile: p.name, remote: p };
+    d = { id: uid(), name: database === p.database ? p.name : `${p.name} / ${database}`, created: Date.now(), hue: randomHue(loadDbs()),
+      kind: 'remote', profile: p.name, database, remote: { ...p, database } };
     saveDbs([...loadDbs(), d]);
   }
-  return openDb(d.id);
+  return d;
+}
+const openRemote = (p, database) => openDb(remoteEntry(p, database).id);
+
+/** Choose which of a server's databases appear in the switcher. Opens the first one added (or `open`). */
+async function pickDatabasesDialog(p, { intro, open } = {}) {
+  let list;
+  try { list = await api('GET', `/api/profiles/${encodeURIComponent(p.name)}/databases`); }
+  catch (e) { toast(`Couldn't list the databases: ${e.message}`, 'bad'); return open && openRemote(p); }
+  const def = list.default || p.database;
+  p = { ...p, database: def };
+  const have = new Set(loadDbs().filter(x => x.kind === 'remote' && x.profile === p.name).map(remoteDbOf));
+  const picks = list.databases.map(name => {
+    const i = h('input', { type: 'checkbox', checked: have.has(name) || (!!open && name === def), disabled: have.has(name) });
+    return { name, i, el: h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0' }, i,
+      h('span', { style: 'font-family:var(--mono)' }, name), name === def && h('span', { style: 'color:var(--ink3)' }, '— from the connection string'), have.has(name) && h('span', { style: 'color:var(--ink3)' }, '— added')) };
+  });
+  const go = h('button', { class: 'btn ink' }, 'Add');
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, `Databases on ${p.name}`), h('p', {}, intro || 'Tick the ones you want in the database switcher. Each opens its own connection; your login’s permissions still apply.')),
+    h('div', { class: 'modal-b' }, h('div', { class: 'remote-list', style: 'max-height:320px' }, picks.map(x => x.el))),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => { m.close(); if (open) openRemote(p); } }, open ? 'Just this one' : 'Cancel'), go)]);
+  go.onclick = () => {
+    const added = picks.filter(x => x.i.checked && !x.i.disabled).map(x => remoteEntry(p, x.name));
+    m.close();
+    const first = added.find(d => remoteDbOf(d) === def) || added[0] || (open && remoteEntry(p));
+    if (first) openDb(first.id);
+    else renderAll();
+    if (added.length > 1) toast(`Added ${plural(added.length, 'database')} to the switcher`);
+  };
 }
 
 async function connectRemoteDialog() {
@@ -3528,6 +3570,7 @@ async function connectRemoteDialog() {
         h('b', {}, p.name), p.tag && h('span', { class: 'db-kind' + (p.tag === 'prod' ? ' prod' : '') }, p.tag),
         h('span', { class: 'who', title: `${p.user}@${p.host}:${p.port}/${p.database}` }, `${p.user}@${p.host}/${p.database}`),
         h('button', { class: 'btn sm', onclick: () => { m.close(); openRemote(p); } }, 'Open'),
+        h('button', { class: 'btn sm ghost', title: 'Other databases on this server', onclick: () => { m.close(); pickDatabasesDialog(p); } }, 'Databases…'),
         h('button', { class: 'btn sm ghost', title: 'Forget this connection on the server', onclick: async () => {
           if (!(await confirmDlg({ title: `Forget “${p.name}”?`, body: 'The pgquire server stops remembering this connection. The database itself is not touched.', ok: 'Forget' }))) return;
           try { await api('DELETE', `/api/profiles/${encodeURIComponent(p.name)}`); row.remove(); } catch (e) { toast(e.message, 'bad'); }
@@ -3548,7 +3591,9 @@ async function connectRemoteDialog() {
       const r = await api('POST', '/api/profiles', { name: name.value.trim(), dsn: dsn.value.trim(), tag: prod.checked ? 'prod' : '', readOnly: ro.checked, save: save.checked });
       m.close();
       toast(`Connected · PostgreSQL ${r.serverVersion}`);
-      openRemote(r.profile);
+      const dbsOn = await api('GET', `/api/profiles/${encodeURIComponent(r.profile.name)}/databases`).catch(() => null);
+      if (dbsOn?.databases?.length > 1) pickDatabasesDialog(r.profile, { open: true, intro: `Connected. This server has ${dbsOn.databases.length} databases you can open — which should appear in the switcher?` });
+      else openRemote(r.profile);
     } catch (e) { status.textContent = e.message; go.disabled = false; }
   };
   name.focus();
@@ -3569,8 +3614,8 @@ async function connectDb(id, opts = {}) {
     if (!srv.authed) throw new Error('not signed in to the pgquire server — open the link it printed when it started');
     const d = loadDbs().find(x => x.id === id);
     bootMsg(`connecting to ${d.name}…`, true);
-    const db = await new RemoteDb(d.profile).open();
-    saveDbs(loadDbs().map(x => x.id === id ? { ...x, remote: db.info.profile } : x));   // keep host/tag/read-only current
+    const db = await new RemoteDb(d.profile, d.database).open();
+    saveDbs(loadDbs().map(x => x.id === id ? { ...x, remote: { ...db.info.profile, database: db.info.database } } : x));   // keep host/tag/read-only current
     showDbKind();
     return db;
   }

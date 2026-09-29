@@ -28,7 +28,7 @@ go build -o pgquire .   # Go 1.22+
 ./pgquire               # opens http://127.0.0.1:8432/?t=<token>
 ```
 
-Then pick **Connect remote Postgres…** in the database switcher and paste a connection string (`postgres://user:password@host:5432/db`).
+Then pick **Connect remote Postgres…** in the database switcher and paste a connection string (`postgres://user:password@host:5432/db`). If the server has several databases, you choose which ones to add. They're grouped under the server in the switcher, and **Other databases on this server…** adds more later.
 
 - Passwords stay with the server. Saved connections go in `~/.config/pgquire/connections.json` (readable only by you) and never reach the browser.
 - The server listens on 127.0.0.1 only and needs the token from the link it prints.

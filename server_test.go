@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -247,6 +248,39 @@ func TestRemoteExecQueryAndSessionState(t *testing.T) {
 	var r apiResult
 	if code := c.do("POST", sp+"/query", map[string]any{"sql": "select count(*) + $1::int as n from t", "params": []any{"10"}}, &r); code != 200 || *r.Rows[0][0] != "12" {
 		t.Fatalf("query: %d %v", code, r.Rows)
+	}
+}
+
+func TestRemoteOtherDatabases(t *testing.T) {
+	c, sp := remote(t, 100, false)
+	c.do("POST", sp+"/exec", map[string]any{"sql": "drop database if exists pgquire_t2"}, nil)
+	if code := c.do("POST", sp+"/exec", map[string]any{"sql": "create database pgquire_t2"}, nil); code != 200 {
+		t.Fatalf("create database: %d", code)
+	}
+	defer c.do("POST", sp+"/exec", map[string]any{"sql": "drop database if exists pgquire_t2 with (force)"}, nil)
+	var list struct {
+		Databases []string
+		Default   string
+	}
+	if code := c.do("GET", "/api/profiles/test/databases", nil, &list); code != 200 {
+		t.Fatalf("list: %d", code)
+	}
+	if !slices.Contains(list.Databases, "pgquire_t2") || !slices.Contains(list.Databases, "postgres") || slices.Contains(list.Databases, "template0") || list.Default != "postgres" {
+		t.Fatalf("databases: %+v", list)
+	}
+	var s struct{ ID, Database string }
+	if code := c.do("POST", "/api/sessions", map[string]any{"profile": "test", "database": "pgquire_t2"}, &s); code != 200 || s.Database != "pgquire_t2" {
+		t.Fatalf("open other database: %d %+v", code, s)
+	}
+	var r apiResult
+	c.do("POST", "/api/sessions/"+s.ID+"/query", map[string]any{"sql": "select current_database()"}, &r)
+	if *r.Rows[0][0] != "pgquire_t2" {
+		t.Fatalf("connected to %s", *r.Rows[0][0])
+	}
+	c.do("POST", "/api/sessions/"+s.ID+"/close", nil, nil)
+	var e apiErr
+	if code := c.do("POST", "/api/sessions", map[string]any{"profile": "test", "database": "no_such_db"}, &e); code != http.StatusBadGateway {
+		t.Fatalf("missing database: %d %v", code, e)
 	}
 }
 

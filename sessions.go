@@ -19,6 +19,26 @@ const maxSessions = 32
 
 type pgConn = *pgconn.PgConn
 
+// listDatabases returns the databases this profile's login may connect to, via a short-lived connection.
+func (m *sessionManager) listDatabases(ctx context.Context, p *Profile) ([]string, string, error) {
+	cfg, err := m.connConfig(p, "")
+	if err != nil {
+		return nil, "", err
+	}
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	defer conn.Close(context.Background())
+	rows, err := conn.Query(ctx, `select datname from pg_database
+		where datallowconn and not datistemplate and has_database_privilege(datname, 'CONNECT') order by datname`)
+	if err != nil {
+		return nil, "", err
+	}
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	return names, cfg.Database, err
+}
+
 // A session is one dedicated Postgres connection for one browser tab. PGlite is a single
 // connection too, so SET, temp tables and a BEGIN typed in the editor behave the same way.
 type session struct {
@@ -84,10 +104,14 @@ func newSessionManager(stmtTO, idleTO time.Duration) *sessionManager {
 }
 
 // connConfig builds the pgx config for a profile: cancel-on-abort, app name, timeouts, read-only.
-func (m *sessionManager) connConfig(p *Profile) (*pgx.ConnConfig, error) {
+// database, when set, replaces the one in the connection string (same server, same login).
+func (m *sessionManager) connConfig(p *Profile, database string) (*pgx.ConnConfig, error) {
 	cfg, err := pgx.ParseConfig(p.DSN)
 	if err != nil {
 		return nil, err
+	}
+	if database != "" {
+		cfg.Database = database
 	}
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = 15 * time.Second
@@ -121,14 +145,14 @@ func (m *sessionManager) connConfig(p *Profile) (*pgx.ConnConfig, error) {
 	return cfg, nil
 }
 
-func (m *sessionManager) open(ctx context.Context, p *Profile) (*session, error) {
+func (m *sessionManager) open(ctx context.Context, p *Profile, database string) (*session, error) {
 	m.mu.Lock()
 	n := len(m.byID)
 	m.mu.Unlock()
 	if n >= maxSessions {
 		return nil, fmt.Errorf("too many open sessions (%d); close some pgquire tabs", n)
 	}
-	cfg, err := m.connConfig(p)
+	cfg, err := m.connConfig(p, database)
 	if err != nil {
 		return nil, err
 	}

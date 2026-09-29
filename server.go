@@ -41,6 +41,7 @@ func newServer(cfg serverConfig) *server {
 	s.mux.HandleFunc("GET /api/profiles", s.auth(s.listProfiles))
 	s.mux.HandleFunc("POST /api/profiles", s.auth(s.addProfile))
 	s.mux.HandleFunc("DELETE /api/profiles/{name}", s.auth(s.deleteProfile))
+	s.mux.HandleFunc("GET /api/profiles/{name}/databases", s.auth(s.listDatabases))
 	s.mux.HandleFunc("POST /api/sessions", s.auth(s.openSession))
 	s.mux.HandleFunc("POST /api/sessions/{id}/query", s.auth(s.withSession(s.query)))
 	s.mux.HandleFunc("POST /api/sessions/{id}/exec", s.auth(s.withSession(s.exec)))
@@ -157,7 +158,7 @@ func (s *server) addProfile(w http.ResponseWriter, r *http.Request) {
 	// Try it before keeping it.
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
-	sess, err := s.sessions.open(ctx, p)
+	sess, err := s.sessions.open(ctx, p, "")
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
 		return
@@ -184,11 +185,28 @@ func (s *server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *server) listDatabases(w http.ResponseWriter, r *http.Request) {
+	p := s.cfg.profiles.get(r.PathValue("name"))
+	if p == nil {
+		writeErr(w, http.StatusNotFound, "no such connection")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	names, def, err := s.sessions.listDatabases(ctx, p)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"databases": names, "default": def})
+}
+
 /* ---------- sessions ---------- */
 
 func (s *server) openSession(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Profile string `json:"profile"`
+		Profile  string `json:"profile"`
+		Database string `json:"database"` // optional: another database on the same server
 	}
 	if !readJSON(w, r, &in) {
 		return
@@ -198,14 +216,14 @@ func (s *server) openSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, fmt.Sprintf("no connection called %q on this pgquire server", in.Profile))
 		return
 	}
-	sess, err := s.sessions.open(r.Context(), p)
+	sess, err := s.sessions.open(r.Context(), p, in.Database)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
 		return
 	}
 	pc := sess.conn.PgConn()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id": sess.id, "profile": p.public(), "readOnly": p.ReadOnly,
+		"id": sess.id, "profile": p.public(), "readOnly": p.ReadOnly, "database": sess.conn.Config().Database,
 		"serverVersion": pc.ParameterStatus("server_version"), "maxRows": s.cfg.maxRows,
 	})
 }
