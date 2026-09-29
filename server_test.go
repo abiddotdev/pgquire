@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -325,5 +326,15 @@ func TestRemoteClosedSessionIsGone(t *testing.T) {
 	var e apiErr
 	if code := c.do("POST", sp+"/query", map[string]any{"sql": "select 1"}, &e); code != http.StatusGone || e.Error["code"] != "session_closed" {
 		t.Fatalf("closed session: %d %v", code, e.Error)
+	}
+}
+
+func TestVersionMatchesPage(t *testing.T) {
+	m := regexp.MustCompile(`const APP_VERSION = '([^']+)'`).FindSubmatch(indexHTML)
+	if m == nil {
+		t.Fatal("APP_VERSION not found in index.html")
+	}
+	if string(m[1]) != Version {
+		t.Fatalf("index.html APP_VERSION %q, server Version %q: bump both", m[1], Version)
 	}
 }
