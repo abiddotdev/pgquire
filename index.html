@@ -109,9 +109,10 @@ select.field { padding-right: 4px; }
 .wordmark b { font-style: normal; font-weight: 600; }
 .dbswitch { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; padding: 4px 8px; border-radius: var(--radius); max-width: 220px; }
 .dbswitch:hover { background: var(--rule2); }
-.schema-chip { font: 500 11px/1 var(--mono); color: var(--ink2); padding: 4px 7px; border: 1px dashed var(--ink3); border-radius: var(--radius); white-space: nowrap; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.schema-chip { font: 500 11px/1 var(--mono); color: var(--ink3); padding: 5px 8px; border: 1px dashed var(--rule); border-radius: var(--radius); white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .schema-chip:hover { background: var(--rule2); }
-.schema-chip[hidden] { display: none; }
+.schema-chip.custom { color: var(--ink); border: 1px solid var(--db, var(--ink2)); font-weight: 600; }
+.schema-chip:empty { display: none; }
 .dbswitch .smallcaps { font-size: 9px; }
 .dbswitch .name { font: 500 15px/1.2 var(--serif); display: flex; gap: 4px; align-items: center; max-width: 100%; }
 .db-spine { width: 4px; height: 17px; border-radius: 1px; background: var(--db, var(--red)); flex-shrink: 0; margin-right: 3px; }
@@ -764,7 +765,6 @@ select.field { padding-right: 4px; }
       <span class="smallcaps">Database</span>
       <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span><span class="db-kind" id="dbKind"></span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
     </button>
-    <button class="schema-chip" id="schemaChip" hidden></button>
     <div class="omni" id="omni">
       <div class="omni-box">
         <svg class="ic" style="color:var(--ink3)"><use href="#i-search"/></svg>
@@ -1089,19 +1089,23 @@ async function refreshSchema({ initial } = {}) {
   await readSearchPath();
   S.byKey = Object.fromEntries(tables.map(t => [t.key, t]));
 }
-/* ---------- the search path: a header chip whenever it differs from the connection's default ----------
-   Read from Postgres rather than parsed from the SQL, so SET, SET LOCAL, RESET and set_config() all show.
-   The default (reset_val) varies: PGlite uses public; servers usually "$user", public, or a role's own. */
+/* ---------- the search path, shown in every query tab's toolbar ----------
+   It belongs to the connection, so all query tabs show the same value, emphasised when it differs from the
+   connection's default (reset_val: public in PGlite; usually "$user", public on servers, or a role's own).
+   Read from Postgres rather than parsed from the SQL, so SET, SET LOCAL, RESET and set_config() all show. */
 async function readSearchPath() {
   try { S.schema = (await q(`select current_schema() as cur, current_setting('search_path') as path, (select reset_val from pg_settings where name = 'search_path') as def`)).rows[0]; }
   catch { S.schema = null; }                // e.g. inside a failed transaction: hide rather than guess
-  const el = $('schemaChip'), sp = S.schema;
-  el.hidden = !sp || sp.path.replace(/\s+/g, '') === sp.def?.replace(/\s+/g, '');
-  if (el.hidden) return;
-  el.textContent = `schema: ${sp.cur ?? 'none'}`;
-  el.title = `search_path = ${sp.path}${sp.cur ? '' : ' — none of these schemas exist'}\nUnqualified table names resolve here. Click to change.`;
+  document.querySelectorAll('.schema-chip').forEach(paintSchemaChip);
 }
-$('schemaChip').onclick = e => {
+function paintSchemaChip(el) {
+  const sp = S.schema;
+  el.textContent = sp ? `schema: ${sp.cur ?? 'none'}` : '';
+  el.classList.toggle('custom', !!sp && sp.path.replace(/\s+/g, '') !== sp.def?.replace(/\s+/g, ''));
+  el.title = sp ? `search_path = ${sp.path}${sp.cur ? '' : ' — none of these schemas exist'}\nUnqualified table names resolve here. Click to change.` : '';
+}
+const schemaChip = () => { const el = h('button', { class: 'schema-chip', onclick: schemaMenu }); paintSchemaChip(el); return el; };
+function schemaMenu(e) {
   const r = e.currentTarget.getBoundingClientRect();
   const schemas = [...new Set(['public', ...S.tables.map(t => t.schema)])].sort();
   showMenu(r.left, r.bottom + 4, [
@@ -1110,7 +1114,7 @@ $('schemaChip').onclick = e => {
     '-',
     { label: 'Reset to default', icon: 'undo', run: () => setSearchPath('reset search_path') },
   ]);
-};
+}
 async function setSearchPath(sql) {
   const t0 = performance.now();
   try { await S.db.exec(sql); journalAdd({ src: 'you', sql, info: 'ok', ms: Math.round(performance.now() - t0) }); }
@@ -2040,6 +2044,7 @@ function renderQueryTab(tab, pane) {
     h('h1', { title: 'Double-click to rename', ondblclick: async () => { const n = await promptDlg({ title: 'Rename query', label: 'Title', value: tab.title }); if (n) setQueryTitle(tab, n); } }, tab.title),
     h('button', { class: 'btn ink', onclick: run, disabled: tab.running, title: 'Run (Ctrl+Enter). Runs the selection if any.' }, ic('play'), tab.running ? 'Running…' : 'Run', h('kbd', { style: 'margin-left:4px;background:transparent;color:inherit;border-color:rgba(255,255,255,.3)' }, 'Ctrl ⏎')),
     hist.length > 0 && h('button', { class: 'btn ghost', onclick: e => showMenu(e.clientX, e.clientY + 10, [{ label: 'Recent queries', header: true }, ...hist.slice(0, 15).map(j => ({ label: j.sql.replace(/\s+/g, ' ').slice(0, 70), run: () => { tab.sql = j.sql; renderPane(); } }))]) }, 'History'),
+    schemaChip(),
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn ghost', title: 'Attach this query (and its latest result) to your next Clerk message', onclick: () => { C.attachQ.add(tab.id); openClerk(); $('clerkText')?.focus(); toast(`Attached “${tab.title}” to your next message`); } }, ic('plus'), 'Attach'),
     h('button', { class: 'btn ghost', title: 'Copy the whole query', onclick: () => { if (!tab.sql.trim()) return toast('Nothing to copy yet'); navigator.clipboard?.writeText(tab.sql); toast(`Copied ${plural(tab.sql.split('\n').length, 'line')}`); } }, ic('copy'), 'Copy'),
