@@ -138,6 +138,11 @@ select.field { padding-right: 4px; }
 .omni-item.sel { background: var(--hl-soft); }
 .omni-sep { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); padding: 8px 10px 3px; font-weight: 600; }
 .top-actions { display: flex; align-items: center; gap: 2px; }
+.upd-btn { position: relative; }
+.upd-btn.has-update { color: var(--blue); }
+.upd-btn.has-update::after { content: ""; position: absolute; top: 5px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 2px var(--paper); }
+.upd-btn.spin svg { animation: spin .9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .clerk-toggle { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px 0 8px; border-radius: 15px; border: 1px solid var(--rule); color: var(--blue); font-weight: 500; margin-left: 6px; }
 .clerk-toggle:hover { border-color: var(--blue); }
 .clerk-toggle .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--ink4); }
@@ -735,6 +740,7 @@ select.field { padding-right: 4px; }
   <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M10 3.5a2 2 0 0 1 4 0V5h4a1 1 0 0 1 1 1v4h-1.5a2 2 0 0 0 0 4H19v4a1 1 0 0 1-1 1h-4v-1.5a2 2 0 0 0-4 0V19H6a1 1 0 0 1-1-1v-4h1.5a2 2 0 0 0 0-4H5V6a1 1 0 0 1 1-1h4z"/></symbol>
   <symbol id="i-composite" viewBox="0 0 24 24"><path d="M7 5H4v6h3M17 13h3v6h-3M4 8h5c3 0 3 8 6 8h5"/></symbol>
   <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></symbol>
+  <symbol id="i-update" viewBox="0 0 24 24"><path d="M20.5 9A8.5 8.5 0 0 0 5 6.2L3.5 8"/><path d="M3.5 3.5V8H8"/><path d="M3.5 15A8.5 8.5 0 0 0 19 17.8l1.5-1.8"/><path d="M20.5 20.5V16H16"/></symbol>
   <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
 </svg>
 
@@ -757,6 +763,7 @@ select.field { padding-right: 4px; }
       <div class="omni-list" id="omniList"></div>
     </div>
     <div class="top-actions">
+      <button class="iconbtn upd-btn" id="updateBtn" title="Reload pgquire and pull the latest version from the server"><svg class="ic"><use href="#i-update"/></svg></button>
       <button class="iconbtn" id="shareBtn" title="Share as link"><svg class="ic"><use href="#i-share"/></svg></button>
       <button class="iconbtn hide-sm" id="journalToggle" title="Journal (Ctrl+Shift+J)"><svg class="ic"><use href="#i-book"/></svg></button>
       <button class="iconbtn" id="themeToggle" title="Day / night"><svg class="ic"><use href="#i-moon"/></svg></button>
@@ -2608,7 +2615,13 @@ async function sqlDump(id) {
   if (!pgDumpFn) ({ pgDump: pgDumpFn } = await import(PGDUMP_URL));
   // --inserts: PGlite can't run COPY … FROM stdin as a script. Owners/grants are meaningless here.
   const args = ['--inserts', '--rows-per-insert=1000', '--no-owner', '--no-privileges'];
-  if (id === S.id && S.db) return (await pgDumpFn({ pg: S.db, args })).text();
+  if (id === S.id && S.db) {
+    // pg_dump runs on the live connection: it leaves its REPEATABLE READ transaction open and sets
+    // session options (search_path = '' etc.). Close and reset both, or later edits would sit in an
+    // uncommitted transaction and the next dump would fail.
+    try { return await (await pgDumpFn({ pg: S.db, args })).text(); }
+    finally { await S.db.exec('ROLLBACK').catch(() => {}); await S.db.exec('RESET ALL').catch(() => {}); }
+  }
   const inst = await openInstance(id);
   try { return await (await pgDumpFn({ pg: inst, args })).text(); } finally { await inst.close().catch(() => {}); }
 }
@@ -3206,9 +3219,21 @@ const SHARE_TAG = 'pgquire1';
 const b64url = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const unb64url = str => { const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4)); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
 const pipeBytes = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
-const deflateRaw = b => pipeBytes(b, new CompressionStream('deflate-raw'));
-const inflateRaw = b => pipeBytes(b, new DecompressionStream('deflate-raw'));
+// Built-in deflate-raw streams exist in Chrome/Edge 103+, Firefox 113+, Safari/iOS 16.4+. Older
+// browsers load fflate (same raw DEFLATE format, ~8 KB) on demand, so links open everywhere.
+const FFLATE_URL = 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
+const nativeRaw = kind => { try { return kind === 'c' ? new CompressionStream('deflate-raw') : new DecompressionStream('deflate-raw'); } catch { return null; } };
+let fflateMod = null;
+const fflate = async () => fflateMod ||= await import(FFLATE_URL).catch(() => { throw new Error('this browser needs a small helper download to handle links, and it could not be fetched — check your connection'); });
+async function deflateRaw(b) { const s = nativeRaw('c'); return s ? pipeBytes(b, s) : (await fflate()).deflateSync(b, { level: 9 }); }
+async function inflateRaw(b) {
+  const s = nativeRaw('d');
+  try { return s ? await pipeBytes(b, s) : (await fflate()).inflateSync(b); }
+  catch (e) { if (/helper download/.test(e.message)) throw e; throw new Error('the link looks incomplete — it may have been cut off when it was copied or sent'); }
+}
+const hasSubtle = () => !!globalThis.crypto?.subtle;
 async function passKey(pass, salt) {
+  if (!hasSubtle()) throw new Error('passphrase links need a secure page (https) — open pgquire over https to unlock this one');
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
@@ -3219,7 +3244,9 @@ async function encryptBytes(bytes, pass) {
   return out;
 }
 async function decryptBytes(bytes, pass) {
-  try { return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(16, 28) }, await passKey(pass, bytes.subarray(0, 16)), bytes.subarray(28))); }
+  if (bytes.length < 29) throw new Error('the link looks incomplete — it may have been cut off when it was copied or sent');
+  const key = await passKey(pass, bytes.subarray(0, 16));
+  try { return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(16, 28) }, key, bytes.subarray(28))); }
   catch { throw new Error('Wrong passphrase — or the link was cut short.'); }
 }
 /** Pack the open database (+ optional saved queries / chats) the same way .pgquire files are laid out. */
@@ -3328,16 +3355,30 @@ function shareDialog() {
   rebuild();
 }
 /** Open a #pgquire1… link: decode (and decrypt), then show the usual Open session dialog. */
+/** Parse a pgquire link fragment. Ignores anything a chat app or sentence adds after the data
+ *  (trailing ". ) > ' ”" etc.) and tolerates the tag being URL-encoded. */
+function parseShareHash(hash) {
+  let h = hash || '';
+  try { h = decodeURIComponent(h); } catch {}
+  const m = new RegExp(`^#${SHARE_TAG}(e?)\\.([A-Za-z0-9_-]+)`).exec(h);
+  return m ? { locked: !!m[1], data: m[2] } : null;
+}
 async function openSharedLink() {
-  const m = new RegExp(`^#${SHARE_TAG}(e?)\\.([A-Za-z0-9_-]+)$`).exec(location.hash);
-  if (!m) return;
+  const link = parseShareHash(location.hash);
+  if (!link) return;
   history.replaceState(null, '', location.href.replace(/#.*$/, ''));   // don't re-import on reload
   try {
-    let bytes = unb64url(m[2]);
-    if (m[1]) {
-      const p = await promptDlg({ title: 'This shared link is locked', label: 'Passphrase', value: '' });
-      if (!p) return;
-      bytes = await decryptBytes(bytes, p);
+    let bytes;
+    try { bytes = unb64url(link.data); } catch { throw new Error('the link is damaged — it contains characters that don\'t belong'); }
+    if (link.locked) {
+      let unlocked = null;
+      for (let attempt = 1; !unlocked; attempt++) {
+        const p = await promptDlg({ title: attempt === 1 ? 'This shared link is locked' : 'Wrong passphrase — try again', label: 'Passphrase', value: '' });
+        if (!p) return;
+        try { unlocked = await decryptBytes(bytes, p); }
+        catch (e) { if (!/Wrong passphrase/.test(e.message) || attempt >= 5) throw e; }
+      }
+      bytes = unlocked;
     }
     const man = readTarSession(await inflateRaw(bytes));
     importSessionDialog(null, man, 'a shared link');
@@ -4398,6 +4439,52 @@ const clampClerkW = w => Math.round(Math.max(300, Math.min(w, Math.max(320, inne
 $('clerkToggle').onclick = toggleClerk;
 $('journalToggle').onclick = toggleJournal;
 $('shareBtn').onclick = () => S.db ? shareDialog() : toast('Open a database first');
+
+/* ---------- updates & reload ----------
+   Opened from a file: browsers don't cache local files, so a reload always runs the latest file.
+   Hosted (e.g. GitHub Pages): the page can come from cache, so we fetch our own URL fresh, fingerprint
+   it, and compare with what was served when this tab loaded. Reloading adds a throwaway ?_v= query
+   to bypass any cached copy; it's removed again once the new version starts. */
+const HOSTED = /^https?:$/.test(location.protocol);
+const upd = { base: null, available: false, checkedAt: 0 };
+async function pageFingerprint() {
+  const u = new URL(location.href); u.hash = ''; u.searchParams.delete('_v');
+  const res = await fetch(u, { cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(await res.text())));
+  return Array.from(hash.slice(0, 8), b => b.toString(16).padStart(2, '0')).join('');
+}
+async function checkForUpdate() {
+  if (!HOSTED) return null;
+  upd.checkedAt = Date.now();
+  try {
+    const fp = await pageFingerprint();
+    if (!upd.base) upd.base = fp;
+    upd.available = fp !== upd.base;
+  } catch { return null; }
+  const b = $('updateBtn');
+  b.classList.toggle('has-update', upd.available);
+  b.title = upd.available ? 'New version available — reload to update' : 'Reload pgquire and pull the latest version from the server';
+  return upd.available;
+}
+async function reloadApp() {
+  if (C.busy && !(await confirmDlg({ title: 'The Clerk is still working', body: 'Reloading stops its current request. Everything else is saved first.', ok: 'Reload anyway' }))) return;
+  $('updateBtn').classList.add('spin');
+  if (HOSTED) { const a = await checkForUpdate(); toast(a ? 'Updating to the latest version…' : a === false ? 'Already up to date — reloading…' : 'Reloading…'); }
+  try { persistTabs(); saveClerk(); await kvFlush(); } catch {}
+  if (HOSTED) { const u = new URL(location.href); u.searchParams.set('_v', Date.now().toString(36)); location.replace(u); }
+  else location.reload();
+}
+$('updateBtn').onclick = reloadApp;
+if (!HOSTED) $('updateBtn').title = 'Reload pgquire (your work is saved first)';
+if (new URL(location.href).searchParams.has('_v')) {          // tidy the address after an update reload
+  const u = new URL(location.href); u.searchParams.delete('_v'); history.replaceState(null, '', u);
+}
+if (HOSTED) {
+  checkForUpdate();
+  setInterval(checkForUpdate, 30 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - upd.checkedAt > 5 * 60 * 1000) checkForUpdate(); });
+}
 $('indexToggle').onclick = () => app.classList.toggle('index-open');
 $('newQueryBtn').onclick = () => openQuery();
 $('mapBtn').onclick = openMap;
