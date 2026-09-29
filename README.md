@@ -4,7 +4,7 @@ A single-file Postgres workbench. Run queries, browse schema, and explore your d
 
 ## Live Demo
 
-**https://abidhmuhsin.github.io/pgquire/**
+**https://abiddotdev.github.io/pgquire/**
 
 ## Features
 
@@ -15,7 +15,7 @@ A single-file Postgres workbench. Run queries, browse schema, and explore your d
 
 ## Usage
 
-Open the [live page](https://abidhmuhsin.github.io/pgquire/) or `index.html` directly in your browser. Everything runs client-side; no server required.
+Open the [live page](https://abiddotdev.github.io/pgquire/) or `index.html` directly in your browser. Everything runs client-side; no server required.
 
 ## License
 
