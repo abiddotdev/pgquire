@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -222,8 +223,10 @@ func (s *server) openSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pc := sess.conn.PgConn()
+	_, encrypted := pc.Conn().(*tls.Conn)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id": sess.id, "profile": p.public(), "readOnly": p.ReadOnly, "database": sess.conn.Config().Database,
+		"tls": encrypted,
+		"id":  sess.id, "profile": p.public(), "readOnly": p.ReadOnly, "database": sess.conn.Config().Database,
 		"serverVersion": pc.ParameterStatus("server_version"), "maxRows": s.cfg.maxRows,
 	})
 }

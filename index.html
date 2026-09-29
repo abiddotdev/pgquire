@@ -463,6 +463,18 @@ select.field { padding-right: 4px; }
 .wordmark .pg { font: italic 500 21px/1 var(--serif); color: var(--red); letter-spacing: -.01em; margin-right: 1px; }
 .db-kind { font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 3px 5px 2px; margin-left: 6px; border: 1px solid currentColor; border-radius: 3px; color: var(--ink3); }
 .db-kind:empty { display: none; }
+.dbswitch #dbWhere { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-dot { display: none; width: 7px; height: 7px; border-radius: 50%; flex: none; margin-left: 2px; }
+.conn-dot.ok, .conn-dot.busy, .conn-dot.down { display: inline-block; }
+.conn-dot.ok { background: #3a9d5d; }
+.conn-dot.busy { background: #d49a2a; animation: connpulse .9s ease-in-out infinite; }
+.conn-dot.down { background: var(--red); }
+@keyframes connpulse { 50% { opacity: .25; } }
+.conn-banner { position: fixed; top: 62px; left: 50%; transform: translateX(-50%); z-index: 150; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; font-size: 13px;
+  background: var(--sheet); border: 1px solid var(--red); border-radius: 6px; box-shadow: var(--shadow); }
+.conn-banner[hidden] { display: none; }
+.menu button:disabled { opacity: .5; cursor: default; }
+.menu button:disabled:hover { background: none; }
 .dbswitch .name .db-kind { flex: none; overflow: visible; }   /* the name truncates, not the chip */
 .db-kind.prod { color: #fff; background: var(--red); border-color: var(--red); }
 .remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
@@ -769,8 +781,8 @@ select.field { padding-right: 4px; }
     <button class="iconbtn mobile-only" id="indexToggle" title="Index"><svg class="ic"><use href="#i-menu"/></svg></button>
     <div class="wordmark" title="pgquire · pg, inquire"><span class="pg">pg</span><b>quire</b><span class="ver" id="appVer"></span></div>
     <button class="dbswitch" id="dbSwitch" title="Switch database">
-      <span class="smallcaps">Database</span>
-      <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span><span class="db-kind" id="dbKind"></span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
+      <span class="smallcaps" id="dbWhere">Database</span>
+      <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span><i class="conn-dot" id="dbDot"></i><span class="db-kind" id="dbKind"></span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
     </button>
     <div class="omni" id="omni">
       <div class="omni-box">
@@ -813,6 +825,7 @@ select.field { padding-right: 4px; }
   <section class="journal" id="journal"></section>
 </div>
 <div class="toasts" id="toasts"></div>
+<div class="conn-banner" id="connBanner" hidden><span id="connMsg"></span><button class="btn sm" id="connRetry">Reconnect</button></div>
 
 <script type="module">
 /* ==========================================================================
@@ -968,9 +981,8 @@ async function openDb(id, opts = {}) {
   if (S.db) { await S.db.close().catch(() => {}); S.db = null; }
   S.id = id; store.set('active', id);
   S.tables = []; S.byKey = {}; S.counts = {}; S.undo = [];
-  $('dbName').textContent = currentDb()?.name || '—';
   showDbKind();
-  document.title = `${currentDb()?.name || 'pgquire'} · pgquire`;
+  document.title = `${dbLabel(currentDb()) || 'pgquire'} · pgquire`;
   applyDbColor();
   bootMsg('opening the books…', true);
   try {
@@ -1344,7 +1356,7 @@ function renderPane() {
 }
 
 function renderAll() {
-  $('dbName').textContent = currentDb()?.name || '—';
+  showDbKind();
   renderIndex(); renderTabs(); renderPane(); renderClerk(); if (app.classList.contains('journal-open')) renderJournal();
 }
 
@@ -2715,7 +2727,7 @@ let openMenuEl = null;
 function showMenu(x, y, items) {
   closeMenu();
   const m = h('div', { class: 'menu' }, items instanceof Node ? items : items.filter(Boolean).map(it => it === '-' ? h('hr') : it.header ? h('div', { class: 'mlabel' }, it.label)
-    : h('button', { class: (it.danger ? 'danger ' : '') + (it.cur ? 'cur' : ''), onclick: () => { closeMenu(); it.run(); } }, it.left ? it.left : it.icon ? ic(it.icon) : it.dot ? h('span', { class: 'mdot', style: `--c:${it.dot}` }) : h('span', { style: 'width:15px' }), it.label, it.hint && h('span', { class: 'hint' }, it.hint))));
+    : h('button', { class: (it.danger ? 'danger ' : '') + (it.cur ? 'cur' : ''), disabled: !!it.disabled, title: it.why || null, onclick: () => { if (it.disabled) return; closeMenu(); it.run(); } }, it.left ? it.left : it.icon ? ic(it.icon) : it.dot ? h('span', { class: 'mdot', style: `--c:${it.dot}` }) : h('span', { style: 'width:15px' }), it.label, it.hint && h('span', { class: 'hint' }, it.hint))));
   document.body.append(m);
   const r = m.getBoundingClientRect();
   m.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
@@ -2741,7 +2753,7 @@ $('dbSwitch').onclick = e => {
   const dbs = loadDbs();
   const entry = (d, label = d.name) => {
     const sw = h('span', { class: 'db-sw', role: 'button', title: 'Click for a new colour', style: `--c:${dbColor(d)}` });
-    sw.onclick = e => { e.stopPropagation(); sw.style.setProperty('--c', recolorDb(d.id)); };
+    sw.onclick = e => { e.stopPropagation(); if (isProdDb(d)) return toast('Production databases are always red.'); sw.style.setProperty('--c', recolorDb(d.id)); };
     const kind = d.kind === 'remote' && d.remote?.tag === 'prod' ? 'prod' : '';
     return { label, cur: d.id === S.id, left: sw, hint: [kind, d.id === S.id ? 'open' : ''].filter(Boolean).join(' · '), run: () => d.id !== S.id && openDb(d.id) };
   };
@@ -2762,7 +2774,7 @@ $('dbSwitch').onclick = e => {
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
     S.server && { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog },
     dbCaps().wasmExt && { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
-    dbCaps().share && { label: 'Share as link…', icon: 'share', run: shareDialog },
+    { label: 'Share as link…', icon: 'share', run: shareDialog, disabled: !dbCaps().share, hint: dbCaps().share ? '' : 'in-browser only', why: 'A link carries the data itself, so it needs a database in this browser. Use Copy to a local database first.' },
     { label: 'Export session (.pgquire)…', icon: 'download', run: exportSessionDialog },
     { label: 'Open session file…', icon: 'upload', run: pickSessionFile },
     '-',
@@ -3277,6 +3289,41 @@ const toResult = (r, opts) => {
   };
 };
 
+/* Connection state for remote databases: a dot in the header (ok · busy · down) and, when the pgquire
+   server can't be reached, a banner with Reconnect that also retries on its own. "busy" only shows for
+   requests slower than 250 ms, so quick ones don't flicker. */
+const conn = { busy: 0, down: null, timer: null, retry: null };
+function connWork(delta) {
+  conn.busy = Math.max(0, conn.busy + delta);
+  clearTimeout(conn.timer);
+  if (conn.busy) conn.timer = setTimeout(paintConn, 250); else paintConn();
+}
+function paintConn() {
+  const dot = $('dbDot'), remote = isRemote(S.id);
+  dot.className = 'conn-dot' + (!remote ? '' : conn.down ? ' down' : conn.busy ? ' busy' : ' ok');
+  const tls = S.db?.info ? (S.db.info.tls ? ' · encrypted (TLS)' : ' · not encrypted') : '';
+  dot.title = !remote ? '' : conn.down ? conn.down : conn.busy ? 'Working…' : `Connected${tls}`;
+  $('connBanner').hidden = !remote || !conn.down;
+  $('connMsg').textContent = conn.down || '';
+}
+function connDown(msg) {
+  conn.down = msg; paintConn();
+  clearInterval(conn.retry);
+  conn.retry = setInterval(() => reconnectRemote(true), 5000);
+}
+async function reconnectRemote(quiet) {
+  if (!isRemote(S.id) || !S.db?.remote) return;
+  serverP = null;
+  const srv = await pgquireServer();
+  if (!srv || !srv.authed) { if (!quiet) toast(!srv ? 'Still can\'t reach the pgquire server.' : 'The pgquire server restarted — open the link it printed to sign in again.', 'bad'); return; }
+  try { await S.db.open(); }
+  catch (e) { if (!quiet) toast(e.message, 'bad'); return; }
+  clearInterval(conn.retry); conn.down = null; paintConn();
+  toast('Reconnected');
+  await afterWrite();
+}
+$('connRetry').onclick = () => reconnectRemote(false);
+
 /** A remote database: one dedicated server connection, driven through the same calls as PGlite.
  *  Calls run one at a time, and a transaction holds the connection until it ends — as in PGlite. */
 class RemoteDb {
@@ -3286,13 +3333,19 @@ class RemoteDb {
   constructor(profile, database) { this.profile = profile; this.database = database; this.sid = null; this.info = null; }
   async open() { this.info = await api('POST', '/api/sessions', { profile: this.profile, database: this.database }); this.sid = this.info.id; return this; }
   async #call(op, body, retry = true) {
-    if (!this.sid) await this.open();
-    try { return await api('POST', `/api/sessions/${this.sid}/${op}`, body); }
-    catch (e) {
+    connWork(1);
+    try {
+      if (!this.sid) await this.open();
+      const out = await api('POST', `/api/sessions/${this.sid}/${op}`, body);
+      if (conn.down) { conn.down = null; clearInterval(conn.retry); }
+      return out;
+    } catch (e) {
+      if (e instanceof TypeError) { connDown('Can\'t reach the pgquire server — is it still running?'); throw new Error('can\'t reach the pgquire server'); }
+      if (e.status === 401) { connDown('The pgquire server restarted — open the link it printed to sign in again.'); throw e; }
       if (e.code === 'session_closed' && retry && !this.#inTx) { this.sid = null; return this.#call(op, body, false); }   // expired while idle; nothing ran
       if (e.code === 'session_closed' || e.code === 'session_lost') this.sid = null;                                   // reconnect next time
       throw e;
-    }
+    } finally { connWork(-1); }
   }
   #serial(fn) { const run = this.#lock.then(fn, fn); this.#lock = run.catch(() => {}); return run; }
   async #query(sql, params = [], opts) { return toResult(await this.#call('query', { sql, params: params.map(pgParam) }), opts); }
@@ -3512,10 +3565,21 @@ async function remoteDump() {
   finally { m.close(); }
 }
 
-/** The header chip: REMOTE / PROD, plus RO when read-only. */
+/** What the switcher shows: the database's own name for remote entries whose name we generated. */
+function dbLabel(d) {
+  if (!d) return '';
+  if (d.kind !== 'remote') return d.name;
+  const db = remoteDbOf(d);
+  return db && (d.name === d.profile || d.name === `${d.profile} / ${db}`) ? db : d.name;
+}
+/** The header: where the database lives (small caps), its name, a connection dot, and PROD / READ-ONLY chips. */
 function showDbKind() {
   const d = currentDb(), el = $('dbKind'), r = d?.remote || {};
-  el.textContent = d?.kind === 'remote' ? (r.tag === 'prod' ? 'prod' : 'remote') + (r.readOnly ? ' · ro' : '') : '';
+  $('dbName').textContent = dbLabel(d) || '—';
+  $('dbWhere').textContent = !d ? 'Database' : d.kind === 'remote' ? `${d.profile}${r.host ? ' · ' + r.host : ''}` : 'In this browser';
+  $('dbSwitch').title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''} — switch database` : 'Switch database';
+  paintConn();
+  el.textContent = d?.kind === 'remote' ? (r.tag === 'prod' ? 'prod' + (r.readOnly ? ' · ro' : '') : r.readOnly ? 'read-only' : '') : '';
   el.classList.toggle('prod', r.tag === 'prod');
   el.title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''}${r.readOnly ? ' · read-only' : ''}` : '';
 }
@@ -3641,6 +3705,7 @@ async function connectDb(id, opts = {}) {
     const d = loadDbs().find(x => x.id === id);
     bootMsg(`connecting to ${d.name}…`, true);
     const db = await new RemoteDb(d.profile, d.database).open();
+    conn.down = null; clearInterval(conn.retry);
     saveDbs(loadDbs().map(x => x.id === id ? { ...x, remote: { ...db.info.profile, database: db.info.database } } : x));   // keep host/tag/read-only current
     showDbKind();
     return db;
@@ -3882,7 +3947,7 @@ async function buildSharePayload(sql, { saved, chats, curId }) {   // saved / ch
 }
 const shareBase = () => location.href.replace(/#.*$/, '');
 function shareDialog() {
-  if (!dbCaps().share) return toast('Remote databases can\'t be shared as a link.');
+  if (!dbCaps().share) return toast('A link carries the data itself, so it needs a database in this browser — use Copy to a local database first.');
   let sql = null, link = '', building = 0;
   const MAX_CHATS = 5;
   const convList = [...C.convs].filter(c => c.items.length).sort((a, b) => b.updated - a.updated);
@@ -4993,7 +5058,9 @@ const dbHue = d => d?.hue != null ? d.hue
   : d?.color != null ? OLD_HUES[d.color % OLD_HUES.length]
   : ([...(d?.id || '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % HUE_STEPS) * HUE_STEP;
 const hueColor = (hue, theme = document.documentElement.dataset.theme) => theme === 'night' ? oklchHex(0.78, 0.13, hue) : oklchHex(0.53, 0.15, hue);
-const dbColor = (d, theme) => d ? hueColor(dbHue(d), theme) : null;
+const PROD_HUE = 27;          // production is always red, whatever colour it was given
+const isProdDb = d => d?.kind === 'remote' && d.remote?.tag === 'prod';
+const dbColor = (d, theme) => d ? hueColor(isProdDb(d) ? PROD_HUE : dbHue(d), theme) : null;
 function applyDbColor() {
   const c = dbColor(currentDb());
   c ? app.style.setProperty('--db', c) : app.style.removeProperty('--db');
