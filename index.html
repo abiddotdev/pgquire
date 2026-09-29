@@ -1043,7 +1043,7 @@ async function refreshSchema({ initial } = {}) {
   const byOid = {};
   const tables = rels.rows.map(r => {
     const key = r.schema === 'public' ? r.name : `${r.schema}.${r.name}`;
-    const t = { oid: r.oid, schema: r.schema, name: r.name, key, kind: r.kind, cols: [], pk: [], fks: [], cons: [], editable: r.kind === 'r' || r.kind === 'p' };
+    const t = { oid: r.oid, schema: r.schema, name: r.name, key, kind: r.kind, cols: [], pk: [], fks: [], cons: [], editable: (r.kind === 'r' || r.kind === 'p') && !readOnlyConn() };
     byOid[r.oid] = t;
     return t;
   });
@@ -1453,7 +1453,8 @@ function tableMenu(t, x, y) {
     { label: 'Rename…', run: () => renameTable(t) },
     { label: 'Empty table…', danger: true, run: () => truncateTable(t) },
     { label: 'Drop table…', danger: true, icon: 'trash', run: () => dropRelation(t) });
-  else items.push('-', { label: 'Drop view…', danger: true, icon: 'trash', run: () => dropRelation(t) });
+  else if (t.kind === 'v' || t.kind === 'm') items.push('-', { label: 'Drop view…', danger: true, icon: 'trash', run: () => dropRelation(t) });
+  else items.push('-', { label: 'Read-only connection', header: true });
   showMenu(x, y, items);
 }
 
@@ -1468,7 +1469,7 @@ function renderHome(pane) {
     { icon: 'query', t: 'Write a query', s: 'A proper SQL editor with results you can export.', run: () => openQuery() },
     { icon: 'plus', t: 'Create a table', s: 'Define columns visually; see the SQL it writes.', run: createTableDialog },
     { icon: 'upload', t: 'Import a CSV', s: 'Types are inferred; you can adjust before loading.', run: importCsvDialog },
-    empty ? { icon: 'sample', t: 'Load the sample', s: 'A small bookstore: authors, books, customers, orders.', run: loadSample }
+    empty && !isRemote(S.id) ? { icon: 'sample', t: 'Load the sample', s: 'A small bookstore: authors, books, customers, orders.', run: loadSample }
           : { icon: 'map', t: 'Open the ERD', s: 'Entity-relationship diagram: every table and how they reference each other.', run: openMap },
     { icon: 'quill', t: 'Ask the Clerk', s: 'An AI that can read, query and change this database — with your approval.', blue: true, run: () => { openClerk(); $('clerkText')?.focus(); } },
   ];
@@ -1476,7 +1477,9 @@ function renderHome(pane) {
     h('div', { class: 'home-hero' },
       h('div', { class: 'smallcaps' }, `${d?.name || ''} · created ${new Date(d?.created || Date.now()).toLocaleDateString()}`),
       h('h1', { html: empty ? 'An empty ledger,<br><em>ready for entries.</em>' : `${plural(S.tables.length, 'table')}, <em>${plural(total, 'row')}.</em>` }),
-      h('p', {}, empty
+      h('p', {}, isRemote(S.id)
+        ? `Connected to ${d.remote?.database || d.name} on ${d.remote?.host || 'a remote server'}${isProd() ? ' — a production database' : ''}. Changes here affect the real server${readOnlyConn() ? ', though this connection is read-only' : ''}; to experiment freely, use Copy to a local database in the switcher.`
+        : empty
         ? 'This is a real PostgreSQL database living in your browser. Nothing leaves this machine unless you ask the Clerk. Start with a table, a CSV, or the sample books.'
         : 'Pick a table from the index to browse and edit rows, open the ERD to see relationships, or press Ctrl K to jump anywhere.')),
     h('div', { class: 'home-actions' }, acts.map((a, i) => h('button', { class: 'act' + (a.blue ? ' blue' : ''), style: `animation-delay:${i * 45}ms`, onclick: a.run },
@@ -1528,7 +1531,7 @@ async function loadRows(tab) {
 function renderTableTab(tab, pane) {
   const t = S.byKey[tab.key];
   if (!t) { pane.append(h('div', { class: 'placeholder' }, 'This table no longer exists.')); return; }
-  const isView = !t.editable;
+  const isView = t.kind === 'v' || t.kind === 'm', ro = !isView && !t.editable;   // ro: a table on a read-only connection
   const applyFilter = v => { tab.filter = v.trim(); tab.page = 0; tab.dirty = true; renderPane(); };
   const filterInput = h('input', { value: tab.filter, placeholder: 'price > 10 and genre ilike \'%fiction%\'', spellcheck: false,
     oninput: () => syncFilter(),
@@ -1552,14 +1555,15 @@ function renderTableTab(tab, pane) {
   syncFilter();
   const selCount = tab.sel.size;
   const bar = h('div', { class: 'toolbar' },
-    h('h1', {}, t.name, h('small', {}, t.schema !== 'public' ? t.schema + ' · ' : '', isView ? 'view' : plural(S.counts[t.key] ?? 0, 'row'))),
+    h('h1', {}, t.name, h('small', {}, t.schema !== 'public' ? t.schema + ' · ' : '', isView ? 'view' : plural(S.counts[t.key] ?? 0, 'row')),
+      ro && h('span', { class: 'db-kind', style: 'margin-left:10px;vertical-align:middle', title: 'This connection is read-only: you can browse and query, not change data. Change it in Connect remote Postgres.' }, 'read-only')),
     h('div', { class: 'seg' },
       h('button', { class: tab.view === 'rows' ? 'on' : '', onclick: () => { tab.view = 'rows'; persistTabs(); renderPane(); } }, 'Rows'),
       h('button', { class: tab.view === 'structure' ? 'on' : '', onclick: () => { tab.view = 'structure'; persistTabs(); renderPane(); } }, 'Structure')),
     tab.view === 'rows' && filterBox,
     h('div', { class: 'spacer' }),
     tab.view === 'rows' && selCount > 0 && h('button', { class: 'btn red', onclick: () => deleteSelected(tab) }, ic('trash'), `Delete ${selCount}`),
-    tab.view === 'rows' && !isView && h('button', { class: 'btn', onclick: () => startDraft(tab), title: 'Insert a row (Ctrl+Alt+R)' }, ic('plus'), 'Row'),
+    tab.view === 'rows' && t.editable && h('button', { class: 'btn', onclick: () => startDraft(tab), title: 'Insert a row (Ctrl+Alt+R)' }, ic('plus'), 'Row'),
     h('button', { class: 'btn ghost', title: 'Refresh', onclick: async () => { tab.dirty = true; await refreshSchema({ initial: true }); renderIndex(); renderPane(); } }, ic('refresh')),
     tab.view === 'rows' && h('button', { class: 'btn ghost', title: 'Export CSV (current filter)', onclick: () => exportTableCsv(t, tab) }, ic('download')),
     h('button', { class: 'btn blue', title: 'Ask the Clerk about what you\'re viewing', onclick: () => { openClerk(); S.clerk.ctxOn = true; renderClerkCtx(); $('clerkText')?.focus(); } }, ic('quill'), 'Ask'));
@@ -1584,7 +1588,8 @@ function renderTableTab(tab, pane) {
       tab.filter && h('span', { style: 'color:var(--red)' }, 'filtered'),
       tab.sort && h('span', {}, `sorted by ${tab.sort.col} ${tab.sort.dir}`),
       h('div', { class: 'spacer' }),
-      !isView && h('span', { style: 'color:var(--ink3)' }, 'Double-click or Enter to edit · right-click for more'),
+      t.editable ? h('span', { style: 'color:var(--ink3)' }, 'Double-click or Enter to edit · right-click for more')
+        : ro && h('span', { style: 'color:var(--ink3)' }, 'Read-only connection · browsing only'),
       h('button', { class: 'btn sm ghost', disabled: tab.page === 0, onclick: () => { tab.page--; tab.dirty = true; renderPane(); } }, '‹ Prev'),
       h('button', { class: 'btn sm ghost', disabled: tab.approx ? tab.rows.length < PAGE : to >= tab.total, onclick: () => { tab.page++; tab.dirty = true; renderPane(); } }, 'Next ›')].filter(Boolean));
     if (tab.markRow != null) {
@@ -1738,7 +1743,9 @@ async function gridWrite(label, stmts, undoStmts) {
 }
 
 async function undoLast() {
-  const u = S.undo.pop();
+  const u = S.undo.at(-1);
+  if (u && !(await prodWriteOk(u.stmts.map(s => s.sql).join(';\n')))) return;
+  S.undo.pop();
   if (!u) { toast('Nothing to undo'); return; }
   const t0 = performance.now();
   try {
@@ -1903,7 +1910,7 @@ async function renderStructure(tab, t, pane) {
   let idx = [];
   try { idx = (await q(`select indexname, indexdef from pg_indexes where schemaname = $1 and tablename = $2 order by 1`, [t.schema, t.name])).rows; } catch {}
   let viewDef = null;
-  if (!t.editable) try { viewDef = (await q(`select pg_get_viewdef($1::regclass, true) as d`, [qt(t)])).rows[0].d; } catch {}
+  if (t.kind === 'v' || t.kind === 'm') try { viewDef = (await q(`select pg_get_viewdef($1::regclass, true) as d`, [qt(t)])).rows[0].d; } catch {}
   if (viewDef) side.append(h('div', { class: 'card' }, h('h3', {}, 'View definition'), h('pre', { class: 'ddl', html: highlightSQL(viewDef.trim()) })));
   if (t.editable) side.append(h('div', { class: 'card' },
     h('h3', {}, 'Indexes', h('span', { class: 'spacer' }), h('button', { class: 'btn sm ghost', onclick: () => openQuery(`create index on ${qt(t)} (${t.cols[0] ? qi(t.cols[0].name) : ''});`, { title: `index ${t.name}` }) }, ic('plus'), 'New')),
@@ -1915,10 +1922,11 @@ async function renderStructure(tab, t, pane) {
   side.append(h('div', { class: 'card' }, h('h3', {}, 'Housekeeping'), h('div', { class: 'danger-zone' },
     t.editable && h('button', { class: 'btn sm', onclick: () => renameTable(t) }, 'Rename…'),
     t.editable && h('button', { class: 'btn sm red', onclick: () => truncateTable(t) }, 'Empty…'),
-    h('button', { class: 'btn sm red', onclick: () => dropRelation(t) }, ic('trash'), t.editable ? 'Drop table…' : 'Drop view…'))));
+    h('button', { class: 'btn sm red', onclick: () => dropRelation(t) }, ic('trash'), t.kind === 'v' || t.kind === 'm' ? 'Drop view…' : 'Drop table…'))));
 }
 
-async function runDDL(sql, label) {
+async function runDDL(sql, label, { confirmed } = {}) {
+  if (!confirmed && !(await prodWriteOk(sql))) return false;    // dialogs that already asked pass confirmed
   const t0 = performance.now();
   try {
     await S.db.exec(sql);
@@ -1948,14 +1956,16 @@ async function dropColumn(t, c) {
   if (await confirmDlg({ title: `Drop column ${c.name}?`, body: 'Its data will be deleted. This cannot be undone.', ok: 'Drop column', danger: true })
       && await runDDL(`alter table ${qt(t)} drop column ${qi(c.name)};`, `Dropped column ${c.name}`)) renderPane();
 }
+const onProd = () => isProd() ? `${currentDb().name} is a production database. ` : isRemote(S.id) ? `This is the real ${currentDb().name} server. ` : '';
 async function truncateTable(t) {
-  if (await confirmDlg({ title: `Empty ${t.key}?`, body: `All ${plural(S.counts[t.key] ?? 0, 'row')} will be deleted. This cannot be undone.`, ok: 'Empty table', danger: true }))
-    await runDDL(`truncate ${qt(t)} restart identity cascade;`, `Emptied ${t.name}`);
+  // On a remote server there's no undo and others may depend on the data: make it deliberate.
+  if (await confirmDlg({ title: `Empty ${t.key}?`, body: `${onProd()}All ${(S.approx?.has(t.key) ? '~' : '') + plural(S.counts[t.key] ?? 0, 'row')} will be deleted. This cannot be undone.`, ok: 'Empty table', danger: true, typeToConfirm: isRemote(S.id) ? t.name : undefined }))
+    await runDDL(`truncate ${qt(t)} restart identity cascade;`, `Emptied ${t.name}`, { confirmed: true });
 }
 async function dropRelation(t) {
   const what = t.kind === 'v' ? 'view' : t.kind === 'm' ? 'materialized view' : 'table';
-  if (await confirmDlg({ title: `Drop ${what} ${t.key}?`, body: 'This permanently removes it and its data. Dependent objects are dropped too.', ok: `Drop ${what}`, danger: true, typeToConfirm: t.name }))
-    await runDDL(`drop ${what} ${qt(t)} cascade;`, `Dropped ${t.key}`);
+  if (await confirmDlg({ title: `Drop ${what} ${t.key}?`, body: `${onProd()}This permanently removes it and its data. Dependent objects are dropped too.`, ok: `Drop ${what}`, danger: true, typeToConfirm: t.name }))
+    await runDDL(`drop ${what} ${qt(t)} cascade;`, `Dropped ${t.key}`, { confirmed: true });
 }
 
 /* ==========================================================================
@@ -2305,6 +2315,7 @@ function importCsvDialog({ schema } = {}) {
   go.onclick = async () => {
     if (!rows?.length) { file.click(); return; }
     const tname = slug(nameI.value);
+    if (!(await prodWriteOk(`create table ${target(tname)} … -- and insert ${plural(rows.length - (header.checked ? 1 : 0), 'row')} from CSV`))) return;
     const data = header.checked ? rows.slice(1) : rows;
     go.disabled = true;
     const t0 = performance.now();
@@ -2371,6 +2382,7 @@ select b.title, a.name as author, sum(oi.qty)::int as copies, sum(oi.qty * b.pri
   from order_items oi join books b on b.id = oi.book_id join authors a on a.id = b.author_id
  group by b.title, a.name order by revenue desc;`;
 async function loadSample() {
+  if (isRemote(S.id)) return toast('The sample bookstore is for databases in this browser — make a new one to try it.', 'bad');
   if (S.byKey.books || S.byKey.authors) { toast('Sample tables already exist here — create a new database for a fresh copy.', 'bad'); return; }
   if (await runDDL(SAMPLE_SQL.trim(), 'Loaded the sample bookstore')) openMap();
 }
@@ -3507,6 +3519,8 @@ function showDbKind() {
   el.classList.toggle('prod', r.tag === 'prod');
   el.title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''}${r.readOnly ? ' · read-only' : ''}` : '';
 }
+const isProd = () => { const d = currentDb(); return d?.kind === 'remote' && d.remote?.tag === 'prod'; };
+const readOnlyConn = () => { const d = currentDb(); return d?.kind === 'remote' && !!d.remote?.readOnly; };
 /** On a writable production connection, confirm anything that isn't a plain read. */
 async function prodWriteOk(sql) {
   const d = currentDb();
@@ -4000,7 +4014,7 @@ const COMMANDS = [
   { label: 'Overview', k: 'home overview dashboard', run: () => activate(null) },
   { label: 'Toggle the journal', k: 'journal log history', run: toggleJournal },
   { label: 'Toggle day / night', k: 'theme dark light night day', run: toggleTheme },
-  { label: 'Load the sample bookstore', k: 'sample demo example data', run: loadSample },
+  { label: 'Load the sample bookstore', k: 'sample demo example data', run: loadSample, when: () => !isRemote(S.id) },
   { label: 'Extensions…', k: 'extensions extension plugins pg_trgm vector pgvector postgis uuid pgcrypto hstore fuzzy', run: () => extensionsDialog() },
   { label: 'Share as link', k: 'share link url send copy', run: shareDialog },
   { label: 'Export session (.pgquire)', k: 'export session pgquire save file backup all databases chats', run: exportSessionDialog },
@@ -4022,7 +4036,7 @@ function buildOmni() {
   if (sqs.length && !looksSql) { items.push({ sep: 'Saved queries' }); for (const x of sqs) items.push({ kind: 'query', label: h('em', {}, x.title), hint: x.sql.replace(/\s+/g, ' ').slice(0, 40), run: () => openSaved(x) }); }
   if (tables.length) { items.push({ sep: 'Tables' }); for (const x of tables) items.push({ kind: x.kind === 'v' ? 'view' : 'table', label: h('em', {}, multi ? x.name : x.key), hint: [multi && x.schema, x.kind === 'v' ? '' : (S.approx?.has(x.key) ? '~' : '') + plural(S.counts[x.key] ?? 0, 'row')].filter(Boolean).join(' · '), run: () => openTable(x.key) }); }
   if (t && !looksSql) items.push({ sep: 'Clerk' }, { kind: 'ask', label: h('span', {}, 'Ask: ', h('em', {}, `“${text.trim().slice(0, 80)}”`)), hint: S.clerk.key != null ? '' : 'needs a key', run: () => clerkAsk(text.trim()) });
-  const cmds = COMMANDS.filter(c => !t || c.label.toLowerCase().includes(t) || c.k.includes(t)).slice(0, t ? 4 : 6);
+  const cmds = COMMANDS.filter(c => (!c.when || c.when()) && (!t || c.label.toLowerCase().includes(t) || c.k.includes(t))).slice(0, t ? 4 : 6);
   if (cmds.length) { items.push({ sep: 'Actions' }); for (const c of cmds) items.push({ kind: 'do', label: c.label, run: c.run }); }
   if (t && looksSql) items.push({ sep: 'Clerk' }, { kind: 'ask', label: h('span', {}, 'Ask the Clerk about this SQL'), run: () => clerkAsk(`About this SQL:\n${text.trim()}`) });
   omniItems = items.filter(i => !i.sep);
@@ -4426,7 +4440,7 @@ function renderClerk() {
     h('div', { class: 'compose-chips', id: 'clerkChips' }, h('div', { class: 'ctx-chip', id: 'clerkCtx' })),
     h('div', { class: 'compose-box' }, ta, send),
     h('div', { class: 'clerk-opts' },
-      h('label', { title: 'Queries that change data or schema wait for your stamp' }, h('input', { type: 'checkbox', checked: store.get('confirm', true), onchange: e => { store.set('confirm', e.target.checked); if (e.target.checked) C.allowAll = false; } }), 'Ask before changes'),
+      h('label', { title: isProd() ? 'Always on for a production database' : 'Queries that change data or schema wait for your stamp' }, h('input', { type: 'checkbox', checked: isProd() || store.get('confirm', true), disabled: isProd(), onchange: e => { store.set('confirm', e.target.checked); if (e.target.checked) C.allowAll = false; } }), isProd() ? 'Ask before changes (production)' : 'Ask before changes'),
       C.allowAll && h('span', { style: 'color:var(--red)' }, '· approving all this session'),
       (() => { const c = curConv(), full = c?.ctxMode === 'full';
         return h('button', { class: 'ctx-mode' + (full ? ' full' : ''),
@@ -4894,7 +4908,7 @@ async function execRW(sql) {
 async function clerkRunSql(sql) {
   if (!sql) return 'ERROR: empty sql';
   const it = { k: 'sql', sql, status: 'pending', ts: Date.now() };
-  const gate = store.get('confirm', true) && !C.allowAll;
+  const gate = isProd() || (store.get('confirm', true) && !C.allowAll);   // production: always ask, every time
   let r;
   if (gate) {
     r = /\b(begin|commit|rollback|savepoint|start\s+transaction)\b/i.test(sql) ? { needsWrite: true } : await execRO(sql);
@@ -4937,7 +4951,7 @@ function approve(it) {
     const bar = h('div', { class: 'r-ask' },
       h('div', { class: 'q' }, 'This will change the database. Stamp it?'),
       h('button', { class: 'btn sm ink', onclick: () => done(true) }, 'Approve'),
-      h('button', { class: 'btn sm', onclick: () => { C.allowAll = true; done(true); } }, 'Approve all this session'),
+      !isProd() && h('button', { class: 'btn sm', onclick: () => { C.allowAll = true; done(true); } }, 'Approve all this session'),
       h('button', { class: 'btn sm red', onclick: () => done(false) }, 'Decline'));
     card.append(bar);
     C.approve = done;
