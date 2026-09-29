@@ -369,6 +369,7 @@ select.field { padding-right: 4px; }
 .mcard.flash { animation: cardflash 1.6s ease-out; }
 @keyframes cardflash { 0%, 30% { box-shadow: 0 0 0 5px var(--hl); } }
 .map-tools { position: absolute; right: 14px; bottom: 14px; display: flex; gap: 4px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 3px; box-shadow: var(--shadow); z-index: 2; }
+.map-schema { position: absolute; left: 14px; top: 14px; z-index: 3; width: auto; font-size: 12px; padding: 4px 8px; }
 .map-legend { position: absolute; left: 14px; bottom: 14px; font: italic 13px var(--serif); color: var(--ink3); z-index: 2; }
 
 /* ============================================================
@@ -2377,6 +2378,11 @@ async function loadSample() {
 /* ==========================================================================
    Chart — ER map
    ========================================================================== */
+/* The ERD can show one schema at a time (remembered per database). Everything it draws or exports —
+   cards, wires, SVG/PNG, Mermaid/DBML/text — goes through erdTables(), so they always agree. */
+const erdSchema = () => { const sc = store.get(`erdSchema:${S.id}`, ''); return sc && S.tables.some(t => t.schema === sc) ? sc : ''; };
+const erdTables = () => { const sc = erdSchema(); return sc ? S.tables.filter(t => t.schema === sc) : S.tables; };
+
 function renderMap(tab, pane) {
   const pos = store.get(`map:${S.id}`, {});
   const view = tab.view || (tab.view = { x: 30, y: 30, k: 1 });
@@ -2385,7 +2391,10 @@ function renderMap(tab, pane) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('class', 'wires'); svg.setAttribute('width', '1'); svg.setAttribute('height', '1');
   world.append(svg);
-  map.append(world,
+  const schemas = [...new Set(S.tables.map(t => t.schema))].sort((a, b) => (a !== 'public') - (b !== 'public') || a.localeCompare(b));
+  const pick = schemas.length > 1 && h('select', { class: 'field map-schema', title: 'Show one schema', onchange: e => { store.set(`erdSchema:${S.id}`, e.target.value); tab.fitNext = true; renderPane(); } },
+    h('option', { value: '' }, `All schemas (${schemas.length})`), schemas.map(sc => h('option', { value: sc, selected: sc === erdSchema() }, sc)));
+  map.append(world, pick || '',
     h('div', { class: 'map-legend' }, S.tables.length ? 'Drag cards to arrange · double-click to open · scroll to zoom' : 'No tables to diagram yet.'),
     h('div', { class: 'map-tools' },
       h('button', { class: 'iconbtn', title: 'Zoom in', onclick: () => zoom(1.2) }, ic('plus')),
@@ -2420,10 +2429,11 @@ function renderMap(tab, pane) {
     const refs = t.fks.map(f => S.byKey[f.ref]).filter(r => r && r !== t);
     return (level[t.key] = refs.length ? 1 + Math.max(...refs.map(r => depth(r, seen))) : 0);
   };
-  S.tables.forEach(t => depth(t));
+  const tables = erdTables();
+  tables.forEach(t => depth(t));
   const colY = {};
   const cards = {};
-  for (const t of S.tables) {
+  for (const t of tables) {
     const L = t.kind === 'v' ? Math.max(0, ...Object.values(level)) + 1 : level[t.key];
     if (!pos[t.key]) { const y = colY[L] || 0; pos[t.key] = { x: L * 340, y }; colY[L] = y + 36 + t.cols.length * 22 + 36; }
     else colY[L] = Math.max(colY[L] || 0, pos[t.key].y + 36 + t.cols.length * 22 + 36);
@@ -2461,13 +2471,14 @@ function renderMap(tab, pane) {
   };
   map.onwheel = e => { e.preventDefault(); const r = map.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top); };
   map.onpointerdown = e => {
-    if (e.target.closest('.mcard, .map-tools')) return;
+    if (e.target.closest('.mcard, .map-tools, .map-schema')) return;
     map.setPointerCapture(e.pointerId); map.classList.add('panning');
     const sx = e.clientX - view.x, sy = e.clientY - view.y;
     map.onpointermove = ev => { view.x = ev.clientX - sx; view.y = ev.clientY - sy; apply(); };
     map.onpointerup = () => { map.onpointermove = null; map.classList.remove('panning'); };
   };
   wires(); apply();
+  if (tab.fitNext) { tab.fitNext = false; requestAnimationFrame(fit); }   // after switching schema, frame what's shown
   if (!tab.fitted) { tab.fitted = true; requestAnimationFrame(fit); }
 }
 
@@ -2484,9 +2495,10 @@ function wireGeometry(pos) {
     const sx = x + dir * (8 + n * 7), y1 = Math.min(...ys), y2 = Math.max(...ys);
     return { d: `M${sx},${y1} V${y2} ` + ys.map(y => `M${x},${y} H${sx} `).join(''), x: sx, y: (y1 + y2) / 2 };
   };
-  for (const t of S.tables) for (const f of t.fks) {
+  const shown = new Set(erdTables().map(t => t.key));
+  for (const t of erdTables()) for (const f of t.fks) {
     const a = pos[t.key], b = pos[f.ref], rt = S.byKey[f.ref];
-    if (!a || !b || !rt) continue;
+    if (!a || !b || !rt || !shown.has(f.ref)) continue;          // keys into a hidden schema: no wire
     const self = t.key === f.ref;
     const leftward = !self && a.x > b.x + 115;     // child sits right of parent: leave from its left edge
     const ax = leftward ? a.x : a.x + 230, bx = self ? b.x + 230 : leftward ? b.x + 230 : b.x;
@@ -2515,7 +2527,7 @@ const edgeSvg = (e, attrs = {}) => {
 function chartSvg() {
   const pos = store.get(`map:${S.id}`, {});
   const cs = getComputedStyle(document.documentElement), v = n => cs.getPropertyValue(n).trim();
-  const W = 230, cards = S.tables.filter(t => pos[t.key]).map(t => ({ t, x: pos[t.key].x, y: pos[t.key].y, h: 37 + t.cols.length * 22 }));
+  const W = 230, cards = erdTables().filter(t => pos[t.key]).map(t => ({ t, x: pos[t.key].x, y: pos[t.key].y, h: 37 + t.cols.length * 22 }));
   if (!cards.length) return null;
   const pad = 40;
   const x0 = Math.min(...cards.map(c => c.x)) - pad, y0 = Math.min(...cards.map(c => c.y)) - pad;
@@ -2544,12 +2556,12 @@ ${g.map(e => edgeSvg(e, { line: ` fill="none" stroke="${v('--blue')}" stroke-wid
     });
     out += '</g>';
   }
-  out += `<text x="${x0 + pad}" y="${y1 - 16}" font-family="${F.serif}" font-size="13" font-style="italic" fill="${v('--ink3')}">${esc(currentDb()?.name || '')} · ERD · ${plural(cards.length, 'table')} · pgquire · ${new Date().toLocaleDateString()}</text></svg>`;
+  out += `<text x="${x0 + pad}" y="${y1 - 16}" font-family="${F.serif}" font-size="13" font-style="italic" fill="${v('--ink3')}">${esc(currentDb()?.name || '')} · ERD${erdSchema() ? ` · ${esc(erdSchema())}` : ''} · ${plural(cards.length, 'table')} · pgquire · ${new Date().toLocaleDateString()}</text></svg>`;
   return { svg: out, w, h: hh };
 }
 /* ---------- ERD as text: Mermaid, DBML, plain ---------- */
 function erdText(kind) {
-  const tables = S.tables;
+  const tables = erdTables();
   const isUnique = (t, cols) => t.pk.length === cols.length && cols.every(c => t.pk.includes(c))
     || t.cons.some(k => k.type === 'u' && (() => { const m = /UNIQUE \(([^)]+)\)/.exec(k.def); return m && m[1].split(',').map(x => x.trim().replace(/"/g, '')).sort().join() === [...cols].sort().join(); })());
   const uniques = t => t.cons.filter(k => k.type === 'u').map(k => (/UNIQUE \(([^)]+)\)/.exec(k.def)?.[1] || '').split(',').map(x => x.trim().replace(/"/g, ''))).filter(x => x[0]);
@@ -2568,7 +2580,7 @@ function erdText(kind) {
       out.push('    }');
     }
     for (const t of tables) for (const f of t.fks) {
-      const rt = S.byKey[f.ref]; if (!rt) continue;
+      const rt = S.byKey[f.ref]; if (!rt || !tables.includes(rt)) continue;
       const required = f.cols.every(c => t.cols.find(x => x.name === c)?.notnull);
       const one = isUnique(t, f.cols);
       // parent side: exactly one if the key is required, else zero-or-one; child side: one (1:1) or many
@@ -2595,7 +2607,7 @@ function erdText(kind) {
       out.push('}', '');
     }
     for (const t of tables) for (const f of t.fks) {
-      const rt = S.byKey[f.ref]; if (!rt) continue;
+      const rt = S.byKey[f.ref]; if (!rt || !tables.includes(rt)) continue;
       const one = isUnique(t, f.cols);
       const cols = cs => cs.length > 1 ? `(${cs.map(q).join(', ')})` : q(cs[0]);
       const opt = f.onDelete && f.onDelete !== 'no action' ? ` [delete: ${f.onDelete}]` : '';
@@ -2620,11 +2632,11 @@ function erdText(kind) {
   return out.join('\n').trimEnd() + '\n';
 }
 async function copyErdText(kind) {
-  if (!S.tables.length) return toast('No tables to describe yet', 'bad');
+  if (!erdTables().length) return toast('No tables to describe yet', 'bad');
   const text = erdText(kind);
   try { await navigator.clipboard.writeText(text); }
   catch { const ta = h('textarea', { value: text, style: 'position:fixed;opacity:0' }); document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
-  toast(`Copied ${{ mermaid: 'Mermaid', dbml: 'DBML', text: 'plain-text' }[kind]} ERD · ${plural(S.tables.length, 'table')}`);
+  toast(`Copied ${{ mermaid: 'Mermaid', dbml: 'DBML', text: 'plain-text' }[kind]} ERD · ${plural(erdTables().length, 'table')}${erdSchema() ? ` in ${erdSchema()}` : ''}`);
 }
 
 function exportChart(kind) {
@@ -4003,10 +4015,12 @@ function buildOmni() {
   const items = [];
   const looksSql = SQL_START.test(text);
   if (looksSql) items.push({ kind: 'sql', label: h('span', {}, 'Run ', h('code', { style: 'font:12px var(--mono)' }, text.trim().slice(0, 70))), hint: 'in a new query tab', run: () => openQuery(text.trim(), { run: true, title: 'quick query' }) });
-  const tables = S.tables.filter(x => !t || x.key.toLowerCase().includes(t)).slice(0, t ? 6 : 8);
+  const multi = new Set(S.tables.map(x => x.schema)).size > 1;
+  const tables = S.tables.filter(x => !t || `${x.schema}.${x.name}`.toLowerCase().includes(t))
+    .sort((a, b) => !t ? 0 : (!a.name.toLowerCase().startsWith(t)) - (!b.name.toLowerCase().startsWith(t)))   // names starting with it first.slice(0, t ? 6 : 8);
   const sqs = loadSaved().filter(x => t && (x.title.toLowerCase().includes(t) || x.sql.toLowerCase().includes(t))).slice(0, 5);
   if (sqs.length && !looksSql) { items.push({ sep: 'Saved queries' }); for (const x of sqs) items.push({ kind: 'query', label: h('em', {}, x.title), hint: x.sql.replace(/\s+/g, ' ').slice(0, 40), run: () => openSaved(x) }); }
-  if (tables.length) { items.push({ sep: 'Tables' }); for (const x of tables) items.push({ kind: x.kind === 'v' ? 'view' : 'table', label: h('em', {}, x.key), hint: x.kind === 'v' ? '' : plural(S.counts[x.key] ?? 0, 'row'), run: () => openTable(x.key) }); }
+  if (tables.length) { items.push({ sep: 'Tables' }); for (const x of tables) items.push({ kind: x.kind === 'v' ? 'view' : 'table', label: h('em', {}, multi ? x.name : x.key), hint: [multi && x.schema, x.kind === 'v' ? '' : (S.approx?.has(x.key) ? '~' : '') + plural(S.counts[x.key] ?? 0, 'row')].filter(Boolean).join(' · '), run: () => openTable(x.key) }); }
   if (t && !looksSql) items.push({ sep: 'Clerk' }, { kind: 'ask', label: h('span', {}, 'Ask: ', h('em', {}, `“${text.trim().slice(0, 80)}”`)), hint: S.clerk.key != null ? '' : 'needs a key', run: () => clerkAsk(text.trim()) });
   const cmds = COMMANDS.filter(c => !t || c.label.toLowerCase().includes(t) || c.k.includes(t)).slice(0, t ? 4 : 6);
   if (cmds.length) { items.push({ sep: 'Actions' }); for (const c of cmds) items.push({ kind: 'do', label: c.label, run: c.run }); }
