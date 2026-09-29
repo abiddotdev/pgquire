@@ -474,6 +474,8 @@ select.field { padding-right: 4px; }
   background: var(--sheet); border: 1px solid var(--red); border-radius: 6px; box-shadow: var(--shadow); }
 .conn-banner[hidden] { display: none; }
 .menu button:disabled { opacity: .5; cursor: default; }
+.origin-note { margin: 0 0 22px; padding: 12px 14px; border: 1px dashed var(--ink3); border-radius: 6px; background: var(--sheet); font-size: 13px; max-width: 720px; }
+.origin-note p { margin: 4px 0 10px; color: var(--ink2); }
 .move-row { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); margin-top: 6px; }
 .move-row:hover { border-color: var(--ink3); background: var(--sheet); }
 .move-row .ic { margin-top: 2px; flex: none; }
@@ -1499,6 +1501,15 @@ function renderHome(pane) {
         : empty
         ? 'This is a real PostgreSQL database living in your browser. Nothing leaves this machine unless you ask the Clerk. Start with a table, a CSV, or the sample books.'
         : 'Pick a table from the index to browse and edit rows, open the ERD to see relationships, or press Ctrl K to jump anywhere.')),
+    S.server && !store.get('originNote', false) && (() => {
+      const card = h('div', { class: 'origin-note' },
+        h('b', {}, 'Looking for databases you made on the pgquire website?'),
+        h('p', {}, 'Browsers keep each address\'s storage separate, so in-browser databases from the website don\'t show up here, and ones made here stay here. To bring them over: on the website, Move data → Export session; here, Move data → Open a session file.'),
+        h('div', { style: 'display:flex;gap:8px' },
+          h('button', { class: 'btn sm', onclick: () => pickSessionFile() }, ic('upload'), 'Open a session file…'),
+          h('button', { class: 'btn sm ghost', onclick: () => { store.set('originNote', true); card.remove(); } }, 'Got it')));
+      return card;
+    })(),
     h('div', { class: 'home-actions' }, acts.map((a, i) => h('button', { class: 'act' + (a.blue ? ' blue' : ''), style: `animation-delay:${i * 45}ms`, onclick: a.run },
       h('span', { class: 'glyph' }, ic(a.icon)), h('b', {}, a.t), h('span', {}, a.s)))),
     !empty && h('h2', {}, 'Folios', h('small', {}, 'every table and view')),
@@ -2792,7 +2803,8 @@ $('dbSwitch').onclick = e => {
     '-',
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
-    S.server && { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog },
+    S.server ? { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog }
+      : { label: 'Connect remote Postgres…', icon: 'plus', hint: 'needs the pgquire app', run: needsAppDialog },
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
     { label: 'Share as link…', icon: 'share', run: shareDialog, disabled: !dbCaps().share, hint: dbCaps().share ? '' : 'in-browser only', why: 'A link carries the data itself, so it needs a database in this browser. Use Copy to a local database first.' },
     '-',
@@ -2801,6 +2813,20 @@ $('dbSwitch').onclick = e => {
     isRemote(S.id) ? { label: 'Remove this connection…', icon: 'trash', run: deleteDb } : { label: 'Delete this database…', icon: 'trash', danger: true, run: deleteDb },
   ].filter(Boolean));
 };
+/** On the website (no pgquire server): explain how remote Postgres works instead of hiding it. */
+function needsAppDialog() {
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Connect to a real Postgres server'),
+      h('p', {}, 'Browsers can\'t talk to Postgres directly, so this needs the small pgquire app on your computer. It runs this same workbench and connects to your servers for you; passwords stay in the app.')),
+    h('div', { class: 'modal-b' },
+      h('ol', { style: 'margin:0;padding-left:20px;line-height:1.7;font-size:13.5px' },
+        h('li', {}, 'Download pgquire for your system from the releases page.'),
+        h('li', {}, 'Run it. It opens pgquire at 127.0.0.1:8432 with a sign-in link.'),
+        h('li', {}, 'In the database switcher, choose Connect remote Postgres…')),
+      h('p', { style: 'margin:0;font-size:12.5px;color:var(--ink3)' }, 'Databases made here stay in this site\'s storage. To take them along, use Move data → Export session.')),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'),
+      h('a', { class: 'btn ink', href: 'https://github.com/abiddotdev/pgquire/releases', target: '_blank', rel: 'noopener', onclick: () => m.close() }, 'Download pgquire'))]);
+}
 /** Every way data leaves or enters, in one place, with the direction stated. */
 function moveDataDialog() {
   const d = currentDb(), remote = isRemote(S.id), name = dbLabel(d);
@@ -3288,7 +3314,10 @@ let serverP = null;
 const pgquireServer = () => serverP ??= (/^https?:$/.test(location.protocol)
   ? fetch('/api/health', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => j?.app === 'pgquire' ? j : null).catch(() => null)
   : Promise.resolve(null));
-pgquireServer().then(s => { S.server = s; });
+pgquireServer().then(s => {
+  S.server = s;
+  if (s && !store.get('originNote', false) && S.db && !activeTab()) renderPane();   // Home picks up the one-time note
+});
 
 async function api(method, path, body) {
   const r = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
