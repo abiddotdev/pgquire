@@ -418,6 +418,10 @@ select.field { padding-right: 4px; }
 .ctx-chip.off { color: var(--ink3); border-color: var(--rule); text-decoration: line-through; }
 .compose-box { display: flex; align-items: flex-end; gap: 6px; border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 5px 5px 5px 11px; }
 .compose-box:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
+.clerk-compose.offline .compose-box { background: var(--rule2); border-style: dashed; }
+.clerk-compose.offline .compose-box textarea { color: var(--ink3); }
+.send.offline { background: var(--ink4); color: var(--sheet); }
+.send.offline:hover { background: var(--blue); }
 .compose-box textarea { flex: 1; border: 0; outline: none; resize: none; background: none; font: 15px/1.45 var(--serif); padding: 4px 0; max-height: 180px; min-height: 26px; }
 .compose-box textarea::placeholder { color: var(--ink3); font-style: italic; }
 .send { width: 30px; height: 30px; border-radius: 6px; display: grid; place-items: center; background: var(--blue); color: var(--blue-paper); flex-shrink: 0; }
@@ -577,6 +581,14 @@ select.field { padding-right: 4px; }
 .share-verdict { font-size: 12.5px; color: var(--ink2); }
 .share-verdict.ok b { color: var(--green); } .share-verdict.warn b { color: #b07a12; } .share-verdict.bad b { color: var(--red); }
 
+.share-convs { display: flex; flex-direction: column; max-height: 176px; overflow-y: auto; border: 1px solid var(--rule2); border-radius: 5px; padding: 3px 0; }
+.share-convs label { display: flex; align-items: center; gap: 8px; padding: 5px 10px; font-size: 13px; cursor: pointer; }
+.share-convs label:hover { background: var(--hl-soft); }
+.share-convs label:has(input:disabled) { opacity: .45; cursor: not-allowed; }
+.share-convs .sc-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.share-convs .sc-cur { font: 600 9px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--blue); border: 1px solid currentColor; border-radius: 3px; padding: 0 4px; flex-shrink: 0; }
+.share-convs small { margin-left: auto; color: var(--ink3); font: 11px var(--mono); white-space: nowrap; padding-left: 10px; }
+
 /* ---------- journal ---------- */
 .journal { grid-area: journal; border-top: 1.5px solid var(--ink); background: var(--panel); display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .journal-head { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-bottom: 1px solid var(--rule); }
@@ -722,6 +734,7 @@ select.field { padding-right: 4px; }
   <symbol id="i-shrink" viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></symbol>
   <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M10 3.5a2 2 0 0 1 4 0V5h4a1 1 0 0 1 1 1v4h-1.5a2 2 0 0 0 0 4H19v4a1 1 0 0 1-1 1h-4v-1.5a2 2 0 0 0-4 0V19H6a1 1 0 0 1-1-1v-4h1.5a2 2 0 0 0 0-4H5V6a1 1 0 0 1 1-1h4z"/></symbol>
   <symbol id="i-composite" viewBox="0 0 24 24"><path d="M7 5H4v6h3M17 13h3v6h-3M4 8h5c3 0 3 8 6 8h5"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></symbol>
   <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
 </svg>
 
@@ -744,6 +757,7 @@ select.field { padding-right: 4px; }
       <div class="omni-list" id="omniList"></div>
     </div>
     <div class="top-actions">
+      <button class="iconbtn" id="shareBtn" title="Share as link"><svg class="ic"><use href="#i-share"/></svg></button>
       <button class="iconbtn hide-sm" id="journalToggle" title="Journal (Ctrl+Shift+J)"><svg class="ic"><use href="#i-book"/></svg></button>
       <button class="iconbtn" id="themeToggle" title="Day / night"><svg class="ic"><use href="#i-moon"/></svg></button>
       <button class="clerk-toggle" id="clerkToggle" title="The Clerk (Ctrl+J)"><span class="pip"></span><svg class="ic"><use href="#i-quill"/></svg><span class="lbl">Clerk</span></button>
@@ -2578,7 +2592,7 @@ $('dbSwitch').onclick = e => {
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} — pgquire`; } } },
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
-    { label: 'Share as link…', icon: 'send', run: shareDialog },
+    { label: 'Share as link…', icon: 'share', run: shareDialog },
     { label: 'Export session (.pgquire)…', icon: 'download', run: exportSessionDialog },
     { label: 'Open session file…', icon: 'upload', run: pickSessionFile },
     '-',
@@ -3209,18 +3223,18 @@ async function decryptBytes(bytes, pass) {
   catch { throw new Error('Wrong passphrase — or the link was cut short.'); }
 }
 /** Pack the open database (+ optional saved queries / chats) the same way .pgquire files are laid out. */
-async function buildSharePayload(sql, { saved, chats }) {
+async function buildSharePayload(sql, { saved, chats, curId }) {   // chats = Set of conversation ids
   const d = currentDb();
   const dir = 'databases/db/';
   const db = { name: d.name, created: d.created, hue: dbHue(d), extensions: dbExtensions(d.id), dir, data: 'dump.sql', files: {} };
   const files = [{ name: dir + 'dump.sql', data: sql }];
   if (saved) { const v = store.get(`saved:${d.id}`, []); if (v.length) { files.push({ name: dir + 'saved-queries.json', data: JSON.stringify(v) }); db.files.saved = 'saved-queries.json'; } }
-  if (chats) {
+  if (chats?.size) {
     saveClerk();
     const c = readClerk(d.id);
     // The visible chat only — the model's full history is far larger and isn't needed to read it.
-    const convs = c.convs.filter(x => x.items.length).map(({ convo, ...x }) => ({ ...x, items: x.items.map(stripItem).map(i => i.k === 'turn' ? { ...i, steps: undefined } : i) }));
-    if (convs.length) { files.push({ name: dir + 'conversations.json', data: JSON.stringify({ cur: convs.at(-1).id, convs }) }); db.files.clerkv2 = 'conversations.json'; }
+    const convs = c.convs.filter(x => chats.has(x.id) && x.items.length).map(({ convo, ...x }) => ({ ...x, items: x.items.map(stripItem).map(i => i.k === 'turn' ? { ...i, steps: undefined } : i) }));
+    if (convs.length) { files.push({ name: dir + 'conversations.json', data: JSON.stringify({ cur: convs.some(x => x.id === curId) ? curId : convs.at(-1).id, convs }) }); db.files.clerkv2 = 'conversations.json'; }
   }
   const manifest = { format: SESSION_FORMAT, version: 3, app: 'pgquire', shared: true, pglite: PGLITE_URL.match(/@([\d.]+)/)?.[1], exported: new Date().toISOString(), databases: [db], settings: false };
   files.unshift({ name: 'manifest.json', data: JSON.stringify(manifest) });
@@ -3229,9 +3243,10 @@ async function buildSharePayload(sql, { saved, chats }) {
 const shareBase = () => location.href.replace(/#.*$/, '');
 function shareDialog() {
   let sql = null, link = '', building = 0;
-  const opts = { saved: true, chats: false };
+  const MAX_CHATS = 5;
+  const convList = [...C.convs].filter(c => c.items.length).sort((a, b) => b.updated - a.updated);
+  const opts = { saved: true, chats: new Set(convList.some(c => c.id === C.cur) ? [C.cur] : []), curId: C.cur };
   const savedN = store.get(`saved:${S.id}`, []).length;
-  const chatN = C.convs.filter(c => c.items.length).length;
   const pass = h('input', { class: 'field', type: 'password', placeholder: 'optional — leave empty for a plain link', autocomplete: 'new-password' });
   const out = h('input', { class: 'field mono', readOnly: true, placeholder: 'building…', style: 'width:100%' });
   const meter = h('div', { class: 'share-meter' }, h('i'));
@@ -3269,7 +3284,24 @@ function shareDialog() {
     h('div', { class: 'modal-b' },
       local && h('div', { class: 'pane-error', style: 'margin:0;color:var(--ink2);border-color:var(--rule);background:var(--paper)' }, h('div', {}, 'pgquire is open from a file on this computer, so the link only works here. To share with others, host the pgquire HTML file somewhere public (e.g. GitHub Pages) and share from there.')),
       check('saved', 'Include saved queries', savedN ? plural(savedN, 'query') : 'none yet'),
-      check('chats', 'Include Clerk conversations', chatN ? `${plural(chatN, 'chat')} · visible messages only` : 'none yet'),
+      convList.length ? (() => {
+        const head = h('div', { class: 'smallcaps', style: 'display:flex;gap:8px;align-items:baseline' });
+        const boxes = [];
+        const sync = () => {
+          head.replaceChildren(`Conversations · ${opts.chats.size} of up to ${MAX_CHATS}`, h('span', { style: 'text-transform:none;letter-spacing:0;font-weight:400' }, 'visible messages only'));
+          for (const { input, id } of boxes) input.disabled = !opts.chats.has(id) && opts.chats.size >= MAX_CHATS;
+        };
+        const when = ts => new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+        const list = h('div', { class: 'share-convs' }, convList.map(c => {
+          const input = h('input', { type: 'checkbox', checked: opts.chats.has(c.id), onchange: e => { e.target.checked ? opts.chats.add(c.id) : opts.chats.delete(c.id); sync(); rebuild(); } });
+          boxes.push({ input, id: c.id });
+          return h('label', { class: 'pick', title: input.disabled ? `Up to ${MAX_CHATS} conversations per link` : '' }, input,
+            h('span', { class: 'sc-title' }, c.title), c.id === C.cur && h('span', { class: 'sc-cur' }, 'open'),
+            h('small', {}, `${plural(c.items.filter(i => i.k === 'user').length, 'message')} · ${when(c.updated)}`));
+        }));
+        sync();
+        return h('div', { style: 'display:flex;flex-direction:column;gap:5px' }, head, list);
+      })() : h('div', { class: 'smallcaps', style: 'color:var(--ink4)' }, 'No Clerk conversations to include yet'),
       h('label', { class: 'lab' }, 'Passphrase', pass),
       h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, out, meter, verdict),
       h('p', { style: 'margin:0;font-size:12px;color:var(--ink3)' }, 'Anyone with the link can open this data (unless it has a passphrase). The data sits after the “#”, which browsers never send to a server.')),
@@ -3707,7 +3739,7 @@ function renderClerk() {
       h('h2', {}, 'The Clerk', clerkOn() && h('small', { title: `${C.base} · ${C.model}` }, C.model.split('/').pop())),
       h('button', { class: 'conv-switch', title: 'Switch conversation', onclick: convMenu }, h('span', {}, cv.title), ic('down', 'width:11px;height:11px'), C.convs.length > 1 && h('small', { style: 'color:var(--ink3)' }, `· ${C.convs.length}`))),
     h('button', { class: 'iconbtn', title: 'New conversation', onclick: startNewConv }, ic('plus')),
-    clerkOn() && h('button', { class: 'iconbtn', title: 'Connection', onclick: () => { C.showConnect = !C.showConnect; renderClerk(); } }, ic('key')),
+    h('button', { class: 'iconbtn' + (clerkOn() ? '' : ' on'), title: clerkOn() ? 'Connection' : 'Not connected — set up the AI', onclick: () => { C.showConnect = !C.showConnect; renderClerk(); } }, ic('key')),
     h('button', { class: 'iconbtn clerk-wide-btn', title: app.classList.contains('clerk-wide') ? 'Restore width (Esc)' : 'Expand to full width', onclick: () => toggleClerkWide() }, ic(app.classList.contains('clerk-wide') ? 'shrink' : 'expand')),
     h('button', { class: 'iconbtn', title: 'Close (Ctrl+J)', onclick: toggleClerk }, ic('x')));
   const u = cv.usage;
@@ -3716,16 +3748,19 @@ function renderClerk() {
     h('span', {}, h('b', {}, fmtTok(u.in)), ' in'), h('span', {}, h('b', {}, fmtTok(u.out)), ' out'), h('span', {}, h('b', {}, u.calls), ' calls'), h('span', {}, h('b', {}, fmtMs(u.ms))),
     h('span', { class: 'cost' }, fmtCost(u)));
   const log = h('div', { class: 'clerk-log', id: 'clerkLog' });
-  if (!clerkOn() || C.showConnect) log.append(connectForm());
+  if (C.showConnect || (!clerkOn() && !store.get('clerkBrowse', false))) log.append(connectForm());
   else if (!C.items.length) log.append(suggestions());
   else for (const it of C.items) log.append(renderClerkItem(it));
-  const ta = h('textarea', { id: 'clerkText', rows: 1, placeholder: clerkOn() ? 'Ask, or tell the Clerk what to do…' : 'Connect above to start', disabled: !clerkOn() });
-  const send = h('button', { class: 'send' + (C.busy ? ' stop' : ''), title: C.busy ? 'Stop' : 'Send (Enter)', disabled: !clerkOn() }, ic(C.busy ? 'stop' : 'send'));
-  send.onclick = () => C.busy ? clerkStop() : (ta.value.trim() && clerkSend(ta.value.trim()));
+  const offline = !clerkOn();
+  const ta = h('textarea', { id: 'clerkText', rows: 1, placeholder: offline ? 'Not connected · press Enter to connect an AI' : 'Ask, or tell the Clerk what to do…' });
+  if (C.pending && offline) ta.value = C.pending;
+  const send = h('button', { class: 'send' + (C.busy ? ' stop' : '') + (offline ? ' offline' : ''), title: C.busy ? 'Stop' : offline ? 'Connect an AI (Enter)' : 'Send (Enter)' }, ic(C.busy ? 'stop' : offline ? 'key' : 'send'));
+  const setup = () => { if (ta.value.trim()) C.pending = ta.value.trim(); C.showConnect = true; renderClerk(); };
+  send.onclick = () => C.busy ? clerkStop() : offline ? setup() : (ta.value.trim() && clerkSend(ta.value.trim()));
   const sizeSoon = debounce(renderCtxSize, 250);
   ta.oninput = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 180) + 'px'; sizeSoon(); };
-  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!C.busy && ta.value.trim()) clerkSend(ta.value.trim()); } };
-  const compose = h('div', { class: 'clerk-compose' },
+  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (C.busy) return; if (offline) return setup(); if (ta.value.trim()) clerkSend(ta.value.trim()); } };
+  const compose = h('div', { class: 'clerk-compose' + (offline ? ' offline' : '') },
     h('div', { class: 'compose-chips', id: 'clerkChips' }, h('div', { class: 'ctx-chip', id: 'clerkCtx' })),
     h('div', { class: 'compose-box' }, ta, send),
     h('div', { class: 'clerk-opts' },
@@ -3759,7 +3794,7 @@ function suggestions() {
     'What are the three most interesting questions I could answer with this data? Answer one.',
     'Build a useful view that summarises the main table',
   ];
-  return h('div', { class: 'suggests' }, h('div', { class: 'smallcaps' }, 'Try'), list.map(s => h('button', { class: 'suggest', onclick: () => clerkSend(s) }, s)));
+  return h('div', { class: 'suggests' }, h('div', { class: 'smallcaps' }, 'Try'), list.map(s => h('button', { class: 'suggest', onclick: () => { if (!clerkOn()) { C.pending = s; C.showConnect = true; renderClerk(); } else clerkSend(s); } }, s)));
 }
 
 function promptEditor() {
@@ -3826,8 +3861,11 @@ function connectForm() {
     promptEditor(),
     go, msg,
     h('div', { class: 'fine' }, 'The key stays in this tab\'s memory only — never saved, gone on reload, sent only to the endpoint above. The endpoint and model are remembered.'),
-    clerkOn() && h('button', { class: 'btn ghost sm', style: 'align-self:flex-start', onclick: () => { C.showConnect = false; renderClerk(); } }, 'Back to conversation'),
-    !clerkOn() && h('button', { class: 'btn ghost sm', style: 'align-self:flex-start', onclick: toggleClerk }, 'Not now'));
+    h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' },
+      (clerkOn() || store.get('clerkBrowse', false))
+        ? h('button', { class: 'btn ghost sm', onclick: () => { C.showConnect = false; renderClerk(); } }, 'Back to conversations')
+        : h('button', { class: 'btn sm', title: 'Read, switch, export and share your conversations; connect whenever you want to ask something', onclick: () => { store.set('clerkBrowse', true); C.showConnect = false; renderClerk(); } }, 'Browse chats without connecting'),
+      !clerkOn() && h('button', { class: 'btn ghost sm', onclick: toggleClerk }, 'Not now')));
 }
 
 let modelsFor = null;
@@ -4026,7 +4064,7 @@ async function callModel(messages, signal) {
 
 function clerkAsk(text, { draft } = {}) {
   openClerk();
-  if (!clerkOn()) { const t = $('clerkText'); if (t) t.value = text; toast('Connect the Clerk first — your question is waiting.'); C.pending = text; return; }
+  if (!clerkOn()) { C.pending = text; C.showConnect = true; renderClerk(); toast('Connect the Clerk first — your question is waiting.'); return; }
   if (draft) { const t = $('clerkText'); t.value = text; t.focus(); t.setSelectionRange(t.value.length, t.value.length); return; }
   clerkSend(text);
 }
@@ -4340,6 +4378,7 @@ const clampClerkW = w => Math.round(Math.max(300, Math.min(w, Math.max(320, inne
 }
 $('clerkToggle').onclick = toggleClerk;
 $('journalToggle').onclick = toggleJournal;
+$('shareBtn').onclick = () => S.db ? shareDialog() : toast('Open a database first');
 $('indexToggle').onclick = () => app.classList.toggle('index-open');
 $('newQueryBtn').onclick = () => openQuery();
 $('mapBtn').onclick = openMap;
