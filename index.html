@@ -839,7 +839,8 @@ select.field { padding-right: 4px; }
 <script type="module">
 /* ==========================================================================
    pgquire ("pg, inquire") — a single-file Postgres workbench on PGlite, with an optional AI Clerk.
-   Internal storage names (pgclerk-app, ledger:) are kept from earlier versions so data carries over.
+   Browser storage: working data in IndexedDB 'pgquire-app'; small settings keep their 'ledger:'
+   localStorage prefix so they carry over.
    (Visual language: a ledger book. Storage keys keep the 'ledger:' prefix for continuity.)
    ========================================================================== */
 const APP_VERSION = '1.0';                                                                    // bump on each release
@@ -926,7 +927,7 @@ function kvFlush() {
 /** Open IndexedDB, load everything into memory, and (once) move data out of localStorage. */
 async function kvInit() {
   kv.db = await new Promise((res, rej) => {
-    const r = indexedDB.open('pgclerk-app', 1);
+    const r = indexedDB.open('pgquire-app', 1);
     r.onupgradeneeded = () => r.result.createObjectStore('kv');
     r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error('storage is blocked by another tab'));
   });
