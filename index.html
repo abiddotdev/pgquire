@@ -1054,6 +1054,8 @@ async function refreshSchema({ initial } = {}) {
     left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
     where a.attrelid in (select c.oid from pg_class c join pg_namespace n on n.oid = c.relnamespace where ${relFilter})
       and a.attnum > 0 and not a.attisdropped order by a.attrelid, a.attnum`);
+  const trg = await q(`select tgrelid::int as oid, array_agg(tgname::text order by tgname) as names from pg_trigger
+    where not tgisinternal and tgrelid in (select c.oid from pg_class c join pg_namespace n on n.oid = c.relnamespace where ${relFilter}) group by tgrelid`);
   const cons = await q(`select conrelid::int as oid, contype::text as type, conname as name, conkey::int[] as keys,
       confrelid::int as roid, confkey::int[] as rkeys, pg_get_constraintdef(oid) as def
     from pg_constraint where conrelid in (select c.oid from pg_class c join pg_namespace n on n.oid = c.relnamespace where ${relFilter})
@@ -1066,6 +1068,7 @@ async function refreshSchema({ initial } = {}) {
     byOid[r.oid] = t;
     return t;
   });
+  for (const r of trg.rows) if (byOid[r.oid]) byOid[r.oid].triggers = r.names;
   for (const c of cols.rows) byOid[c.oid]?.cols.push({ name: c.name, type: c.type, cat: c.cat, notnull: c.notnull, def: c.def, num: c.num, ident: c.ident, gen: c.gen });
   const colAt = (t, num) => t?.cols.find(c => c.num === num)?.name;
   for (const c of cons.rows) {
@@ -1752,7 +1755,25 @@ function editCell(tab, t, r, c, initial) {
 }
 
 /** Run grid-originated writes in one transaction; record the SQL in the journal; return results. */
-async function gridWrite(label, stmts, undoStmts) {
+/** What Undo can't put back exactly, in plain words ('' when it's a clean reversal). Undo is a new
+ *  statement — delete ↔ insert, update → update back — not a rollback, so cascades and triggers show. */
+function undoCaveat(t, op) {
+  if (!t) return '';
+  const list = l => l.length > 3 ? `${l.slice(0, 3).join(', ')} and ${l.length - 3} more` : l.join(', ');
+  const out = [];
+  if (op === 'delete') {
+    const refs = S.tables.flatMap(o => o.fks.filter(f => f.ref === t.key).map(f => ({ o, rule: f.onDelete })));
+    const cascade = [...new Set(refs.filter(x => x.rule === 'cascade').map(x => x.o.name))];
+    const unlink = [...new Set(refs.filter(x => x.rule === 'set null' || x.rule === 'set default').map(x => x.o.name))];
+    if (cascade.length) out.push(`Any rows in ${list(cascade)} that pointed to what you deleted were deleted too (ON DELETE CASCADE) — Undo won't bring those back.`);
+    if (unlink.length) out.push(`Any rows in ${list(unlink)} that pointed to it were unlinked (ON DELETE SET NULL) — Undo won't relink them.`);
+  }
+  const n = t.triggers?.length || 0;
+  if (n) out.push(`Undo ${op === 'delete' ? 're-inserts the rows' : op === 'insert' ? 'deletes the row' : 'writes the old value back'}, so ${t.name}'s trigger${n > 1 ? 's' : ''} (${list(t.triggers)}) run${n > 1 ? '' : 's'} again.`);
+  return out.join(' ');
+}
+async function gridWrite(info, stmts, undoStmts) {
+  const { label, t, op, col } = typeof info === 'string' ? { label: info } : info;
   if (!(await prodWriteOk(stmts.map(s => s.sql).join(';\n')))) return null;
   const t0 = performance.now();
   let results;
@@ -1770,8 +1791,11 @@ async function gridWrite(label, stmts, undoStmts) {
   const affected = results.reduce((a, r) => a + (r.affectedRows || 0), 0);
   journalAdd({ src: 'grid', sql: stmts.map(s => inlineParams(s.sql, s.params)).join(';\n'), info: plural(affected, 'row'), ms: Math.round(performance.now() - t0) });
   const undo = typeof undoStmts === 'function' ? undoStmts(results) : undoStmts;
-  if (undo) { S.undo.push({ label, stmts: undo }); if (S.undo.length > 50) S.undo.shift(); }
-  toast(label, null, undo ? { label: 'Undo', run: undoLast } : null);
+  // Said after Undo runs: what it actually did.
+  const done = n => op === 'delete' ? `Restored ${plural(n, 'row')} in ${t.name}` : op === 'update' ? `Set ${t.name}.${col} back` : op === 'insert' ? `Removed the row added to ${t.name}` : `Undid: ${label}`;
+  if (undo) { S.undo.push({ label, stmts: undo, done }); if (S.undo.length > 50) S.undo.shift(); }
+  const caveat = undo ? undoCaveat(t, op) : '';
+  toast(caveat ? `${label}. ${caveat}` : label, null, undo ? { label: 'Undo', run: undoLast } : null);
   return results;
 }
 
@@ -1785,7 +1809,7 @@ async function undoLast() {
     const res = await S.db.transaction(async tx => { const out = []; for (const s of u.stmts) out.push(await tx.query(s.sql, s.params || [])); return out; });
     const n = res.reduce((a, r) => a + (r.affectedRows || 0), 0);
     journalAdd({ src: 'grid', sql: '-- undo\n' + u.stmts.map(s => inlineParams(s.sql, s.params)).join(';\n'), info: plural(n, 'row'), ms: Math.round(performance.now() - t0) });
-    toast(n ? `Undid: ${u.label}` : `Couldn't undo "${u.label}" — the row has changed since.`, n ? null : 'bad');
+    toast(n ? (u.done ? u.done(n) : `Undid: ${u.label}`) : `Couldn't undo "${u.label}" — the row has changed since.`, n ? null : 'bad');
   } catch (e) { toast('Undo failed: ' + e.message, 'bad'); }
   await afterWrite();
 }
@@ -1794,7 +1818,7 @@ async function updateCell(tab, t, r, c, val) {
   const row = tab.rows[r], col = t.cols[c];
   const old = row[c + 1];
   const id = rowIdent(t, row, 2);
-  const res = await gridWrite(`Updated ${t.name}.${col.name}`,
+  const res = await gridWrite({ label: `Updated ${t.name}.${col.name}`, t, op: 'update', col: col.name },
     [{ sql: `update ${qt(t)} set ${qi(col.name)} = $1 where ${id.where} returning ${identReturn(t)}`, params: [val, ...id.params] }],
     ([r0]) => {
       const newIdent = r0.rows[0];
@@ -1823,7 +1847,7 @@ async function deleteSelected(tab) {
     undo.push({ sql: `insert into ${qt(t)} (${insertable.map(c => qi(c.name)).join(', ')})${overriding} values (${insertable.map((_, i) => '$' + (i + 1)).join(', ')})`,
       params: insertable.map(c => row[t.cols.indexOf(c) + 1]) });
   }
-  const res = await gridWrite(`Deleted ${plural(idxs.length, 'row')} from ${t.name}`, stmts, undo.reverse());
+  const res = await gridWrite({ label: `Deleted ${plural(idxs.length, 'row')} from ${t.name}`, t, op: 'delete' }, stmts, undo.reverse());
   if (res) { tab.sel.clear(); await afterWrite(); }
 }
 
@@ -1839,7 +1863,7 @@ function draftRow(tab, t) {
     const sql = entries.length
       ? `insert into ${qt(t)} (${entries.map(([c]) => qi(c.name)).join(', ')})${entries.some(([c]) => c.ident === 'a') ? ' overriding system value' : ''} values (${entries.map((_, i) => '$' + (i + 1)).join(', ')}) returning ${identReturn(t)}`
       : `insert into ${qt(t)} default values returning ${identReturn(t)}`;
-    const res = await gridWrite(`Added a row to ${t.name}`, [{ sql, params: entries.map(([, v]) => v === '\\N' ? null : v) }], ([r0]) => {
+    const res = await gridWrite({ label: `Added a row to ${t.name}`, t, op: 'insert' }, [{ sql, params: entries.map(([, v]) => v === '\\N' ? null : v) }], ([r0]) => {
       const ident = r0.rows[0];
       const w = t.pk.length ? t.pk.map((p, i) => `${qi(p)} = $${1 + i}`).join(' and ') : 'ctid = $1::tid';
       return [{ sql: `delete from ${qt(t)} where ${w}`, params: ident }];
@@ -2778,7 +2802,7 @@ function closeMenu() { openMenuEl?.remove(); openMenuEl = null; document.removeE
 function toast(msg, kind, action) {
   const t = h('div', { class: 'toast' + (kind === 'bad' ? ' bad' : '') }, h('span', {}, msg), action && h('button', { onclick: () => { t.remove(); action.run(); } }, action.label));
   $('toasts').append(t);
-  setTimeout(() => t.remove(), action ? 6000 : kind === 'bad' ? 6000 : 2600);
+  setTimeout(() => t.remove(), action ? (msg.length > 80 ? 11000 : 6000) : kind === 'bad' ? 6000 : 2600);
 }
 
 /* ==========================================================================
