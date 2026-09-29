@@ -512,4 +512,21 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role + "_2"}, &deny); code != http.StatusForbidden {
 		t.Fatalf("read-only login created another login: %d %v", code, deny.Error)
 	}
+
+	// The connection remembers the login it created, and forgetting it can remove the login —
+	// using the connection's original login, since the read-only one can't drop itself.
+	var list struct{ Profiles []publicProfile }
+	c.do("GET", "/api/profiles", nil, &list)
+	if len(list.Profiles) != 1 || list.Profiles[0].CreatedRole != role || list.Profiles[0].User != role {
+		t.Fatalf("profile after switching: %+v", list.Profiles)
+	}
+	if code := c.do("DELETE", "/api/profiles/test?dropRole=1", nil, nil); code != 200 {
+		t.Fatalf("forget with dropRole: %d", code)
+	}
+	var left bool
+	admin.QueryRow(context.Background(), "select exists (select 1 from pg_roles where rolname = $1)", role).Scan(&left)
+	c.do("GET", "/api/profiles", nil, &list)
+	if left || len(list.Profiles) != 0 {
+		t.Fatalf("after forgetting: role still there=%v, profiles %d", left, len(list.Profiles))
+	}
 }

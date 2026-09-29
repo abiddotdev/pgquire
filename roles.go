@@ -201,16 +201,57 @@ func (s *server) readOnlyRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switched := false
+	// Remember the login on the connection (so forgetting it can offer to remove the login too), and
+	// switch the connection to it if asked.
+	np := *p // copy: sessions may be reading the current one
+	np.CreatedRole, np.CreatedRoleDB = in.Role, db
 	if in.Switch {
-		np := *p // copy: sessions may be reading the current one
 		np.User, np.Password = in.Role, password
-		if err := s.cfg.profiles.put(&np); err != nil {
-			writeErr(w, http.StatusInternalServerError, "created the login, but couldn't save the connection: "+err.Error())
-			return
-		}
-		s.sessions.closeProfile(p.Name) // open tabs reconnect with the new login
-		switched = true
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"role": in.Role, "grants": grants, "schemas": schemas, "database": db, "switched": switched})
+	if err := s.cfg.profiles.put(&np); err != nil {
+		writeErr(w, http.StatusInternalServerError, "created the login, but couldn't save the connection: "+err.Error())
+		return
+	}
+	if in.Switch {
+		s.sessions.closeProfile(p.Name) // open tabs reconnect with the new login
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"role": in.Role, "grants": grants, "schemas": schemas, "database": db, "switched": in.Switch,
+		"removeSQL": dropRoleSQL(in.Role)})
+}
+
+// dropRoleSQL removes a login pgquire created: DROP OWNED BY revokes its grants (in that database and
+// on shared objects), then the role goes.
+func dropRoleSQL(role string) []string {
+	r := pgx.Identifier{role}.Sanitize()
+	return []string{"drop owned by " + r, "drop role " + r}
+}
+
+// dropCreatedRole removes p.CreatedRole using the connection's own login — not the read-only one it
+// may have been switched to, which couldn't drop itself.
+func (s *server) dropCreatedRole(ctx context.Context, p *Profile) error {
+	orig := *p
+	orig.User, orig.Password = "", ""
+	cfg, err := s.sessions.connConfig(&orig, p.CreatedRoleDB)
+	if err != nil {
+		return err
+	}
+	cfg.RuntimeParams["default_transaction_read_only"] = "off" // a deliberate step the user confirmed
+	s.sessions.closeProfile(p.Name)                            // nothing of ours stays logged in as that role
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(context.Background())
+	var exists bool
+	if err := conn.QueryRow(ctx, "select exists (select 1 from pg_roles where rolname = $1)", p.CreatedRole).Scan(&exists); err != nil || !exists {
+		return err // already gone: nothing to do
+	}
+	for _, q := range dropRoleSQL(p.CreatedRole) {
+		if _, err := conn.Exec(ctx, q); err != nil {
+			return err
+		}
+	}
+	return nil
 }

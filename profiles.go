@@ -21,23 +21,29 @@ type Profile struct {
 	// User and Password, when set, replace the login in DSN — e.g. a read-only login pgquire created.
 	User     string `json:"user,omitempty"`
 	Password string `json:"password,omitempty"`
-	saved    bool   // in the connections file (false = this run only)
+	// CreatedRole is a login pgquire created for this connection (in CreatedRoleDB), so forgetting the
+	// connection can offer to remove it.
+	CreatedRole   string `json:"createdRole,omitempty"`
+	CreatedRoleDB string `json:"createdRoleDb,omitempty"`
+	saved         bool   // in the connections file (false = this run only)
 }
 
 // publicProfile is what the browser sees.
 type publicProfile struct {
-	Name     string `json:"name"`
-	Tag      string `json:"tag,omitempty"`
-	ReadOnly bool   `json:"readOnly"`
-	Saved    bool   `json:"saved"`
-	Host     string `json:"host,omitempty"`
-	Port     uint16 `json:"port,omitempty"`
-	Database string `json:"database,omitempty"`
-	User     string `json:"user,omitempty"`
+	Name          string `json:"name"`
+	Tag           string `json:"tag,omitempty"`
+	ReadOnly      bool   `json:"readOnly"`
+	Saved         bool   `json:"saved"`
+	Host          string `json:"host,omitempty"`
+	Port          uint16 `json:"port,omitempty"`
+	Database      string `json:"database,omitempty"`
+	User          string `json:"user,omitempty"`
+	CreatedRole   string `json:"createdRole,omitempty"`
+	CreatedRoleDB string `json:"createdRoleDb,omitempty"`
 }
 
 func (p *Profile) public() publicProfile {
-	out := publicProfile{Name: p.Name, Tag: p.Tag, ReadOnly: p.ReadOnly, Saved: p.saved}
+	out := publicProfile{Name: p.Name, Tag: p.Tag, ReadOnly: p.ReadOnly, Saved: p.saved, CreatedRole: p.CreatedRole, CreatedRoleDB: p.CreatedRoleDB}
 	if c, err := pgconn.ParseConfig(p.DSN); err == nil {
 		out.Host, out.Port, out.Database, out.User = c.Host, c.Port, c.Database, c.User
 	}

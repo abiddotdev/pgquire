@@ -680,7 +680,7 @@ select.field { padding-right: 4px; }
 .modal.wide { width: min(780px, 100%); }
 .modal-h { padding: 18px 22px 6px 34px; }
 .modal-h h2 { margin: 0; font: 500 24px/1.15 var(--serif); letter-spacing: -.01em; }
-.modal-h p { margin: 6px 0 0; font: 14.5px/1.5 var(--serif); color: var(--ink2); }
+.modal-h p { margin: 6px 0 0; font: 14.5px/1.5 var(--serif); color: var(--ink2); white-space: pre-line; }
 .modal-b { padding: 12px 22px 8px 34px; display: flex; flex-direction: column; gap: 10px; }
 .modal-f { padding: 12px 22px 18px 34px; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
 .modal-f .spacer { flex: 1; }
@@ -2855,7 +2855,8 @@ async function readOnlyLoginDialog() {
   const d = currentDb();
   if (d?.kind !== 'remote') return;
   const path = `/api/profiles/${encodeURIComponent(d.profile)}/readonly-role`;
-  const name = h('input', { class: 'field', value: `${slug(d.profile)}_ro`.slice(0, 63), spellcheck: false, style: 'font-family:var(--mono)' });
+  const name = h('input', { class: 'field', value: 'pgquire_ro', spellcheck: false, style: 'font-family:var(--mono)' });
+  let typed = false, bump = 1;          // until you type a name, a taken default moves on: pgquire_ro_2, _3…
   const sw = h('input', { type: 'checkbox', checked: true });
   const pre = h('pre', { class: 'sqlpreview', style: 'max-height:240px' });
   const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
@@ -2864,6 +2865,7 @@ async function readOnlyLoginDialog() {
   const load = async () => {
     try {
       const p = await api('POST', path, { role: name.value.trim(), database: remoteDbOf(d), dryRun: true });
+      if (p.exists && !typed && bump < 20) { name.value = `pgquire_ro_${++bump}`; return load(); }
       sql = [...p.create, ...p.grantAll, ...(p.perSchema.length ? [`-- ${p.grantAll.length ? 'if that grant isn\'t allowed' : 'before PostgreSQL 14'}: read access per schema instead`, ...p.perSchema] : [])]
         .map(x => x.startsWith('--') ? x : x + ';').join('\n');
       pre.innerHTML = highlightSQL(sql);
@@ -2874,7 +2876,7 @@ async function readOnlyLoginDialog() {
         : `Runs as ${p.user} on ${p.database}.`;
     } catch (e) { go.disabled = true; status.style.color = 'var(--red)'; status.textContent = e.message; }
   };
-  name.oninput = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
+  name.oninput = () => { typed = true; clearTimeout(timer); timer = setTimeout(load, 300); };
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Create a read-only login'),
       h('p', {}, `pgquire's read-only setting is a guard rail: SQL can switch it off. A login that isn't allowed to write can't be talked around — in pgquire or any other tool. This creates one that can read all data on ${d.remote?.host || 'the server'} and change nothing. pgquire generates its password and keeps it; you never need to type it.`)),
@@ -2896,10 +2898,47 @@ async function readOnlyLoginDialog() {
         showDbKind(); renderAll();
       }
       const how = r.grants === 'pg_read_all_data' ? 'read all data' : `read the ${plural(r.schemas.length, 'schema')} of ${r.database}`;
-      toast(r.switched ? `Now connected as ${r.role}: it can ${how}, and can't change anything.` : `Created ${r.role}: it can ${how}. Connect with it to use it.`);
+      const removal = r.removeSQL.map(x => x + ';').join('\n');
+      toast(`${r.switched ? `Now connected as ${r.role}: it can ${how}, and can't change anything.` : `Created ${r.role}: it can ${how}. Connect with it to use it.`} To remove it later, forget this connection (pgquire offers to drop it) or run the removal SQL on ${r.database}.`,
+        null, { label: 'Copy removal SQL', run: () => { navigator.clipboard?.writeText(removal); toast('Removal SQL copied'); } });
     } catch (e) { go.disabled = false; status.style.color = 'var(--red)'; status.textContent = e.message; }
   };
   load(); name.focus();
+}
+const removeRoleSQL = role => `drop owned by ${qi(role)};\ndrop role ${qi(role)};`;
+/** Forget a saved connection on the pgquire server. If pgquire created a login for it, offer to remove that
+ *  too — once the connection is forgotten, nobody knows that login's password. Resolves true if forgotten. */
+function forgetConnection(p) {
+  return new Promise(res => {
+    const role = p.createdRole, removal = role ? removeRoleSQL(role) : '';
+    const drop = h('input', { type: 'checkbox', checked: true });
+    const status = h('span', { style: 'font-size:12px;color:var(--red)' });
+    const go = h('button', { class: 'btn red' }, 'Forget');
+    let keepRole = false;
+    const m = modal([
+      h('div', { class: 'modal-h' }, h('h2', {}, `Forget “${p.name}”?`), h('p', {}, 'The pgquire server stops remembering this connection. Its databases are not touched.')),
+      role && h('div', { class: 'modal-b' },
+        h('p', { style: 'margin:0;font-size:13px' }, `It uses ${role}, a login pgquire created on ${p.host}${p.createdRoleDb ? ` (in ${p.createdRoleDb})` : ''}. Once the connection is forgotten, nobody knows that login's password.`),
+        h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, drop, `Also remove the login ${role} from the server`),
+        h('pre', { class: 'sqlpreview', html: highlightSQL(removal) }),
+        h('button', { class: 'btn sm ghost', style: 'align-self:flex-start', onclick: () => { navigator.clipboard?.writeText(removal); toast('Removal SQL copied'); } }, ic('copy'), 'Copy SQL')),
+      h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => { m.close(); res(false); } }, 'Cancel'), go)]);
+    m.bg.addEventListener('cancel', () => res(false));
+    go.onclick = async () => {
+      const dropping = !!role && drop.checked && !keepRole;
+      go.disabled = true; status.textContent = '';
+      try {
+        await api('DELETE', `/api/profiles/${encodeURIComponent(p.name)}${dropping ? '?dropRole=1' : ''}`);
+        m.close();
+        toast(dropping ? `Forgot ${p.name} and removed the login ${role}` : role ? `Forgot ${p.name}. The login ${role} is still on the server.` : `Forgot ${p.name}`);
+        res(true);
+      } catch (e) {
+        go.disabled = false;
+        if (dropping) { keepRole = true; go.textContent = 'Forget anyway'; status.textContent = `Couldn't remove ${role}: ${e.message}. Copy the SQL for an admin, or forget the connection anyway.`; }
+        else status.textContent = e.message;
+      }
+    };
+  });
 }
 /** On the website (no pgquire server): explain how remote Postgres works instead of hiding it. */
 function needsAppDialog() {
@@ -3055,7 +3094,9 @@ function restoreDb() {
 async function deleteDb() {
   const d = currentDb();
   if (d.kind === 'remote') {
-    if (!(await confirmDlg({ title: `Remove “${d.name}” from the list?`, body: 'Only this entry goes: its tabs, journal and chats in this browser. The remote database and its data are not touched, and the pgquire server still remembers the connection if it was saved.', ok: 'Remove' }))) return;
+    const role = d.remote?.createdRole;
+    if (!(await confirmDlg({ title: `Remove “${d.name}” from the list?`, body: 'Only this entry goes: its tabs, journal and chats in this browser. The remote database and its data are not touched, and the pgquire server still remembers the connection if it was saved.'
+      + (role ? `\n\nIt uses ${role}, a login pgquire created. The connection still exists, so the login stays. To remove it too, forget the connection in Connect remote Postgres (pgquire offers to drop it), or run on ${d.remote.createdRoleDb || 'the server'}:\n${removeRoleSQL(role)}` : ''), ok: 'Remove' }))) return;
   } else if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
   await S.db.close().catch(() => {}); S.db = null;
   if (!isRemote(d.id)) indexedDB.deleteDatabase(`/pglite/ledger-${d.id}`);
@@ -3888,10 +3929,7 @@ async function connectRemoteDialog() {
         h('span', { class: 'who', title: `${p.user}@${p.host}:${p.port}/${p.database}` }, `${p.user}@${p.host}/${p.database}`),
         h('button', { class: 'btn sm', onclick: () => { m.close(); openRemote(p); } }, 'Open'),
         h('button', { class: 'btn sm ghost', title: 'Other databases on this server', onclick: () => { m.close(); pickDatabasesDialog(p); } }, 'Databases…'),
-        h('button', { class: 'btn sm ghost', title: 'Forget this connection on the server', onclick: async () => {
-          if (!(await confirmDlg({ title: `Forget “${p.name}”?`, body: 'The pgquire server stops remembering this connection. The database itself is not touched.', ok: 'Forget' }))) return;
-          try { await api('DELETE', `/api/profiles/${encodeURIComponent(p.name)}`); row.remove(); } catch (e) { toast(e.message, 'bad'); }
-        } }, ic('trash')));
+        h('button', { class: 'btn sm ghost', title: 'Forget this connection on the server', onclick: async () => { if (await forgetConnection(p)) row.remove(); } }, ic('trash')));
       return row;
     })));
   const m = modal([

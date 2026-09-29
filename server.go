@@ -13,6 +13,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const cookieName = "pgquire_t"
@@ -214,6 +216,21 @@ func (s *server) testProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) deleteProfile(w http.ResponseWriter, r *http.Request) {
+	// ?dropRole=1: first remove the login pgquire created for this connection. If that fails, the
+	// connection stays, so the page can show the SQL and ask.
+	if r.URL.Query().Get("dropRole") == "1" {
+		if p := s.cfg.profiles.get(r.PathValue("name")); p != nil && p.CreatedRole != "" {
+			if err := s.dropCreatedRole(r.Context(), p); err != nil {
+				code := http.StatusBadGateway
+				var pe *pgconn.PgError
+				if errors.As(err, &pe) && pe.Code == "42501" {
+					code = http.StatusForbidden
+				}
+				writeJSON(w, code, map[string]any{"error": pgErrorJSON(err)})
+				return
+			}
+		}
+	}
 	ok, err := s.cfg.profiles.remove(r.PathValue("name"))
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
