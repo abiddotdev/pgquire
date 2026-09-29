@@ -18,6 +18,9 @@ type Profile struct {
 	DSN      string `json:"dsn"`
 	Tag      string `json:"tag,omitempty"` // "prod" gets read-only by default and a warning colour
 	ReadOnly bool   `json:"readOnly,omitempty"`
+	// User and Password, when set, replace the login in DSN — e.g. a read-only login pgquire created.
+	User     string `json:"user,omitempty"`
+	Password string `json:"password,omitempty"`
 	saved    bool   // in the connections file (false = this run only)
 }
 
@@ -37,6 +40,9 @@ func (p *Profile) public() publicProfile {
 	out := publicProfile{Name: p.Name, Tag: p.Tag, ReadOnly: p.ReadOnly, Saved: p.saved}
 	if c, err := pgconn.ParseConfig(p.DSN); err == nil {
 		out.Host, out.Port, out.Database, out.User = c.Host, c.Port, c.Database, c.User
+	}
+	if p.User != "" {
+		out.User = p.User
 	}
 	return out
 }

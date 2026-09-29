@@ -45,6 +45,7 @@ func newServer(cfg serverConfig) *server {
 	s.mux.HandleFunc("DELETE /api/profiles/{name}", s.auth(s.deleteProfile))
 	s.mux.HandleFunc("GET /api/profiles/{name}/databases", s.auth(s.listDatabases))
 	s.mux.HandleFunc("POST /api/profiles/test", s.auth(s.testProfile))
+	s.mux.HandleFunc("POST /api/profiles/{name}/readonly-role", s.auth(s.readOnlyRole))
 	s.mux.HandleFunc("POST /api/sessions/{id}/exports", s.auth(s.withSession(s.prepareExport)))
 	s.mux.HandleFunc("GET /api/exports/{token}", s.auth(s.runExport))
 	s.mux.HandleFunc("POST /api/sessions", s.auth(s.openSession))
@@ -185,7 +186,11 @@ func (s *server) probe(ctx context.Context, p *Profile) (map[string]any, error) 
 	defer s.sessions.close(sess.id)
 	pc := sess.conn.PgConn()
 	_, encrypted := pc.Conn().(*tls.Conn)
-	return map[string]any{"serverVersion": pc.ParameterStatus("server_version"), "tls": encrypted, "database": sess.conn.Config().Database, "user": sess.conn.Config().User}, nil
+	out := map[string]any{"serverVersion": pc.ParameterStatus("server_version"), "tls": encrypted, "database": sess.conn.Config().Database, "user": sess.conn.Config().User}
+	if ri, err := checkRole(ctx, sess.conn); err == nil {
+		out["role"] = ri
+	}
+	return out, nil
 }
 
 // testProfile tries a connection string without keeping anything.
@@ -259,11 +264,16 @@ func (s *server) openSession(w http.ResponseWriter, r *http.Request) {
 	}
 	pc := sess.conn.PgConn()
 	_, encrypted := pc.Conn().(*tls.Conn)
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"tls": encrypted,
 		"id":  sess.id, "profile": p.public(), "readOnly": p.ReadOnly, "database": sess.conn.Config().Database,
 		"serverVersion": pc.ParameterStatus("server_version"), "maxRows": s.cfg.maxRows,
-	})
+	}
+	// What this login may actually do — the page warns when "read-only" is only a guard rail.
+	if ri, err := checkRole(r.Context(), sess.conn); err == nil {
+		out["role"] = ri
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 type sessionHandler func(w http.ResponseWriter, r *http.Request, sess *session)

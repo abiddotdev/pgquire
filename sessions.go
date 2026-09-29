@@ -114,6 +114,9 @@ func (m *sessionManager) connConfig(p *Profile, database string) (*pgx.ConnConfi
 	if database != "" {
 		cfg.Database = database
 	}
+	if p.User != "" {
+		cfg.User, cfg.Password = p.User, p.Password
+	}
 	if cfg.ConnectTimeout == 0 {
 		cfg.ConnectTimeout = 15 * time.Second
 	}
@@ -192,6 +195,21 @@ func (m *sessionManager) close(id string) bool {
 		s.conn.Close(ctx)
 	}()
 	return true
+}
+
+// closeProfile closes every session of a profile; the page reconnects (e.g. with a new login).
+func (m *sessionManager) closeProfile(name string) {
+	m.mu.Lock()
+	var ids []string
+	for id, s := range m.byID {
+		if s.profile == name {
+			ids = append(ids, id)
+		}
+	}
+	m.mu.Unlock()
+	for _, id := range ids {
+		m.close(id)
+	}
 }
 
 func (m *sessionManager) closeAll() {

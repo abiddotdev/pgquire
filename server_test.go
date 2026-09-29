@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -15,6 +17,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type client struct {
@@ -423,5 +427,89 @@ func TestRemoteTestConnectionAndCSVExport(t *testing.T) {
 	c.do("POST", sp+"/query", map[string]any{"sql": "select count(*) from pgq_export_ro"}, &n)
 	if !strings.Contains(string(body), "read-only transaction") || *n.Rows[0][0] != "0" {
 		t.Fatalf("export wrote data: %q, rows %s", body, *n.Rows[0][0])
+	}
+}
+
+func TestRemoteReadOnlyLogin(t *testing.T) {
+	dsn := os.Getenv("PGQUIRE_TEST_DSN")
+	c, sp := remote(t, 100, true) // marked read-only, but logs in as the superuser
+	admin, err := pgx.Connect(context.Background(), dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close(context.Background())
+	role := fmt.Sprintf("pgq_ro_%d", time.Now().UnixNano()%1e9)
+	admin.Exec(context.Background(), "drop table if exists pgq_ro_data; create table pgq_ro_data(a int); insert into pgq_ro_data values (1)")
+	defer func() {
+		admin.Exec(context.Background(), "drop table if exists pgq_ro_data")
+		admin.Exec(context.Background(), fmt.Sprintf("drop owned by %s; drop role if exists %s", role, role))
+	}()
+
+	// 1. the check: a superuser behind a read-only flag
+	var open struct {
+		Role roleInfo
+	}
+	c.do("POST", "/api/sessions", map[string]any{"profile": "test"}, &open)
+	if !open.Role.Superuser || !open.Role.Writable || !open.Role.CreateRole {
+		t.Fatalf("role check: %+v", open.Role)
+	}
+
+	// 2a. dry run: the SQL, with a placeholder instead of a password
+	var plan struct {
+		Create, GrantAll []string
+		CanCreate        bool
+	}
+	c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role, "dryRun": true}, &plan)
+	if !plan.CanCreate || !strings.Contains(plan.Create[0], "'<choose a password>'") || len(plan.GrantAll) != 1 {
+		t.Fatalf("dry run: %+v", plan)
+	}
+	var bad apiErr
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": "x; drop table y"}, &bad); code != 400 {
+		t.Fatalf("bad name accepted: %d", code)
+	}
+
+	// 2b. create it and switch the connection over
+	var made struct {
+		Grants   string
+		Switched bool
+	}
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role, "switch": true}, &made); code != 200 || made.Grants != "pg_read_all_data" || !made.Switched {
+		t.Fatalf("create: %d %+v", code, made)
+	}
+	var e apiErr
+	if code := c.do("POST", sp+"/query", map[string]any{"sql": "select 1"}, &e); code != http.StatusGone {
+		t.Fatalf("old session still open after switching logins: %d", code)
+	}
+	var now struct {
+		ID   string
+		Role roleInfo
+	}
+	c.do("POST", "/api/sessions", map[string]any{"profile": "test"}, &now)
+	if now.Role.User != role || now.Role.Writable || now.Role.Superuser {
+		t.Fatalf("new login: %+v", now.Role)
+	}
+	np := "/api/sessions/" + now.ID
+	var rd apiResult
+	if code := c.do("POST", np+"/query", map[string]any{"sql": "select a from pgq_ro_data"}, &rd); code != 200 || *rd.Rows[0][0] != "1" {
+		t.Fatalf("read as the new login: %d", code)
+	}
+	// The guard-rail escape from before now fails on privileges.
+	var esc apiErr
+	code := c.do("POST", np+"/exec", map[string]any{"sql": "set transaction_read_only = off; set default_transaction_read_only = off; commit; insert into pgq_ro_data values (2)"}, &esc)
+	var n int
+	admin.QueryRow(context.Background(), "select count(*) from pgq_ro_data").Scan(&n)
+	if code != 400 || esc.Error["code"] != "42501" || n != 1 {
+		t.Fatalf("escape: %d %v, rows %d", code, esc.Error, n)
+	}
+	var stored string
+	admin.QueryRow(context.Background(), "select rolpassword from pg_authid where rolname = $1", role).Scan(&stored)
+	if !strings.HasPrefix(stored, "SCRAM-SHA-256$4096:") {
+		t.Fatalf("password not stored as SCRAM: %q", stored)
+	}
+
+	// Without the right to create logins: refused, the page shows the SQL instead.
+	var deny apiErr
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role + "_2"}, &deny); code != http.StatusForbidden {
+		t.Fatalf("read-only login created another login: %d %v", code, deny.Error)
 	}
 }

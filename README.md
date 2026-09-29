@@ -32,7 +32,7 @@ Then pick **Connect remote Postgres…** in the database switcher and paste a co
 
 - Passwords stay with the server. Saved connections go in `~/.config/pgquire/connections.json` (readable only by you) and never reach the browser.
 - The server listens on 127.0.0.1 only and needs the token from the link it prints.
-- Connections marked **Production** get a red marker, start read-only, and ask before any write once you make them writable. Read-only here is a guard rail: for a hard guarantee, connect as a read-only role.
+- Connections marked **Production** get a red marker, start read-only, and ask before any write once you make them writable. Read-only here is a guard rail (SQL can switch it off), so pgquire checks what the login can really do: if a "read-only" connection's login can write, it says so and offers **Create a read-only login…**. That creates a login that can read everything and change nothing (`pg_read_all_data`, or per-schema grants before PostgreSQL 14), switches the connection to it, and keeps its generated password on the server. If your login can't create logins, **Copy SQL** gives your admin the statements.
 - Big tables show estimated row counts (`~`). Results in the page are capped at 50,000 rows (`-max-rows`); **CSV (all)** and table **Export CSV** stream every row. Running queries can be stopped.
 - The browser keeps in-browser databases per address, so ones made on the live page don't appear at `127.0.0.1:8432`, and the other way round. Move them with **Export session / Open session file**.
 

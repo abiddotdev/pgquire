@@ -484,6 +484,8 @@ select.field { padding-right: 4px; }
 .menu button:disabled:hover { background: none; }
 .dbswitch .name .db-kind { flex: none; overflow: visible; }   /* the name truncates, not the chip */
 .db-kind.prod { color: #fff; background: var(--red); border-color: var(--red); }
+.db-kind.warn { border-style: dashed; }
+.db-kind.prod.warn { outline: 1px dashed var(--red); outline-offset: 2px; }
 .remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
 .remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; }
 .remote-row .who { color: var(--ink3); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
@@ -1509,6 +1511,10 @@ function renderHome(pane) {
         : empty
         ? 'This is a real PostgreSQL database living in your browser. Nothing leaves this machine unless you ask the Clerk. Start with a table, a CSV, or the sample books.'
         : 'Pick a table from the index to browse and edit rows, open the ERD to see relationships, or press Ctrl K to jump anywhere.')),
+    guardOnly() && h('div', { class: 'origin-note', style: 'border-color:var(--red)' },
+      h('b', {}, 'This read-only connection can still write'),
+      h('p', {}, `It logs in as ${roleWho()}, which is allowed to change data. pgquire's read-only setting is a guard rail — SQL can switch it off. A login that isn't allowed to write can't be talked around, here or in any other tool.`),
+      h('button', { class: 'btn sm', onclick: readOnlyLoginDialog }, 'Create a read-only login…')),
     S.server && !store.get('originNote', false) && (() => {
       const card = h('div', { class: 'origin-note' },
         h('b', {}, 'Looking for databases you made on the pgquire website?'),
@@ -2835,6 +2841,7 @@ $('dbSwitch').onclick = e => {
     S.server ? { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog }
       : { label: 'Connect remote Postgres…', icon: 'plus', hint: 'needs the pgquire app', run: needsAppDialog },
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
+    isRemote(S.id) && S.db?.info?.role?.writable && { label: 'Create a read-only login…', icon: 'pen', hint: guardOnly() ? 'recommended' : '', run: readOnlyLoginDialog },
     { label: 'Share as link…', icon: 'share', run: shareDialog, disabled: !dbCaps().share, hint: dbCaps().share ? '' : 'in-browser only', why: 'A link carries the data itself, so it needs a database in this browser. Use Copy to a local database first.' },
     '-',
     { label: 'Move data…', icon: 'download', hint: isRemote(S.id) ? 'copy · dump · import' : 'dump · export · import', run: moveDataDialog },
@@ -2842,6 +2849,58 @@ $('dbSwitch').onclick = e => {
     isRemote(S.id) ? { label: 'Remove this connection…', icon: 'trash', run: deleteDb } : { label: 'Delete this database…', icon: 'trash', danger: true, run: deleteDb },
   ].filter(Boolean));
 };
+/** Create a login that can read everything and change nothing, and (optionally) switch this connection
+ *  to it. The pgquire server generates the password and keeps it; the page only ever sees a placeholder. */
+async function readOnlyLoginDialog() {
+  const d = currentDb();
+  if (d?.kind !== 'remote') return;
+  const path = `/api/profiles/${encodeURIComponent(d.profile)}/readonly-role`;
+  const name = h('input', { class: 'field', value: `${slug(d.profile)}_ro`.slice(0, 63), spellcheck: false, style: 'font-family:var(--mono)' });
+  const sw = h('input', { type: 'checkbox', checked: true });
+  const pre = h('pre', { class: 'sqlpreview', style: 'max-height:240px' });
+  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const go = h('button', { class: 'btn ink', disabled: true }, 'Create login');
+  let sql = '', timer = null;
+  const load = async () => {
+    try {
+      const p = await api('POST', path, { role: name.value.trim(), database: remoteDbOf(d), dryRun: true });
+      sql = [...p.create, ...p.grantAll, ...(p.perSchema.length ? [`-- ${p.grantAll.length ? 'if that grant isn\'t allowed' : 'before PostgreSQL 14'}: read access per schema instead`, ...p.perSchema] : [])]
+        .map(x => x.startsWith('--') ? x : x + ';').join('\n');
+      pre.innerHTML = highlightSQL(sql);
+      go.disabled = !p.canCreate || p.exists;
+      status.style.color = p.canCreate && !p.exists ? 'var(--ink3)' : 'var(--red)';
+      status.textContent = p.exists ? 'A login with that name already exists — pick another.'
+        : !p.canCreate ? `${p.user} isn't allowed to create logins. Copy the SQL for an admin (they choose the password), then connect with that login.`
+        : `Runs as ${p.user} on ${p.database}.`;
+    } catch (e) { go.disabled = true; status.style.color = 'var(--red)'; status.textContent = e.message; }
+  };
+  name.oninput = () => { clearTimeout(timer); timer = setTimeout(load, 300); };
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Create a read-only login'),
+      h('p', {}, `pgquire's read-only setting is a guard rail: SQL can switch it off. A login that isn't allowed to write can't be talked around — in pgquire or any other tool. This creates one that can read all data on ${d.remote?.host || 'the server'} and change nothing. pgquire generates its password and keeps it; you never need to type it.`)),
+    h('div', { class: 'modal-b' },
+      h('label', { class: 'lab' }, 'Login name', name),
+      h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, sw, 'Use it for this connection from now on'),
+      pre),
+    h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }),
+      h('button', { class: 'btn ghost', onclick: () => { navigator.clipboard?.writeText(sql); toast('SQL copied — replace the password placeholder'); } }, ic('copy'), 'Copy SQL'),
+      h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
+  go.onclick = async () => {
+    go.disabled = true; status.style.color = ''; status.textContent = 'Creating…';
+    try {
+      const r = await api('POST', path, { role: name.value.trim(), database: remoteDbOf(d), switch: sw.checked });
+      m.close();
+      if (r.switched && S.id === d.id && S.db?.remote) {
+        await S.db.open();                                  // the server closed the old sessions; this one uses the new login
+        saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, remote: { ...S.db.info.profile, database: S.db.info.database } } : x));
+        showDbKind(); renderAll();
+      }
+      const how = r.grants === 'pg_read_all_data' ? 'read all data' : `read the ${plural(r.schemas.length, 'schema')} of ${r.database}`;
+      toast(r.switched ? `Now connected as ${r.role}: it can ${how}, and can't change anything.` : `Created ${r.role}: it can ${how}. Connect with it to use it.`);
+    } catch (e) { go.disabled = false; status.style.color = 'var(--red)'; status.textContent = e.message; }
+  };
+  load(); name.focus();
+}
 /** On the website (no pgquire server): explain how remote Postgres works instead of hiding it. */
 function needsAppDialog() {
   const m = modal([
@@ -3699,8 +3758,14 @@ function showDbKind() {
   paintConn();
   el.textContent = d?.kind === 'remote' ? (r.tag === 'prod' ? 'prod' + (r.readOnly ? ' · ro' : '') : r.readOnly ? 'read-only' : '') : '';
   el.classList.toggle('prod', r.tag === 'prod');
-  el.title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''}${r.readOnly ? ' · read-only' : ''}` : '';
+  el.classList.toggle('warn', guardOnly());
+  el.title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''}${r.readOnly ? ' · read-only' : ''}`
+    + (guardOnly() ? `\nOnly a guard rail: ${roleWho()} can write, and SQL can switch read-only off. Create a read-only login from the database menu.` : '') : '';
 }
+/* A connection marked read-only whose login can still write: pgquire's setting is only a guard rail.
+   The server reports what the login may do (superuser, write grants, CREATE) when a session opens. */
+const guardOnly = () => isRemote(S.id) && readOnlyConn() && !!S.db?.info?.role?.writable;
+const roleWho = (ri = S.db?.info?.role) => ri ? `${ri.user}${ri.superuser ? ' (a superuser)' : ''}` : 'this login';
 const isProd = () => { const d = currentDb(); return d?.kind === 'remote' && d.remote?.tag === 'prod'; };
 const readOnlyConn = () => { const d = currentDb(); return d?.kind === 'remote' && !!d.remote?.readOnly; };
 /** On a writable production connection, confirm anything that isn't a plain read. */
@@ -3796,7 +3861,8 @@ async function connectRemoteDialog() {
     testBtn.disabled = true; status.style.color = ''; status.textContent = 'Testing…';
     try {
       const r = await api('POST', '/api/profiles/test', { dsn: dsnOf() });
-      status.textContent = `✓ PostgreSQL ${r.serverVersion} · ${r.database} as ${r.user} · ${r.tls ? 'encrypted (TLS)' : 'not encrypted'}`;
+      status.textContent = `✓ PostgreSQL ${r.serverVersion} · ${r.database} as ${r.user} · ${r.tls ? 'encrypted (TLS)' : 'not encrypted'}`
+        + (ro.checked && r.role?.writable ? ` · ${roleWho(r.role)} can write, so read-only will only be a guard rail — you can create a read-only login once connected` : '');
       status.style.color = r.tls ? 'var(--ink2)' : 'var(--red)';
       if (!r.tls) status.title = 'Passwords and data travel in the clear. Fine on localhost; use sslmode=require elsewhere.';
     } catch (e) { status.textContent = e.message; status.style.color = 'var(--red)'; }
@@ -3867,6 +3933,10 @@ async function connectDb(id, opts = {}) {
     bootMsg(`connecting to ${d.name}…`, true);
     const db = await new RemoteDb(d.profile, d.database).open();
     conn.down = null; clearInterval(conn.retry);
+    if (d.remote?.readOnly && db.info.role?.writable && !(S.roleWarned ??= new Set()).has(id)) {
+      S.roleWarned.add(id);
+      setTimeout(() => toast(`“${d.name}” is read-only in pgquire, but it logs in as ${roleWho(db.info.role)}, which can write — so read-only is only a guard rail here.`, 'bad', { label: 'Fix…', run: readOnlyLoginDialog }), 600);
+    }
     saveDbs(loadDbs().map(x => x.id === id ? { ...x, remote: { ...db.info.profile, database: db.info.database } } : x));   // keep host/tag/read-only current
     showDbKind();
     return db;
