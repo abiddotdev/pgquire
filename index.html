@@ -954,9 +954,7 @@ async function openDb(id, opts = {}) {
   applyDbColor();
   bootMsg('opening the books…', true);
   try {
-    if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
-    if (dbExtensions(id).length) bootMsg(`loading ${dbExtensions(id).join(', ')}…`, true);
-    const inst = await syncExtensions(id, await openInstance(id, opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}));
+    const inst = await connectDb(id, opts);
     if (S.id !== id) { inst.close(); return; }
     S.db = inst;
     await refreshSchema({ initial: true });
@@ -2613,6 +2611,7 @@ $('dbSwitch').onclick = e => {
 /* ---------- SQL dumps (pg_dump) and restores ---------- */
 let pgDumpFn = null;
 async function sqlDump(id) {
+  if (!dbCaps(id).dump) throw new Error('SQL dumps aren\'t available for remote databases yet.');
   if (!pgDumpFn) ({ pgDump: pgDumpFn } = await import(PGDUMP_URL));
   // --inserts: PGlite can't run COPY … FROM stdin as a script. Owners/grants are meaningless here.
   const args = ['--inserts', '--rows-per-insert=1000', '--no-owner', '--no-privileges'];
@@ -2705,7 +2704,7 @@ async function deleteDb() {
   const d = currentDb();
   if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
   await S.db.close().catch(() => {}); S.db = null;
-  indexedDB.deleteDatabase(`/pglite/ledger-${d.id}`);
+  if (!isRemote(d.id)) indexedDB.deleteDatabase(`/pglite/ledger-${d.id}`);
   for (const k of ['tabs', 'journal', 'map', 'clerk', 'clerkv2', 'saved']) store.del(`${k}:${d.id}`);
   for (const k of store.keys(`conv:${d.id}:`)) store.del(k);
   const rest = loadDbs().filter(x => x.id !== d.id);
@@ -2778,14 +2777,16 @@ const gunzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]
 const fmtBytes = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
 
 async function dumpDatabase(id) {
+  if (!dbCaps(id).dataDir) throw new Error('Exact copies are only possible for databases in this browser.');
   if (id === S.id && S.db) return S.db.dumpDataDir('gzip');
   const inst = await openInstance(id);   // other databases: open briefly (with their extensions), dump, close
   try { return await inst.dumpDataDir('gzip'); } finally { await inst.close().catch(() => {}); }
 }
 
 function exportSessionDialog() {
-  const dbs = loadDbs();
-  const chosen = new Set([S.id]);
+  const dbs = loadDbs().filter(d => dbCaps(d.id).dump);          // remote databases aren't packed into sessions
+  if (!dbs.length) return toast('Only databases in this browser can be exported.');
+  const chosen = new Set(dbs.some(d => d.id === S.id) ? [S.id] : []);
   const parts = Object.fromEntries(SESSION_PARTS.map(p => [p.key, p.on]));
   let withSettings = true;
   let format = 'sql';
@@ -3039,6 +3040,20 @@ async function extensionModules(ids) {
 }
 const dbExtensions = id => (loadDbs().find(d => d.id === id)?.extensions || []).filter(x => EXT_BY[x]);
 const setDbExtensions = (id, list) => saveDbs(loadDbs().map(d => d.id === id ? { ...d, extensions: withDeps(list) } : d));
+/* A database is local (PGlite in this browser — the default) or remote (a real Postgres reached through
+   the pgquire server). Both expose the same surface the app uses: query(sql, params, { rowMode }),
+   exec(sql, { rowMode }), transaction(fn), close(). Anything beyond that is gated by dbCaps(). */
+const isRemote = id => loadDbs().find(d => d.id === id)?.kind === 'remote';
+const LOCAL_CAPS = { dataDir: true, wasmExt: true, dump: true, share: true };
+const REMOTE_CAPS = { dataDir: false, wasmExt: false, dump: false, share: false };
+const dbCaps = (id = S.id) => isRemote(id) ? REMOTE_CAPS : LOCAL_CAPS;
+/** Open a connection to database `id`, local or remote. */
+async function connectDb(id, opts = {}) {
+  if (isRemote(id)) throw new Error('Remote databases need the pgquire server.');
+  if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
+  if (dbExtensions(id).length) bootMsg(`loading ${dbExtensions(id).join(', ')}…`, true);
+  return syncExtensions(id, await openInstance(id, opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}));
+}
 async function openInstance(id, extra = {}) {
   const ids = dbExtensions(id);
   const opts = { ...extra, ...(ids.length ? { extensions: await extensionModules(ids) } : {}) };
@@ -3063,7 +3078,7 @@ async function reopenDb(msg) {
   await S.db?.close().catch(() => {});
   S.db = null;
   try {
-    S.db = await syncExtensions(id, await openInstance(id));
+    S.db = await connectDb(id);
     bootMsg(null);
   } catch (e) {
     bootMsg(`Couldn't reopen the database: ${e.message}`, true, true);
@@ -4439,7 +4454,7 @@ const clampClerkW = w => Math.round(Math.max(300, Math.min(w, Math.max(320, inne
 }
 $('clerkToggle').onclick = toggleClerk;
 $('journalToggle').onclick = toggleJournal;
-$('shareBtn').onclick = () => S.db ? shareDialog() : toast('Open a database first');
+$('shareBtn').onclick = () => !S.db ? toast('Open a database first') : !dbCaps().share ? toast('Remote databases can\'t be shared as a link.') : shareDialog();
 
 /* ---------- updates & reload ----------
    Opened from a file: browsers don't cache local files, so a reload always runs the latest file.
