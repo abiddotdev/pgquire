@@ -113,6 +113,12 @@ select.field { padding-right: 4px; }
 .schema-chip:hover { background: var(--rule2); }
 .schema-chip.custom { color: var(--ink); border: 1px solid var(--db, var(--ink2)); font-weight: 600; }
 .schema-chip:empty { display: none; }
+.schema-head { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+.schema-head:hover { color: var(--ink); }
+.schema-head .ic { transform: rotate(90deg); transition: transform .15s; }
+.schema-head.closed .ic { transform: none; }
+.schema-head .cur { font: 600 8.5px/1 var(--mono); letter-spacing: .06em; padding: 2px 4px; border-radius: 3px; background: var(--db, var(--ink2)); color: var(--paper); }
+.schema-head .n { margin-left: auto; font: 11px var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink3); }
 .dbswitch .smallcaps { font-size: 9px; }
 .dbswitch .name { font: 500 15px/1.2 var(--serif); display: flex; gap: 4px; align-items: center; max-width: 100%; }
 .db-spine { width: 4px; height: 17px; border-radius: 1px; background: var(--db, var(--red)); flex-shrink: 0; margin-right: 3px; }
@@ -1086,6 +1092,8 @@ async function refreshSchema({ initial } = {}) {
   if (!initial) for (const t of tables) if (counts[t.key] !== S.counts[t.key] || !S.byKey[t.key]) S.flash.add(t.key);
   S.tables = tables; S.counts = counts; S.approx = approx;
   S.exts = await installedExtensions(S.db).catch(() => []);
+  S.schemas = (await q(`select n.nspname as name from pg_namespace n where n.nspname !~ '^pg_' and n.nspname <> 'information_schema'
+    order by n.nspname <> 'public', 1`)).rows.map(r => r.name);
   await readSearchPath();
   S.byKey = Object.fromEntries(tables.map(t => [t.key, t]));
 }
@@ -1120,6 +1128,16 @@ async function setSearchPath(sql) {
   try { await S.db.exec(sql); journalAdd({ src: 'you', sql, info: 'ok', ms: Math.round(performance.now() - t0) }); }
   catch (e) { toast(e.message, 'bad'); }
   await readSearchPath();
+  renderIndex();                        // the Index marks the current schema
+}
+const tableKey = (schema, name) => schema === 'public' ? name : `${schema}.${name}`;
+const curSchema = () => S.schema?.cur || 'public';
+/** A schema <select> for dialogs that create tables — null when the database has only one schema. */
+function schemaPicker(initial) {
+  const all = S.schemas || [];
+  if (all.length < 2) return null;
+  const pick = all.includes(initial) ? initial : all.includes(S.schema?.cur) ? S.schema.cur : 'public';
+  return h('select', { class: 'field', title: 'The new table goes into this schema' }, all.map(sc => h('option', { value: sc, selected: sc === pick }, sc)));
 }
 // Always schema-qualified: a SET search_path in the editor must not break the app's own queries.
 function qt(t) { return `${qi(t.schema)}.${qi(t.name)}`; }
@@ -1336,28 +1354,45 @@ function renderIndex() {
   const list = $('idxList');
   const f = $('idxFilter').value.trim().toLowerCase();
   const act = activeTab();
-  const shown = S.tables.filter(t => !f || t.key.toLowerCase().includes(f) || t.cols.some(c => c.name.toLowerCase().includes(f)));
+  const shown = S.tables.filter(t => !f || t.key.toLowerCase().includes(f) || t.schema.toLowerCase().includes(f) || t.cols.some(c => c.name.toLowerCase().includes(f)));
   const total = Object.values(S.counts).reduce((a, b) => a + b, 0);
   $('idxSummary').textContent = S.tables.length ? `${S.tables.length} · ${S.approx?.size ? '~' : ''}${total.toLocaleString()} rows` : '';
   list.replaceChildren();
   if (!S.tables.length) list.append(h('div', { class: 'index-empty' }, 'No tables yet. Create one, import a CSV, or load the sample.'));
-  const groups = [['Tables', shown.filter(t => t.kind !== 'v' && t.kind !== 'm')], ['Views', shown.filter(t => t.kind === 'v' || t.kind === 'm')]];
+  const isView = t => t.kind === 'v' || t.kind === 'm';
   let delay = 0;
-  for (const [label, items] of groups) {
-    if (!items.length) continue;
-    list.append(h('div', { class: 'index-group smallcaps' }, label));
-    for (const t of items) {
+  const item = (t, label) => {
       const open = S.expanded.has(t.key) || (f && !t.key.toLowerCase().includes(f));
       const el = h('div', { class: 'idx' + (t.kind === 'v' || t.kind === 'm' ? ' view' : '') + (act?.type === 'table' && act.key === t.key ? ' active' : '') + (open ? ' open' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms` },
         h('div', { class: 'idx-row', onclick: () => openTable(t.key), oncontextmenu: e => { e.preventDefault(); tableMenu(t, e.clientX, e.clientY); } },
           h('span', { class: 'idx-caret', onclick: e => { e.stopPropagation(); S.expanded.has(t.key) ? S.expanded.delete(t.key) : S.expanded.add(t.key); renderIndex(); } }, ic('caret', 'width:12px;height:12px')),
-          h('span', { class: 'idx-name', title: t.key }, t.key),
+          h('span', { class: 'idx-name', title: t.key }, label),
           h('span', { class: 'idx-leader' }),
           h('span', { class: 'idx-count', title: S.approx?.has(t.key) ? 'estimated' : null }, t.kind === 'v' ? 'view' : (S.approx?.has(t.key) ? '~' : '') + (S.counts[t.key] ?? 0).toLocaleString())),
         h('div', { class: 'idx-cols' }, t.cols.map(c => h('div', { class: 'idx-col', title: `${c.name} ${c.type}` },
           c.pk ? h('span', { class: 'k' }, 'PK') : c.fks?.length ? h('span', { class: 'k fk', title: fkTitle(c) }, fkMark(c)) : null,
           h('span', {}, c.name), h('span', { class: 't' }, c.type)))));
-      list.append(el);
+      return el;
+  };
+  // One schema: Tables / Views, as always. Several: a collapsible section per schema, public first, bare names inside.
+  if (new Set(S.tables.map(t => t.schema)).size < 2) {
+    for (const [label, items] of [['Tables', shown.filter(t => !isView(t))], ['Views', shown.filter(isView)]]) {
+      if (!items.length) continue;
+      list.append(h('div', { class: 'index-group smallcaps' }, label));
+      for (const t of items) list.append(item(t, t.key));
+    }
+  } else {
+    S.collapsed ??= new Set();
+    const schemas = [...new Set(shown.map(t => t.schema))].sort((a, b) => (a !== 'public') - (b !== 'public') || a.localeCompare(b));
+    for (const sc of schemas) {
+      const items = shown.filter(t => t.schema === sc), closed = S.collapsed.has(sc) && !f, cur = sc === S.schema?.cur;
+      list.append(h('div', { class: 'index-group smallcaps schema-head' + (closed ? ' closed' : ''), title: 'Click to fold · right-click for more',
+          onclick: () => { S.collapsed.has(sc) ? S.collapsed.delete(sc) : S.collapsed.add(sc); renderIndex(); },
+          oncontextmenu: e => { e.preventDefault(); schemaHeadMenu(sc, e.clientX, e.clientY); } },
+        ic('caret', 'width:11px;height:11px'), h('span', {}, sc),
+        cur && h('span', { class: 'cur', title: 'Current schema: unqualified table names resolve here' }, 'current'),
+        h('span', { class: 'n' }, items.length)));
+      if (!closed) for (const t of [...items.filter(t => !isView(t)), ...items.filter(isView)]) list.append(item(t, t.name));
     }
   }
   const saved = loadSaved().filter(sq => !f || sq.title.toLowerCase().includes(f) || sq.sql.toLowerCase().includes(f)).sort((a, b) => a.title.localeCompare(b.title));
@@ -1394,6 +1429,15 @@ function renderIndex() {
   }
 }
 $('idxFilter').oninput = () => renderIndex();
+
+function schemaHeadMenu(sc, x, y) {
+  showMenu(x, y, [
+    { label: `Schema ${sc}`, header: true },
+    { label: sc === S.schema?.cur ? 'Current search path ✓' : 'Use as search path', icon: 'query', run: () => setSearchPath(`set search_path to ${qi(sc)}${sc === 'public' ? '' : ', public'}`) },
+    { label: 'New table here…', icon: 'plus', run: () => createTableDialog({ schema: sc }) },
+    { label: 'Import CSV here…', icon: 'upload', run: () => importCsvDialog({ schema: sc }) },
+  ]);
+}
 
 function tableMenu(t, x, y) {
   const items = [
@@ -2180,8 +2224,10 @@ function promptDlg({ title, label, value = '' }) {
   });
 }
 
-function createTableDialog() {
+function createTableDialog({ schema } = {}) {
   const name = h('input', { class: 'field', placeholder: 'e.g. projects', value: '' });
+  const sch = schemaPicker(schema);                     // unqualified (as before) when there's only one schema
+  const target = nm => sch ? `${qi(sch.value)}.${qi(nm)}` : qi(nm);
   const cols = [{ name: 'id', type: 'bigint generated always as identity', pk: true, nn: true, def: '' }, { name: 'name', type: 'text', pk: false, nn: true, def: '' }, { name: 'created_at', type: 'timestamptz', pk: false, nn: true, def: 'now()' }];
   const list = h('div', { style: 'display:flex;flex-direction:column;gap:6px' });
   const preview = h('pre', { class: 'sqlpreview' });
@@ -2190,7 +2236,7 @@ function createTableDialog() {
     const lines = cols.filter(c => c.name.trim()).map(c => `  ${qi(c.name.trim())} ${c.type.trim() || 'text'}${c.def.trim() ? ' default ' + c.def.trim() : ''}${c.nn && !c.pk ? ' not null' : ''}`);
     const pks = cols.filter(c => c.pk && c.name.trim());
     if (pks.length) lines.push(`  primary key (${pks.map(c => qi(c.name.trim())).join(', ')})`);
-    return `create table ${qi(nm)} (\n${lines.join(',\n')}\n);`;
+    return `create table ${target(nm)} (\n${lines.join(',\n')}\n);`;
   };
   const draw = () => {
     list.replaceChildren(h('div', { class: 'coldef head' }, h('span', {}, 'Column'), h('span', {}, 'Type'), h('span', {}, 'Default'), h('span', {}, 'Key'), h('span', {}, 'Req.'), h('span', {})),
@@ -2206,23 +2252,26 @@ function createTableDialog() {
   };
   const upd = () => { preview.innerHTML = highlightSQL(sqlFor()); };
   name.oninput = upd;
+  if (sch) sch.onchange = upd;
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'A new table'), h('p', {}, 'Define its columns. The SQL below is exactly what will run — handy for learning, or copy it elsewhere.')),
-    h('div', { class: 'modal-b' }, h('label', { class: 'lab' }, 'Table name', name), list, preview),
+    h('div', { class: 'modal-b' }, h('div', { style: 'display:flex;gap:10px' }, sch && h('label', { class: 'lab' }, 'Schema', sch), h('label', { class: 'lab', style: 'flex:1' }, 'Table name', name)), list, preview),
     h('div', { class: 'modal-f' },
       h('button', { class: 'btn ghost', onclick: () => { m.close(); openQuery(sqlFor(), { title: 'create table' }); } }, 'Open in editor'),
       h('span', { class: 'spacer' }),
       h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'),
       h('button', { class: 'btn ink', onclick: async () => {
         if (!name.value.trim()) { name.focus(); return; }
-        if (await runDDL(sqlFor(), `Created ${name.value.trim()}`)) { m.close(); openTable(name.value.trim()); }
+        if (await runDDL(sqlFor(), `Created ${name.value.trim()}`)) { m.close(); openTable(tableKey(sch?.value ?? curSchema(), name.value.trim())); }
       } }, 'Create table'))], { wide: true });
   draw(); name.focus();
 }
 
-function importCsvDialog() {
+function importCsvDialog({ schema } = {}) {
   const file = h('input', { type: 'file', accept: '.csv,.tsv,.txt,text/csv', class: 'field', style: 'padding:4px' });
   const nameI = h('input', { class: 'field', placeholder: 'table name' });
+  const sch = schemaPicker(schema);
+  const target = nm => sch ? `${qi(sch.value)}.${qi(nm)}` : qi(nm);
   const header = h('input', { type: 'checkbox', checked: true });
   const prev = h('div');
   const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
@@ -2260,7 +2309,7 @@ function importCsvDialog() {
     const t0 = performance.now();
     try {
       await S.db.transaction(async tx => {
-        const ddl = `create table ${qi(tname)} (\n${cols.map(c => `  ${qi(c.name)} ${c.type}`).join(',\n')}\n)`;
+        const ddl = `create table ${target(tname)} (\n${cols.map(c => `  ${qi(c.name)} ${c.type}`).join(',\n')}\n)`;
         await tx.exec(ddl);
         const B = Math.max(1, Math.floor(20000 / cols.length));
         for (let i = 0; i < data.length; i += B) {
@@ -2271,20 +2320,21 @@ function importCsvDialog() {
             else if (c.type === 'boolean') v = /^(t|true|yes|1)$/i.test(v) ? 'true' : 'false';
             params.push(v); return `$${params.length}::${c.type}`;
           }).join(', ') + ')').join(', ');
-          await tx.query(`insert into ${qi(tname)} values ${vals}`, params);
+          await tx.query(`insert into ${target(tname)} values ${vals}`, params);
           status.textContent = `Loading… ${Math.min(i + B, data.length).toLocaleString()} / ${data.length.toLocaleString()}`;
         }
         journalAdd({ src: 'grid', sql: `${ddl};\n-- + ${plural(data.length, 'row')} from CSV`, info: plural(data.length, 'row'), ms: Math.round(performance.now() - t0) });
       });
       m.close();
-      toast(`Imported ${plural(data.length, 'row')} into ${tname}`);
+      const key = tableKey(sch?.value ?? curSchema(), tname);
+      toast(`Imported ${plural(data.length, 'row')} into ${key}`);
       await afterWrite();
-      openTable(tname);
+      openTable(key);
     } catch (e) { status.textContent = e.message; status.style.color = 'var(--red)'; go.disabled = false; }
   };
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Import a CSV'), h('p', {}, 'Creates a new table. Column types are guessed from the data — adjust them before loading. Empty cells become NULL.')),
-    h('div', { class: 'modal-b' }, file, h('div', { style: 'display:flex;gap:10px;align-items:flex-end' }, h('label', { class: 'lab', style: 'flex:1' }, 'Table name', nameI), h('label', { style: 'display:flex;gap:6px;align-items:center;font-size:12.5px;height:32px' }, header, 'First row is a header')), prev),
+    h('div', { class: 'modal-b' }, file, h('div', { style: 'display:flex;gap:10px;align-items:flex-end' }, sch && h('label', { class: 'lab' }, 'Schema', sch), h('label', { class: 'lab', style: 'flex:1' }, 'Table name', nameI), h('label', { style: 'display:flex;gap:6px;align-items:center;font-size:12.5px;height:32px' }, header, 'First row is a header')), prev),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   file.click();
 }
@@ -4556,15 +4606,31 @@ const TOOLS = [
 ];
 
 function schemaText() {
-  if (!S.tables.length) return '(empty — no tables yet)';
+  const sp = S.schema, schemas = S.schemas || [];
+  const where = schemas.length > 1 || (sp && sp.path !== sp.def)
+    ? `Schemas: ${schemas.join(', ')}. search_path = ${sp?.path ?? '(unknown)'}, so unqualified names resolve to ${sp?.cur ?? 'no schema'}. Tables below without a prefix are in public. Write schema-qualified names (schema.table) in SQL you run.\n\n`
+    : '';
+  if (!S.tables.length) return where + '(empty — no tables yet)';
+  return where + schemaTables();
+}
+function schemaTables() {
   // Keys are listed as whole constraints: a column can belong to several composite (tenant-guarded) keys.
   return S.tables.map(t => `${t.kind === 'v' ? 'view' : 'table'} ${t.key}${t.kind !== 'v' ? ` [${S.counts[t.key] ?? 0} rows]` : ''} (${t.cols.map(c => `${c.name} ${c.type}${c.pk ? ' PK' : ''}${c.notnull && !c.pk ? ' not null' : ''}${c.def ? ` default ${c.def}` : ''}`).join(', ')})`
     + t.cons.filter(k => k.type === 'u' || (k.type === 'p' && t.pk.length > 1)).map(k => `\n  ${k.def}`).join('')
     + t.fks.map(f => `\n  FK (${f.cols.join(', ')}) → ${f.ref}(${f.refCols.join(', ')})${f.onDelete !== 'no action' ? ' ON DELETE ' + f.onDelete.toUpperCase() : ''}`).join('')).join('\n').slice(0, 20000);
 }
 const PROMPT_VARS = {
+  engine: () => {
+    if (!S.db?.remote) return 'The database is PGlite — real PostgreSQL 18 compiled to WebAssembly, running in the user\'s browser and persisted in IndexedDB. Single user; built-in features work (plpgsql, JSONB, CTEs, window functions, full-text search, generated columns).';
+    const r = currentDb()?.remote || {};
+    return `The database is a real PostgreSQL ${S.db.info?.serverVersion || ''} server (${r.host || 'remote'}${r.tag === 'prod' ? ', PRODUCTION' : ''}${r.readOnly ? ', read-only connection' : ''}), reached through the pgquire server. Other people and applications may depend on it: prefer reads, keep writes small and deliberate, and never drop or truncate unless asked.`;
+  },
   database: () => currentDb()?.name || '',
   extensions: () => {
+    if (S.db?.remote) {
+      const on = (S.exts || []).map(x => `${x.extname} ${x.extversion}`);
+      return `${on.length ? on.join(', ') : 'none'}. This is a remote server: enable_extension doesn't work here; if an extension is needed, tell the user to run CREATE EXTENSION.`;
+    }
     const on = (S.exts || []).map(x => `${x.extname} ${x.extversion}`);
     const avail = EXT.filter(e => !extEnabled(e.id)).map(e => extSql(e));
     return `${on.length ? on.join(', ') : 'none'}. Available to enable with enable_extension: ${avail.join(', ')}.`;
@@ -4577,7 +4643,7 @@ function systemPrompt() {
   const tpl = store.get('sysPrompt', null) || DEFAULT_PROMPT;
   return tpl.replace(/\{\{(\w+)\}\}/g, (m, k) => PROMPT_VARS[k] ? PROMPT_VARS[k]() : m);
 }
-const DEFAULT_PROMPT = `You are the Clerk: a meticulous PostgreSQL expert working inside "pgquire", a database workbench. The database is PGlite — real PostgreSQL 18 compiled to WebAssembly, running in the user's browser and persisted in IndexedDB. Single user; built-in features work (plpgsql, JSONB, CTEs, window functions, full-text search, generated columns).
+const DEFAULT_PROMPT = `You are the Clerk: a meticulous PostgreSQL expert working inside "pgquire", a database workbench. {{engine}}
 Extensions enabled here: {{extensions}}
 
 Database: "{{database}}"
