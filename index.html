@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>pgquire — inquire into Postgres</title>
+<title>pgquire · inquire into Postgres</title>
 <link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='5' fill='%23f7f3e8'/%3E%3Cpath d='M6.5 1.5H10.5V30.5H6.5A5 5 0 0 1 1.5 25.5V6.5A5 5 0 0 1 6.5 1.5Z' fill='%23c8412c'/%3E%3Cpath d='M12 26.5h15.5' stroke='%23c9bfa6' stroke-width='1.3'/%3E%3Ctext x='20.6' y='22' text-anchor='middle' font-family='Georgia,serif' font-style='italic' font-weight='700' font-size='16.5' fill='%231d1b16'%3Epg%3C/text%3E%3Crect x='1.5' y='1.5' width='29' height='29' rx='5' fill='none' stroke='%231d1b16' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -743,7 +743,7 @@ select.field { padding-right: 4px; }
 <div class="app" id="app">
   <header class="top">
     <button class="iconbtn mobile-only" id="indexToggle" title="Index"><svg class="ic"><use href="#i-menu"/></svg></button>
-    <div class="wordmark" title="pgquire — pg, inquire"><span class="pg">pg</span><b>quire</b></div>
+    <div class="wordmark" title="pgquire · pg, inquire"><span class="pg">pg</span><b>quire</b></div>
     <button class="dbswitch" id="dbSwitch" title="Switch database">
       <span class="smallcaps">Database</span>
       <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
@@ -942,7 +942,7 @@ async function openDb(id, opts = {}) {
   S.id = id; store.set('active', id);
   S.tables = []; S.byKey = {}; S.counts = {}; S.undo = [];
   $('dbName').textContent = currentDb()?.name || '—';
-  document.title = `${currentDb()?.name || 'pgquire'} — pgquire`;
+  document.title = `${currentDb()?.name || 'pgquire'} · pgquire`;
   applyDbColor();
   bootMsg('opening the books…', true);
   try {
@@ -2590,7 +2590,7 @@ $('dbSwitch').onclick = e => {
     }),
     '-',
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
-    { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} — pgquire`; } } },
+    { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
     { label: 'Share as link…', icon: 'share', run: shareDialog },
     { label: 'Export session (.pgquire)…', icon: 'download', run: exportSessionDialog },
@@ -3223,12 +3223,12 @@ async function decryptBytes(bytes, pass) {
   catch { throw new Error('Wrong passphrase — or the link was cut short.'); }
 }
 /** Pack the open database (+ optional saved queries / chats) the same way .pgquire files are laid out. */
-async function buildSharePayload(sql, { saved, chats, curId }) {   // chats = Set of conversation ids
+async function buildSharePayload(sql, { saved, chats, curId }) {   // saved / chats = Sets of ids
   const d = currentDb();
   const dir = 'databases/db/';
   const db = { name: d.name, created: d.created, hue: dbHue(d), extensions: dbExtensions(d.id), dir, data: 'dump.sql', files: {} };
   const files = [{ name: dir + 'dump.sql', data: sql }];
-  if (saved) { const v = store.get(`saved:${d.id}`, []); if (v.length) { files.push({ name: dir + 'saved-queries.json', data: JSON.stringify(v) }); db.files.saved = 'saved-queries.json'; } }
+  if (saved?.size) { const v = store.get(`saved:${d.id}`, []).filter(q => saved.has(q.id)); if (v.length) { files.push({ name: dir + 'saved-queries.json', data: JSON.stringify(v) }); db.files.saved = 'saved-queries.json'; } }
   if (chats?.size) {
     saveClerk();
     const c = readClerk(d.id);
@@ -3245,8 +3245,9 @@ function shareDialog() {
   let sql = null, link = '', building = 0;
   const MAX_CHATS = 5;
   const convList = [...C.convs].filter(c => c.items.length).sort((a, b) => b.updated - a.updated);
-  const opts = { saved: true, chats: new Set(convList.some(c => c.id === C.cur) ? [C.cur] : []), curId: C.cur };
-  const savedN = store.get(`saved:${S.id}`, []).length;
+  const MAX_SAVED = 10;
+  const savedList = [...store.get(`saved:${S.id}`, [])].sort((a, b) => b.updated - a.updated);
+  const opts = { saved: new Set(savedList.slice(0, MAX_SAVED).map(q => q.id)), chats: new Set(convList.some(c => c.id === C.cur) ? [C.cur] : []), curId: C.cur };
   const pass = h('input', { class: 'field', type: 'password', placeholder: 'optional — leave empty for a plain link', autocomplete: 'new-password' });
   const out = h('input', { class: 'field mono', readOnly: true, placeholder: 'building…', style: 'width:100%' });
   const meter = h('div', { class: 'share-meter' }, h('i'));
@@ -3283,7 +3284,25 @@ function shareDialog() {
     h('div', { class: 'modal-h' }, h('h2', {}, 'Share as link'), h('p', {}, `“${currentDb()?.name}” packed into the link itself — tables, data, views and extensions. Whoever opens it gets their own copy; nothing is uploaded.`)),
     h('div', { class: 'modal-b' },
       local && h('div', { class: 'pane-error', style: 'margin:0;color:var(--ink2);border-color:var(--rule);background:var(--paper)' }, h('div', {}, 'pgquire is open from a file on this computer, so the link only works here. To share with others, host the pgquire HTML file somewhere public (e.g. GitHub Pages) and share from there.')),
-      check('saved', 'Include saved queries', savedN ? plural(savedN, 'query') : 'none yet'),
+      savedList.length ? (() => {
+        const head = h('div', { class: 'smallcaps', style: 'display:flex;gap:8px;align-items:baseline' });
+        const boxes = [];
+        const sync = () => {
+          head.replaceChildren(`Saved queries · ${opts.saved.size} of up to ${MAX_SAVED}`,
+            h('button', { class: 'btn sm ghost', style: 'text-transform:none;letter-spacing:0;height:20px', onclick: () => { const none = opts.saved.size > 0; opts.saved = new Set(none ? [] : savedList.slice(0, MAX_SAVED).map(q => q.id)); boxes.forEach(b => b.input.checked = opts.saved.has(b.id)); sync(); rebuild(); } }, opts.saved.size ? 'None' : `Latest ${Math.min(MAX_SAVED, savedList.length)}`));
+          for (const { input, id } of boxes) input.disabled = !opts.saved.has(id) && opts.saved.size >= MAX_SAVED;
+        };
+        const when = ts => new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+        const list = h('div', { class: 'share-convs' }, savedList.map(q => {
+          const input = h('input', { type: 'checkbox', checked: opts.saved.has(q.id), onchange: e => { e.target.checked ? opts.saved.add(q.id) : opts.saved.delete(q.id); sync(); rebuild(); } });
+          boxes.push({ input, id: q.id });
+          return h('label', { class: 'pick', title: q.sql.trim().slice(0, 400) }, input,
+            h('span', { class: 'sc-title' }, q.title),
+            h('small', {}, `${q.sql.replace(/\s+/g, ' ').trim().slice(0, 28)}${q.sql.trim().length > 28 ? '…' : ''} · ${when(q.updated)}`));
+        }));
+        sync();
+        return h('div', { style: 'display:flex;flex-direction:column;gap:5px' }, head, list);
+      })() : h('div', { class: 'smallcaps', style: 'color:var(--ink4)' }, 'No saved queries to include yet'),
       convList.length ? (() => {
         const head = h('div', { class: 'smallcaps', style: 'display:flex;gap:8px;align-items:baseline' });
         const boxes = [];
