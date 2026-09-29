@@ -3108,15 +3108,13 @@ async function deleteDb() {
 }
 
 /* ==========================================================================
-   Sessions — a portable .pgquire file (.pgclerk still opens): a plain gzipped tar (tar -xzf works).
+   Sessions — a portable .pgquire file: a plain gzipped tar (tar -xzf works).
      manifest.json                     format, version, databases
      settings.json                     endpoint, model, prompt, theme (never the API key)
      databases/<dir>/dump.sql          plain SQL   — or data.tar.gz (exact copy)
      databases/<dir>/conversations.json · saved-queries.json · journal.json · workspace.json
-   Older binary "PGCLERK1" files are still read.
    ========================================================================== */
-const SESSION_MAGIC = 'PGCLERK1';
-const SESSION_FORMAT = 'pgquire-session', SESSION_FORMATS = [SESSION_FORMAT, 'pgclerk-session'];   // legacy container (v1/v2)
+const SESSION_FORMAT = 'pgquire-session';
 const STATE_FILES = { clerkv2: 'conversations.json', saved: 'saved-queries.json', journal: 'journal.json' };   // tabs + map share workspace.json
 
 /* ---------- minimal ustar writer / reader ---------- */
@@ -3253,24 +3251,17 @@ function exportSessionDialog() {
 
 async function readSession(file) {
   const buf = new Uint8Array(await file.arrayBuffer());
-  if (buf[0] === 0x1f && buf[1] === 0x8b) return readTarSession(await gunzip(buf));
-  if (new TextDecoder().decode(buf.subarray(0, 8)) !== SESSION_MAGIC) throw new Error('That isn\'t a .pgquire session file.');
-  const hl = new DataView(buf.buffer, buf.byteOffset + 8, 4).getUint32(0);
-  const manifest = JSON.parse(new TextDecoder().decode(await gunzip(buf.subarray(12, 12 + hl))));
-  if (!SESSION_FORMATS.includes(manifest.format)) throw new Error('Unknown session format.');
-  if (manifest.version > 2) throw new Error('This session was made by a newer pgquire.');
-  const base = 12 + hl;
-  for (const d of manifest.databases) d.blob = new Blob([buf.subarray(base + d.data.offset, base + d.data.offset + d.data.length)]);
-  return manifest;
+  if (buf[0] !== 0x1f || buf[1] !== 0x8b) throw new Error('That isn\'t a .pgquire session file.');
+  return readTarSession(await gunzip(buf));
 }
 
-/** Normalise a tar session into the same shape the import dialog uses for legacy files. */
+/** Read a tar session into the shape the import dialog uses. */
 function readTarSession(tarBytes) {
   const entries = tarUnpack(tarBytes);
   const text = p => entries.has(p) ? new TextDecoder().decode(entries.get(p)) : null;
   const jsonAt = p => { const t = text(p); return t == null ? null : JSON.parse(t); };
   const manifest = jsonAt('manifest.json');
-  if (!manifest || !SESSION_FORMATS.includes(manifest.format)) throw new Error('No pgquire manifest.json in this archive.');
+  if (manifest?.format !== SESSION_FORMAT) throw new Error('No pgquire manifest.json in this archive.');
   if (manifest.version > 3) throw new Error('This session was made by a newer pgquire.');
   let settings = manifest.settings ? jsonAt('settings.json') : null;
   if (settings && !Object.keys(settings).length) settings = null;
@@ -3290,7 +3281,7 @@ function readTarSession(tarBytes) {
 }
 
 function pickSessionFile() {
-  const f = h('input', { type: 'file', accept: '.pgquire,.pgclerk' });
+  const f = h('input', { type: 'file', accept: '.pgquire' });
   f.onchange = () => f.files[0] && importSessionDialog(f.files[0]);
   f.click();
 }
@@ -3358,10 +3349,10 @@ async function importSessionDialog(file, preread, sourceLabel) {
   };
 }
 
-// Drop a .pgquire (or older .pgclerk) file anywhere to open it.
+// Drop a .pgquire file anywhere to open it.
 window.addEventListener('dragover', e => { if ([...(e.dataTransfer?.items || [])].some(i => i.kind === 'file')) e.preventDefault(); });
 window.addEventListener('drop', e => {
-  const file = [...(e.dataTransfer?.files || [])].find(f => /\.(pgquire|pgclerk)$/i.test(f.name));
+  const file = [...(e.dataTransfer?.files || [])].find(f => /\.pgquire$/i.test(f.name));
   if (!file) return;
   e.preventDefault();
   importSessionDialog(file);
@@ -4352,7 +4343,7 @@ const COMMANDS = [
   { label: 'Extensions…', k: 'extensions extension plugins pg_trgm vector pgvector postgis uuid pgcrypto hstore fuzzy', run: () => extensionsDialog() },
   { label: 'Share as link', k: 'share link url send copy', run: shareDialog },
   { label: 'Export session (.pgquire)', k: 'export session pgquire save file backup all databases chats', run: exportSessionDialog },
-  { label: 'Open session file (.pgquire)', k: 'import open load session pgquire pgclerk restore file', run: pickSessionFile },
+  { label: 'Open session file (.pgquire)', k: 'import open load session pgquire restore file', run: pickSessionFile },
   { label: 'Download SQL dump (.sql)', k: 'backup export download dump sql pg_dump', run: backupDb },
   { label: 'New database from .sql / .tar.gz', k: 'restore import load sql dump tar backup', run: restoreDb },
   { label: 'Undo last grid change', k: 'undo revert', run: undoLast },
@@ -4519,7 +4510,6 @@ function convMenu(e) {
 
 /* ---------- export / import ---------- */
 const CONV_FORMAT = 'pgquire-conversations';
-const CONV_FORMATS = [CONV_FORMAT, 'pgclerk-conversations', 'ledger-clerk-conversations'];   // also read Ledger v2 exports
 const fileSafe = t => (t || 'conversation').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50) || 'conversation';
 function convToMarkdown(c) {
   const lines = [`# ${c.title}`, '', `*pgquire · database “${currentDb()?.name}” · ${C.model} · started ${new Date(c.created).toLocaleString()}*`];
@@ -4570,7 +4560,7 @@ function importConvs() {
     try {
       const doc = JSON.parse(await file.text());
       // Accept our export format, a single conversation object, or a bare items array.
-      const raw = CONV_FORMATS.includes(doc.format) ? doc.conversations : Array.isArray(doc) ? [{ items: doc }] : doc.items ? [doc] : null;
+      const raw = doc.format === CONV_FORMAT ? doc.conversations : Array.isArray(doc) ? [{ items: doc }] : doc.items ? [doc] : null;
       if (!raw?.length) throw new Error('This file doesn\'t look like a pgquire conversation export.');
       const known = new Set(['user', 'ai', 'sql', 'note', 'err', 'turn']);
       let last = null; const imported = [];
