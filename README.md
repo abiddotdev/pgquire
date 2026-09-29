@@ -33,10 +33,11 @@ Then pick **Connect remote Postgres…** in the database switcher and paste a co
 - Passwords stay with the server. Saved connections go in `~/.config/pgquire/connections.json` (readable only by you) and never reach the browser.
 - The server listens on 127.0.0.1 only and needs the token from the link it prints.
 - Connections marked **Production** get a red marker, start read-only, and ask before any write once you make them writable. Read-only here is a guard rail: for a hard guarantee, connect as a read-only role.
-- Big tables show estimated row counts (`~`). Results are capped at 50,000 rows (`-max-rows`), and running queries can be stopped.
+- Big tables show estimated row counts (`~`). Results in the page are capped at 50,000 rows (`-max-rows`); **CSV (all)** and table **Export CSV** stream every row. Running queries can be stopped.
 - The browser keeps in-browser databases per address, so ones made on the live page don't appear at `127.0.0.1:8432`, and the other way round. Move them with **Export session / Open session file**.
 
-- For a remote database, the switcher also offers **Copy to a local database…** (a sample or all rows, to experiment on safely) and **Download SQL dump**. Neither needs `pg_dump` installed.
+- **Move data…** in the switcher gathers every way data goes in or out: **Copy to a local database** (a sample or all rows, to experiment on safely), **Download SQL dump** (no `pg_dump` needed), session export, and importing files.
+- The connect dialog takes a connection string or separate fields, and **Test** shows the server version and whether the connection is encrypted. The green dot next to the database name says the same, and turns red with a **Reconnect** banner if the pgquire server stops.
 
 `./pgquire -h` lists the options. Tests: `PGQUIRE_TEST_DSN=postgres://… go test ./...`
 
