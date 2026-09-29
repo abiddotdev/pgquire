@@ -1083,11 +1083,13 @@ async function refreshSchema({ initial } = {}) {
   S.exts = await installedExtensions(S.db).catch(() => []);
   S.byKey = Object.fromEntries(tables.map(t => [t.key, t]));
 }
-function qt(t) { return t.schema === 'public' ? qi(t.name) : `${qi(t.schema)}.${qi(t.name)}`; }
+// Always schema-qualified: a SET search_path in the editor must not break the app's own queries.
+function qt(t) { return `${qi(t.schema)}.${qi(t.name)}`; }
 
 /** After anything that might have changed data or schema. */
 async function afterWrite({ keepActive } = {}) {
-  await refreshSchema();
+  try { await refreshSchema(); }
+  catch (e) { toast(`Couldn't refresh the table list: ${e.message}`, 'bad'); }   // still redraw below
   for (const tab of S.tabs) if (tab.type === 'table') tab.dirty = true;
   // Close tabs for tables that vanished.
   S.tabs = S.tabs.filter(t => t.type !== 'table' || S.byKey[t.key]);
