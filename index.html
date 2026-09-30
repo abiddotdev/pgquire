@@ -705,6 +705,17 @@ select.field { padding-right: 4px; }
 .modal-b { padding: 12px 22px 8px 34px; display: flex; flex-direction: column; gap: 10px; }
 .modal-f { padding: 12px 22px 18px 34px; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
 .modal-f .spacer { flex: 1; }
+.modal-status { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--ink2); }
+.modal-status .ms-text { overflow-wrap: anywhere; }
+.modal-status .ms-count { color: var(--ink3); font-variant-numeric: tabular-nums; line-height: 18px; }
+.modal-status .ms-count:empty { display: none; }
+.modal-status.progress .ms-count { display: block; min-height: 18px; }   /* kept while working, so the dialog doesn't jump */
+.modal-status.bad { color: var(--red); }
+.modal-status .ms-bar { height: 3px; max-width: 320px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+.modal-status:not(.progress) .ms-bar { display: none; }
+.modal-status .ms-bar i { display: block; height: 100%; width: 0; background: var(--ink2); transition: width .25s; }
+.modal-status .ms-bar.busy i { width: 30%; animation: msbusy 1.1s ease-in-out infinite; }
+@keyframes msbusy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .modal label.lab { display: flex; flex-direction: column; gap: 4px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
 .modal label.lab .field { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink); height: 32px; }
 .coldef { display: grid; grid-template-columns: 1.3fr 1.1fr 1fr auto auto auto; gap: 6px; align-items: center; }
@@ -2533,6 +2544,31 @@ function modal(content, { wide } = {}) {
   document.body.append(bg);
   return { bg, box, close };
 }
+/** A dialog's status line, for its footer: what's happening, a thin bar, and under it the counts
+ *  ("table 2 of 3 · 32,000 of ~85,000 rows"). While working (a bar is showing) the counts line keeps
+ *  its place, so nothing shifts from step to step.
+ *  set(text, { lead, done, total, unit, approx, note, frac, busy }): lead and note go either side of
+ *  "done of total unit"; frac (0–1) sets the bar when the count isn't what it should follow; busy: a
+ *  bar that just moves. fail(text) · set('') clears it. */
+function modalStatus(text = '') {
+  const t = h('span', { class: 'ms-text' }), n = h('span', { class: 'ms-count' }), fill = h('i');
+  const bar = h('div', { class: 'ms-bar' }, fill);
+  const el = h('div', { class: 'modal-status', role: 'status', 'aria-live': 'polite' }, t, bar, n);
+  el.set = (text, { lead, done, total, unit, approx, note, frac, busy } = {}) => {
+    el.classList.remove('bad');
+    t.textContent = text || '';
+    const known = total > 0 && done != null && done <= total;
+    const count = done == null ? '' : known ? `${done.toLocaleString()} of ${approx ? '~' : ''}${plural(total, unit || 'item')}` : unit ? plural(done, unit) : done.toLocaleString();
+    n.textContent = [lead, count, note].filter(Boolean).join(' · ');
+    const f = frac ?? (known ? done / total : null);
+    el.classList.toggle('progress', f != null || !!busy);
+    bar.classList.toggle('busy', f == null && !!busy);
+    fill.style.width = f != null ? `${Math.round(Math.min(1, f) * 100)}%` : '';
+  };
+  el.fail = text => { el.set(text); el.classList.add('bad'); };
+  el.set(text);
+  return el;
+}
 function confirmDlg({ title, body, ok = 'OK', danger, typeToConfirm }) {
   return new Promise(res => {
     const input = typeToConfirm ? h('input', { class: 'field', placeholder: typeToConfirm }) : null;
@@ -2609,7 +2645,7 @@ function importCsvDialog({ schema } = {}) {
   const target = nm => sch ? `${qi(sch.value)}.${qi(nm)}` : qi(nm);
   const header = h('input', { type: 'checkbox', checked: true });
   const prev = h('div');
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   let rows = null, cols = [];
   const build = () => {
     if (!rows) return;
@@ -2626,7 +2662,7 @@ function importCsvDialog({ schema } = {}) {
         h('input', { class: 'field', value: c.name, oninput: e => c.name = e.target.value }), h('br'),
         h('select', { class: 'field', onchange: e => c.type = e.target.value }, ['text', 'integer', 'bigint', 'numeric', 'boolean', 'date', 'timestamptz', 'jsonb'].map(t => h('option', { value: t, selected: t === c.type }, t))))))),
       h('tbody', {}, data.slice(0, 8).map(r => h('tr', {}, cols.map((_, i) => h('td', {}, r[i] ?? ''))))))));
-    status.textContent = `${plural(data.length, 'row')} · ${plural(cols.length, 'column')}`;
+    status.set(`${plural(data.length, 'row')} · ${plural(cols.length, 'column')}`);
   };
   file.onchange = async () => {
     const f = file.files[0]; if (!f) return;
@@ -2640,7 +2676,7 @@ function importCsvDialog({ schema } = {}) {
     if (!rows?.length) { file.click(); return; }
     const tname = slug(nameI.value);
     const data = header.checked ? rows.slice(1) : rows;
-    go.disabled = true;
+    go.disabled = true; status.set('Creating the table…', { busy: true });
     const t0 = performance.now();
     try {
       await appTransaction(async tx => {
@@ -2656,7 +2692,7 @@ function importCsvDialog({ schema } = {}) {
             params.push(v); return `$${params.length}::${c.type}`;
           }).join(', ') + ')').join(', ');
           await tx.query(`insert into ${target(tname)} values ${vals}`, params);
-          status.textContent = `Loading… ${Math.min(i + B, data.length).toLocaleString()} / ${data.length.toLocaleString()}`;
+          status.set('Loading rows', { done: Math.min(i + B, data.length), total: data.length, unit: 'row' });
         }
         journalAdd({ src: 'grid', sql: `${ddl};\n-- + ${plural(data.length, 'row')} from CSV`, info: plural(data.length, 'row'), ms: Math.round(performance.now() - t0) });
       });
@@ -2665,7 +2701,7 @@ function importCsvDialog({ schema } = {}) {
       toast(`Imported ${plural(data.length, 'row')} into ${key}`);
       await afterWrite();
       openTable(key);
-    } catch (e) { status.textContent = e.message; status.style.color = 'var(--red)'; go.disabled = false; }
+    } catch (e) { status.fail(e.message); go.disabled = false; }
   };
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Import a CSV'), h('p', {}, 'Creates a new table. Column types are guessed from the data — adjust them before loading. Empty cells become NULL.')),
@@ -3151,19 +3187,21 @@ async function sqlDump(id) {
   try { return await (await pgDumpFn({ pg: inst, args })).text(); } finally { await inst.close().catch(() => {}); }
 }
 
-/** Run a plain-SQL dump. Handles pg_dump's COPY … FROM stdin blocks and skips psql meta-commands (\restrict, \connect…). */
+/** Run a plain-SQL dump. Handles pg_dump's COPY … FROM stdin blocks and skips psql meta-commands (\restrict, \connect…).
+ *  onProgress(table, done, total) before each COPY block's data. */
 async function runSqlScript(pg, sql, onProgress) {
   const meta = /^\\[a-z].*$/gim;
   const copyRe = /^COPY\s+(.+?)\s+FROM\s+stdin;[ \t]*\r?$/gim;
-  let pos = 0, m;
+  const total = sql.match(copyRe)?.length || 0;
+  let pos = 0, m, done = 0;
   while ((m = copyRe.exec(sql))) {
     const before = sql.slice(pos, m.index).replace(meta, '');
     if (before.trim()) await pg.exec(before);
     const start = sql.indexOf('\n', m.index) + 1;
     let end = sql.indexOf('\n\\.', start - 1);
     if (end < 0) end = sql.length;
+    onProgress?.(m[1].replace(/\s*\(.*$/s, ''), done++, total);   // the table, without COPY's column list
     for (const ins of copyInserts(m[1], sql.slice(start, end))) await pg.exec(ins.sql);
-    onProgress?.(m[1]);
     pos = end + 3;
     copyRe.lastIndex = pos;
   }
@@ -3209,12 +3247,17 @@ function restoreDb() {
     const file = f.files[0]; if (!file) return;
     const base = file.name.replace(/\.tar\.gz$|\.tgz$|\.tar$|\.sql$/i, '');
     const isSql = /\.sql$/i.test(file.name) || file.type.includes('sql') || file.type.startsWith('text/');
-    toast(`Loading ${file.name}…`);
+    const status = modalStatus();
+    status.set(isSql ? 'Running the SQL…' : 'Unpacking the data folder…', { busy: true });
+    const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, `Loading ${file.name}`), h('p', {}, `${fmtBytes(file.size)} into a new database in this browser.`)),
+      h('div', { class: 'modal-f' }, status)]);
     try {
-      const meta = await createDbFrom(base, isSql ? { sql: await file.text() } : { dataDir: file });
+      const meta = await createDbFrom(base, isSql ? { sql: await file.text() } : { dataDir: file },
+        (tbl, k, n) => status.set(`Loading ${tbl}`, { lead: `table ${k + 1} of ${n}`, frac: k / n }));
+      m.close();
       await openDb(meta.id);
       toast(`Created “${meta.name}” from ${file.name}`);
-    } catch (e) { toast(`Couldn't load ${file.name}: ${e.message}`, 'bad'); }
+    } catch (e) { m.close(); toast(`Couldn't load ${file.name}: ${e.message}`, 'bad'); }
   };
   f.click();
 }
@@ -3305,11 +3348,11 @@ function exportSessionDialog() {
   const parts = Object.fromEntries(SESSION_PARTS.map(p => [p.key, p.on]));
   let withSettings = true;
   let format = 'sql';
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, ic('download'), 'Export');
   const radio = (val, label, hint) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:baseline;font-size:13px;padding:3px 0' },
     h('input', { type: 'radio', name: 'fmt', checked: format === val, onchange: () => format = val }), h('span', {}, h('b', { style: 'font-weight:500' }, label), h('span', { style: 'color:var(--ink3);font-size:12px' }, ' — ' + hint)));
-  const upd = () => { go.disabled = !chosen.size; status.textContent = chosen.size ? `${plural(chosen.size, 'database')} selected` : 'Choose at least one database'; };
+  const upd = () => { go.disabled = !chosen.size; status.set(chosen.size ? `${plural(chosen.size, 'database')} selected` : 'Choose at least one database'); };
   const check = (checked, on, label, hint) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0' },
     h('input', { type: 'checkbox', checked, onchange: e => { on(e.target.checked); upd(); } }), label, hint && h('small', { style: 'margin-left:auto;color:var(--ink3);font:11px var(--mono)' }, hint));
   const dbList = dbs.length > 1 && h('div', {},
@@ -3342,7 +3385,7 @@ function exportSessionDialog() {
       const json = v => JSON.stringify(v, null, 2);
       const dirs = new Set();
       for (const [i, d] of list.entries()) {
-        status.textContent = `Packing ${d.name} (${i + 1}/${list.length})…`;
+        status.set(`Packing ${d.name}…`, { lead: `database ${i + 1} of ${list.length}`, frac: i / list.length });
         let dir = fileSafe(d.name).toLowerCase().slice(0, 40) || 'db', n = 2;
         while (dirs.has(dir)) dir = `${fileSafe(d.name).toLowerCase().slice(0, 36)}-${n++}`;
         dirs.add(dir);
@@ -3361,13 +3404,13 @@ function exportSessionDialog() {
       }
       if (withSettings) files.unshift({ name: 'settings.json', data: json(Object.fromEntries(SETTING_KEYS.map(k => [k, store.get(k, null)]).filter(([, v]) => v != null))) });
       files.unshift({ name: 'manifest.json', data: json(manifest) });
-      status.textContent = 'Compressing…';
+      status.set('Compressing…', { lead: `${plural(list.length, 'database')} packed`, busy: true });
       const file = new Blob([await gzip(new Uint8Array(await tarPack(files).arrayBuffer()))], { type: 'application/gzip' });
       const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
       downloadBlob(file, `${list.length === 1 ? fileSafe(list[0].name) : 'pgquire-session'}-${stamp}.pgquire`);
       m.close();
       toast(`Exported ${plural(list.length, 'database')} · ${fmtBytes(file.size)}`);
-    } catch (e) { status.textContent = 'Export failed: ' + e.message; status.style.color = 'var(--red)'; go.disabled = false; }
+    } catch (e) { status.fail('Export failed: ' + e.message); go.disabled = false; }
   };
 }
 
@@ -3415,9 +3458,9 @@ async function importSessionDialog(file, preread, sourceLabel) {
   const chosen = new Set(man.databases.map((_, i) => i));
   let applySettings = !!man.settings;
   const mine = pglite => PGLITE_URL.includes('@' + pglite);
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, ic('upload'), 'Open');
-  const upd = () => { go.disabled = !chosen.size; status.textContent = `${plural(chosen.size, 'database')} will be added`; };
+  const upd = () => { go.disabled = !chosen.size; status.set(`${plural(chosen.size, 'database')} will be added`); };
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Open session'), h('p', {}, `${srcName} · ${man.shared ? 'shared' : 'exported'} ${new Date(man.exported).toLocaleString()}. Each database is added alongside yours — nothing existing is overwritten.`)),
     h('div', { class: 'modal-b' },
@@ -3442,13 +3485,15 @@ async function importSessionDialog(file, preread, sourceLabel) {
     const added = [];
     try {
       if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
-      for (const i of [...chosen].sort((a, b) => a - b)) {
+      const picked = [...chosen].sort((a, b) => a - b);
+      for (const [k, i] of picked.entries()) {
         const d = man.databases[i];
-        status.textContent = `Loading ${d.name}…`;
+        const at = { lead: `database ${k + 1} of ${picked.length}`, frac: k / picked.length };
+        status.set(`Loading ${d.name}…`, at);
         let meta;
         try {
           meta = (d.data.kind || 'datadir') === 'sql'
-            ? await createDbFrom(d.name, { sql: d.sqlText ?? new TextDecoder().decode(await gunzip(new Uint8Array(await d.blob.arrayBuffer()))), extensions: d.extensions })
+            ? await createDbFrom(d.name, { sql: d.sqlText ?? new TextDecoder().decode(await gunzip(new Uint8Array(await d.blob.arrayBuffer()))), extensions: d.extensions }, (tbl, j, n) => status.set(`Loading ${d.name} · ${tbl}`, { ...at, note: `table ${j + 1} of ${n}`, frac: (k + j / n) / picked.length }))
             : await createDbFrom(d.name, { dataDir: d.blob, extensions: d.extensions });
         } catch (e) { throw new Error(`${d.name}: ${e.message}`); }
         for (const [k, v] of Object.entries(d.state || {})) if (SESSION_PARTS.some(p => p.key === k)) k === 'clerkv2' ? writeClerk(meta.id, normalizeClerk(v)) : store.set(`${k}:${meta.id}`, v);
@@ -3465,7 +3510,7 @@ async function importSessionDialog(file, preread, sourceLabel) {
       toast(`Opened ${plural(added.length, 'database')} from ${srcName}`);
       if (added.length) await openDb(added[0].id);
     } catch (e) {
-      status.textContent = 'Failed: ' + e.message; status.style.color = 'var(--red)'; go.disabled = false;
+      status.fail('Failed: ' + e.message); go.disabled = false;
       if (added.length) renderAll();
     }
   };
@@ -3609,7 +3654,7 @@ function nextFreeName(name) {
 /** Clone an in-browser database: an exact copy of its data folder, with its extensions and ERD layout. */
 function cloneDbDialog(d) {
   const name = h('input', { class: 'field', value: nextFreeName(d.name) });
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, 'Clone');
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, `Clone “${d.name}”`), h('p', {}, 'An exact copy — tables, data, views, functions — as a new database in this browser. The original is not changed.')),
@@ -3618,14 +3663,16 @@ function cloneDbDialog(d) {
   name.select();
   name.onkeydown = e => { if (e.key === 'Enter') go.click(); };
   go.onclick = async () => {
-    go.disabled = true; status.textContent = 'Copying…';
+    go.disabled = true; status.set(`Reading “${d.name}”…`, { busy: true });
     try {
-      const meta = await createDbFrom(name.value.trim() || nextFreeName(d.name), { dataDir: await dumpDatabase(d.id), extensions: dbExtensions(d.id) });
+      const dataDir = await dumpDatabase(d.id);
+      status.set(`Writing the copy · ${fmtBytes(dataDir.size)}…`, { busy: true });
+      const meta = await createDbFrom(name.value.trim() || nextFreeName(d.name), { dataDir, extensions: dbExtensions(d.id) });
       const pos = store.get(`map:${d.id}`, null);
       if (pos) store.set(`map:${meta.id}`, pos);
       m.close();
       toast(`Cloned into “${meta.name}”`, null, { label: 'Open', run: () => openDb(meta.id) });
-    } catch (e) { status.textContent = `Clone failed: ${e.message}`; go.disabled = false; }
+    } catch (e) { status.fail(`Clone failed: ${e.message}`); go.disabled = false; }
   };
 }
 

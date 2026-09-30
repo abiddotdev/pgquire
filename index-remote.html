@@ -719,6 +719,17 @@ select.field { padding-right: 4px; }
 .modal-b { padding: 12px 22px 8px 34px; display: flex; flex-direction: column; gap: 10px; }
 .modal-f { padding: 12px 22px 18px 34px; display: flex; justify-content: flex-end; gap: 8px; align-items: center; }
 .modal-f .spacer { flex: 1; }
+.modal-status { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: var(--ink2); }
+.modal-status .ms-text { overflow-wrap: anywhere; }
+.modal-status .ms-count { color: var(--ink3); font-variant-numeric: tabular-nums; line-height: 18px; }
+.modal-status .ms-count:empty { display: none; }
+.modal-status.progress .ms-count { display: block; min-height: 18px; }   /* kept while working, so the dialog doesn't jump */
+.modal-status.bad { color: var(--red); }
+.modal-status .ms-bar { height: 3px; max-width: 320px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+.modal-status:not(.progress) .ms-bar { display: none; }
+.modal-status .ms-bar i { display: block; height: 100%; width: 0; background: var(--ink2); transition: width .25s; }
+.modal-status .ms-bar.busy i { width: 30%; animation: msbusy 1.1s ease-in-out infinite; }
+@keyframes msbusy { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 .modal label.lab { display: flex; flex-direction: column; gap: 4px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink3); font-weight: 600; }
 .modal label.lab .field { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--ink); height: 32px; }
 .coldef { display: grid; grid-template-columns: 1.3fr 1.1fr 1fr auto auto auto; gap: 6px; align-items: center; }
@@ -2649,6 +2660,31 @@ function modal(content, { wide } = {}) {
   document.body.append(bg);
   return { bg, box, close };
 }
+/** A dialog's status line, for its footer: what's happening, a thin bar, and under it the counts
+ *  ("table 2 of 3 · 32,000 of ~85,000 rows"). While working (a bar is showing) the counts line keeps
+ *  its place, so nothing shifts from step to step.
+ *  set(text, { lead, done, total, unit, approx, note, frac, busy }): lead and note go either side of
+ *  "done of total unit"; frac (0–1) sets the bar when the count isn't what it should follow; busy: a
+ *  bar that just moves. fail(text) · set('') clears it. */
+function modalStatus(text = '') {
+  const t = h('span', { class: 'ms-text' }), n = h('span', { class: 'ms-count' }), fill = h('i');
+  const bar = h('div', { class: 'ms-bar' }, fill);
+  const el = h('div', { class: 'modal-status', role: 'status', 'aria-live': 'polite' }, t, bar, n);
+  el.set = (text, { lead, done, total, unit, approx, note, frac, busy } = {}) => {
+    el.classList.remove('bad');
+    t.textContent = text || '';
+    const known = total > 0 && done != null && done <= total;
+    const count = done == null ? '' : known ? `${done.toLocaleString()} of ${approx ? '~' : ''}${plural(total, unit || 'item')}` : unit ? plural(done, unit) : done.toLocaleString();
+    n.textContent = [lead, count, note].filter(Boolean).join(' · ');
+    const f = frac ?? (known ? done / total : null);
+    el.classList.toggle('progress', f != null || !!busy);
+    bar.classList.toggle('busy', f == null && !!busy);
+    fill.style.width = f != null ? `${Math.round(Math.min(1, f) * 100)}%` : '';
+  };
+  el.fail = text => { el.set(text); el.classList.add('bad'); };
+  el.set(text);
+  return el;
+}
 function confirmDlg({ title, body, ok = 'OK', danger, typeToConfirm }) {
   return new Promise(res => {
     const input = typeToConfirm ? h('input', { class: 'field', placeholder: typeToConfirm }) : null;
@@ -2725,7 +2761,7 @@ function importCsvDialog({ schema } = {}) {
   const target = nm => sch ? `${qi(sch.value)}.${qi(nm)}` : qi(nm);
   const header = h('input', { type: 'checkbox', checked: true });
   const prev = h('div');
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   let rows = null, cols = [];
   const build = () => {
     if (!rows) return;
@@ -2742,7 +2778,7 @@ function importCsvDialog({ schema } = {}) {
         h('input', { class: 'field', value: c.name, oninput: e => c.name = e.target.value }), h('br'),
         h('select', { class: 'field', onchange: e => c.type = e.target.value }, ['text', 'integer', 'bigint', 'numeric', 'boolean', 'date', 'timestamptz', 'jsonb'].map(t => h('option', { value: t, selected: t === c.type }, t))))))),
       h('tbody', {}, data.slice(0, 8).map(r => h('tr', {}, cols.map((_, i) => h('td', {}, r[i] ?? ''))))))));
-    status.textContent = `${plural(data.length, 'row')} · ${plural(cols.length, 'column')}`;
+    status.set(`${plural(data.length, 'row')} · ${plural(cols.length, 'column')}`);
   };
   file.onchange = async () => {
     const f = file.files[0]; if (!f) return;
@@ -2757,7 +2793,7 @@ function importCsvDialog({ schema } = {}) {
     const tname = slug(nameI.value);
     if (!(await prodWriteOk(`create table ${target(tname)} … -- and insert ${plural(rows.length - (header.checked ? 1 : 0), 'row')} from CSV`))) return; // @remote
     const data = header.checked ? rows.slice(1) : rows;
-    go.disabled = true;
+    go.disabled = true; status.set('Creating the table…', { busy: true });
     const t0 = performance.now();
     try {
       await appTransaction(async tx => {
@@ -2773,7 +2809,7 @@ function importCsvDialog({ schema } = {}) {
             params.push(v); return `$${params.length}::${c.type}`;
           }).join(', ') + ')').join(', ');
           await tx.query(`insert into ${target(tname)} values ${vals}`, params);
-          status.textContent = `Loading… ${Math.min(i + B, data.length).toLocaleString()} / ${data.length.toLocaleString()}`;
+          status.set('Loading rows', { done: Math.min(i + B, data.length), total: data.length, unit: 'row' });
         }
         journalAdd({ src: 'grid', sql: `${ddl};\n-- + ${plural(data.length, 'row')} from CSV`, info: plural(data.length, 'row'), ms: Math.round(performance.now() - t0) });
       });
@@ -2782,7 +2818,7 @@ function importCsvDialog({ schema } = {}) {
       toast(`Imported ${plural(data.length, 'row')} into ${key}`);
       await afterWrite();
       openTable(key);
-    } catch (e) { status.textContent = e.message; status.style.color = 'var(--red)'; go.disabled = false; }
+    } catch (e) { status.fail(e.message); go.disabled = false; }
   };
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Import a CSV'), h('p', {}, 'Creates a new table. Column types are guessed from the data — adjust them before loading. Empty cells become NULL.')),
@@ -3266,7 +3302,7 @@ async function readOnlyLoginDialog() {
   let typed = false, bump = 1;          // until you type a name, a taken default moves on: pgquire_ro_2, _3…
   const sw = h('input', { type: 'checkbox', checked: true });
   const pre = h('pre', { class: 'sqlpreview', style: 'max-height:240px' });
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink', disabled: true }, 'Create login');
   let sql = '', timer = null;
   const load = async () => {
@@ -3277,11 +3313,10 @@ async function readOnlyLoginDialog() {
         .map(x => x.startsWith('--') ? x : x + ';').join('\n');
       pre.innerHTML = highlightSQL(sql);
       go.disabled = !p.canCreate || p.exists;
-      status.style.color = p.canCreate && !p.exists ? 'var(--ink3)' : 'var(--red)';
-      status.textContent = p.exists ? 'A login with that name already exists — pick another.'
+      (p.canCreate && !p.exists ? status.set : status.fail)(p.exists ? 'A login with that name already exists — pick another.'
         : !p.canCreate ? `${p.user} isn't allowed to create logins. Copy the SQL for an admin (they choose the password), then connect with that login.`
-        : `Runs as ${p.user} on ${p.database}.`;
-    } catch (e) { go.disabled = true; status.style.color = 'var(--red)'; status.textContent = e.message; }
+        : `Runs as ${p.user} on ${p.database}.`);
+    } catch (e) { go.disabled = true; status.fail(e.message); }
   };
   name.oninput = () => { typed = true; clearTimeout(timer); timer = setTimeout(load, 300); };
   const m = modal([
@@ -3295,7 +3330,7 @@ async function readOnlyLoginDialog() {
       h('button', { class: 'btn ghost', onclick: () => { navigator.clipboard?.writeText(sql); toast('SQL copied — replace the password placeholder'); } }, ic('copy'), 'Copy SQL'),
       h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   go.onclick = async () => {
-    go.disabled = true; status.style.color = ''; status.textContent = 'Creating…';
+    go.disabled = true; status.set('Creating the login…', { busy: true });
     try {
       const r = await api('POST', path, { role: name.value.trim(), database: remoteDbOf(d), switch: sw.checked });
       m.close();
@@ -3308,7 +3343,7 @@ async function readOnlyLoginDialog() {
       const removal = r.removeSQL.map(x => x + ';').join('\n');
       toast(`${r.switched ? `Now connected as ${r.role}: it can ${how}, and can't change anything.` : `Created ${r.role}: it can ${how}. Connect with it to use it.`} To remove it later, forget this connection (pgquire offers to drop it) or run the removal SQL on ${r.database}.`,
         null, { label: 'Copy removal SQL', run: () => { navigator.clipboard?.writeText(removal); toast('Removal SQL copied'); } });
-    } catch (e) { go.disabled = false; status.style.color = 'var(--red)'; status.textContent = e.message; }
+    } catch (e) { go.disabled = false; status.fail(e.message); }
   };
   load(); name.focus();
 }
@@ -3319,7 +3354,7 @@ function forgetConnection(p) {
   return new Promise(res => {
     const role = p.createdRole, removal = role ? removeRoleSQL(role) : '';
     const drop = h('input', { type: 'checkbox', checked: true });
-    const status = h('span', { style: 'font-size:12px;color:var(--red)' });
+    const status = modalStatus();
     const go = h('button', { class: 'btn red' }, 'Forget');
     let keepRole = false;
     const m = modal([
@@ -3333,7 +3368,7 @@ function forgetConnection(p) {
     m.bg.addEventListener('cancel', () => res(false));
     go.onclick = async () => {
       const dropping = !!role && drop.checked && !keepRole;
-      go.disabled = true; status.textContent = '';
+      go.disabled = true; status.set(dropping ? `Removing the login ${role}…` : 'Forgetting…', { busy: true });
       try {
         await api('DELETE', `/api/profiles/${encodeURIComponent(p.name)}${dropping ? '?dropRole=1' : ''}`);
         m.close();
@@ -3341,8 +3376,8 @@ function forgetConnection(p) {
         res(true);
       } catch (e) {
         go.disabled = false;
-        if (dropping) { keepRole = true; go.textContent = 'Forget anyway'; status.textContent = `Couldn't remove ${role}: ${e.message}. Copy the SQL for an admin, or forget the connection anyway.`; }
-        else status.textContent = e.message;
+        if (dropping) { keepRole = true; go.textContent = 'Forget anyway'; status.fail(`Couldn't remove ${role}: ${e.message}. Copy the SQL for an admin, or forget the connection anyway.`); }
+        else status.fail(e.message);
       }
     };
   });
@@ -3433,19 +3468,21 @@ async function sqlDump(id) {
   try { return await (await pgDumpFn({ pg: inst, args })).text(); } finally { await inst.close().catch(() => {}); }
 }
 
-/** Run a plain-SQL dump. Handles pg_dump's COPY … FROM stdin blocks and skips psql meta-commands (\restrict, \connect…). */
+/** Run a plain-SQL dump. Handles pg_dump's COPY … FROM stdin blocks and skips psql meta-commands (\restrict, \connect…).
+ *  onProgress(table, done, total) before each COPY block's data. */
 async function runSqlScript(pg, sql, onProgress) {
   const meta = /^\\[a-z].*$/gim;
   const copyRe = /^COPY\s+(.+?)\s+FROM\s+stdin;[ \t]*\r?$/gim;
-  let pos = 0, m;
+  const total = sql.match(copyRe)?.length || 0;
+  let pos = 0, m, done = 0;
   while ((m = copyRe.exec(sql))) {
     const before = sql.slice(pos, m.index).replace(meta, '');
     if (before.trim()) await pg.exec(before);
     const start = sql.indexOf('\n', m.index) + 1;
     let end = sql.indexOf('\n\\.', start - 1);
     if (end < 0) end = sql.length;
+    onProgress?.(m[1].replace(/\s*\(.*$/s, ''), done++, total);   // the table, without COPY's column list
     for (const ins of copyInserts(m[1], sql.slice(start, end))) await pg.exec(ins.sql);
-    onProgress?.(m[1]);
     pos = end + 3;
     copyRe.lastIndex = pos;
   }
@@ -3492,12 +3529,17 @@ function restoreDb() {
     const file = f.files[0]; if (!file) return;
     const base = file.name.replace(/\.tar\.gz$|\.tgz$|\.tar$|\.sql$/i, '');
     const isSql = /\.sql$/i.test(file.name) || file.type.includes('sql') || file.type.startsWith('text/');
-    toast(`Loading ${file.name}…`);
+    const status = modalStatus();
+    status.set(isSql ? 'Running the SQL…' : 'Unpacking the data folder…', { busy: true });
+    const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, `Loading ${file.name}`), h('p', {}, `${fmtBytes(file.size)} into a new database in this browser.`)),
+      h('div', { class: 'modal-f' }, status)]);
     try {
-      const meta = await createDbFrom(base, isSql ? { sql: await file.text() } : { dataDir: file });
+      const meta = await createDbFrom(base, isSql ? { sql: await file.text() } : { dataDir: file },
+        (tbl, k, n) => status.set(`Loading ${tbl}`, { lead: `table ${k + 1} of ${n}`, frac: k / n }));
+      m.close();
       await openDb(meta.id);
       toast(`Created “${meta.name}” from ${file.name}`);
-    } catch (e) { toast(`Couldn't load ${file.name}: ${e.message}`, 'bad'); }
+    } catch (e) { m.close(); toast(`Couldn't load ${file.name}: ${e.message}`, 'bad'); }
   };
   f.click();
 }
@@ -3599,11 +3641,11 @@ function exportSessionDialog() {
   const parts = Object.fromEntries(SESSION_PARTS.map(p => [p.key, p.on]));
   let withSettings = true;
   let format = 'sql';
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, ic('download'), 'Export');
   const radio = (val, label, hint) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:baseline;font-size:13px;padding:3px 0' },
     h('input', { type: 'radio', name: 'fmt', checked: format === val, onchange: () => format = val }), h('span', {}, h('b', { style: 'font-weight:500' }, label), h('span', { style: 'color:var(--ink3);font-size:12px' }, ' — ' + hint)));
-  const upd = () => { go.disabled = !chosen.size; status.textContent = chosen.size ? `${plural(chosen.size, 'database')} selected` : 'Choose at least one database'; };
+  const upd = () => { go.disabled = !chosen.size; status.set(chosen.size ? `${plural(chosen.size, 'database')} selected` : 'Choose at least one database'); };
   const check = (checked, on, label, hint) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0' },
     h('input', { type: 'checkbox', checked, onchange: e => { on(e.target.checked); upd(); } }), label, hint && h('small', { style: 'margin-left:auto;color:var(--ink3);font:11px var(--mono)' }, hint));
   const dbList = dbs.length > 1 && h('div', {},
@@ -3636,7 +3678,7 @@ function exportSessionDialog() {
       const json = v => JSON.stringify(v, null, 2);
       const dirs = new Set();
       for (const [i, d] of list.entries()) {
-        status.textContent = `Packing ${d.name} (${i + 1}/${list.length})…`;
+        status.set(`Packing ${d.name}…`, { lead: `database ${i + 1} of ${list.length}`, frac: i / list.length });
         let dir = fileSafe(d.name).toLowerCase().slice(0, 40) || 'db', n = 2;
         while (dirs.has(dir)) dir = `${fileSafe(d.name).toLowerCase().slice(0, 36)}-${n++}`;
         dirs.add(dir);
@@ -3655,13 +3697,13 @@ function exportSessionDialog() {
       }
       if (withSettings) files.unshift({ name: 'settings.json', data: json(Object.fromEntries(SETTING_KEYS.map(k => [k, store.get(k, null)]).filter(([, v]) => v != null))) });
       files.unshift({ name: 'manifest.json', data: json(manifest) });
-      status.textContent = 'Compressing…';
+      status.set('Compressing…', { lead: `${plural(list.length, 'database')} packed`, busy: true });
       const file = new Blob([await gzip(new Uint8Array(await tarPack(files).arrayBuffer()))], { type: 'application/gzip' });
       const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
       downloadBlob(file, `${list.length === 1 ? fileSafe(list[0].name) : 'pgquire-session'}-${stamp}.pgquire`);
       m.close();
       toast(`Exported ${plural(list.length, 'database')} · ${fmtBytes(file.size)}`);
-    } catch (e) { status.textContent = 'Export failed: ' + e.message; status.style.color = 'var(--red)'; go.disabled = false; }
+    } catch (e) { status.fail('Export failed: ' + e.message); go.disabled = false; }
   };
 }
 
@@ -3709,9 +3751,9 @@ async function importSessionDialog(file, preread, sourceLabel) {
   const chosen = new Set(man.databases.map((_, i) => i));
   let applySettings = !!man.settings;
   const mine = pglite => PGLITE_URL.includes('@' + pglite);
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, ic('upload'), 'Open');
-  const upd = () => { go.disabled = !chosen.size; status.textContent = `${plural(chosen.size, 'database')} will be added`; };
+  const upd = () => { go.disabled = !chosen.size; status.set(`${plural(chosen.size, 'database')} will be added`); };
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Open session'), h('p', {}, `${srcName} · ${man.shared ? 'shared' : 'exported'} ${new Date(man.exported).toLocaleString()}. Each database is added alongside yours — nothing existing is overwritten.`)),
     h('div', { class: 'modal-b' },
@@ -3736,13 +3778,15 @@ async function importSessionDialog(file, preread, sourceLabel) {
     const added = [];
     try {
       if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
-      for (const i of [...chosen].sort((a, b) => a - b)) {
+      const picked = [...chosen].sort((a, b) => a - b);
+      for (const [k, i] of picked.entries()) {
         const d = man.databases[i];
-        status.textContent = `Loading ${d.name}…`;
+        const at = { lead: `database ${k + 1} of ${picked.length}`, frac: k / picked.length };
+        status.set(`Loading ${d.name}…`, at);
         let meta;
         try {
           meta = (d.data.kind || 'datadir') === 'sql'
-            ? await createDbFrom(d.name, { sql: d.sqlText ?? new TextDecoder().decode(await gunzip(new Uint8Array(await d.blob.arrayBuffer()))), extensions: d.extensions })
+            ? await createDbFrom(d.name, { sql: d.sqlText ?? new TextDecoder().decode(await gunzip(new Uint8Array(await d.blob.arrayBuffer()))), extensions: d.extensions }, (tbl, j, n) => status.set(`Loading ${d.name} · ${tbl}`, { ...at, note: `table ${j + 1} of ${n}`, frac: (k + j / n) / picked.length }))
             : await createDbFrom(d.name, { dataDir: d.blob, extensions: d.extensions });
         } catch (e) { throw new Error(`${d.name}: ${e.message}`); }
         for (const [k, v] of Object.entries(d.state || {})) if (SESSION_PARTS.some(p => p.key === k)) k === 'clerkv2' ? writeClerk(meta.id, normalizeClerk(v)) : store.set(`${k}:${meta.id}`, v);
@@ -3759,7 +3803,7 @@ async function importSessionDialog(file, preread, sourceLabel) {
       toast(`Opened ${plural(added.length, 'database')} from ${srcName}`);
       if (added.length) await openDb(added[0].id);
     } catch (e) {
-      status.textContent = 'Failed: ' + e.message; status.style.color = 'var(--red)'; go.disabled = false;
+      status.fail('Failed: ' + e.message); go.disabled = false;
       if (added.length) renderAll();
     }
   };
@@ -4097,7 +4141,7 @@ async function remoteToSql(d, { rows = null, views = true, code = true } = {}, e
     return await db.transaction(async tx => {
       await tx.exec('set transaction isolation level repeatable read, read only');
       const all = async (sql, params) => (await tx.query(sql, params)).rows;
-      progress?.('reading the schema…');
+      progress?.('Reading the schema…', { busy: true });
       const schemas = await all(`select n.nspname as name from pg_namespace n where ${USER} and n.nspname <> 'public' and ${NOT_EXT('n.oid')} order by 1`);
       const exts = await all(`select extname as name from pg_extension where extname <> 'plpgsql' order by 1`);
       const enums = await all(`select format('%I.%I', n.nspname, t.typname) as qn, array(select e.enumlabel::text from pg_enum e where e.enumtypid = t.oid order by e.enumsortorder) as labels
@@ -4116,7 +4160,7 @@ async function remoteToSql(d, { rows = null, views = true, code = true } = {}, e
       const funcs = code ? await all(`select format('%I.%I', n.nspname, p.proname) as qn, pg_get_functiondef(p.oid) as def from pg_proc p
           join pg_namespace n on n.oid = p.pronamespace join pg_language l on l.oid = p.prolang
         where p.prokind in ('f', 'p') and l.lanname not in ('c', 'internal') and ${USER} and ${NOT_EXT('p.oid')} order by p.oid`) : [];
-      const tables = await all(`select c.oid::int as oid, format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind,
+      const tables = await all(`select c.oid::int as oid, format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind, c.reltuples::float8 as est,
           case when c.relkind = 'p' then pg_get_partkeydef(c.oid) end as partkey,
           case when c.relispartition then pg_get_expr(c.relpartbound, c.oid) end as bound,
           case when c.relispartition then (select format('%I.%I', pn.nspname, pc.relname) from pg_inherits i join pg_class pc on pc.oid = i.inhparent
@@ -4160,11 +4204,25 @@ async function remoteToSql(d, { rows = null, views = true, code = true } = {}, e
         ok.set(t.oid, await emit({ kind: 'table', name: t.qn, sql }));
       }
 
+      // Rows to expect per table: the planner's estimate, capped like the copy. A table never analyzed has
+      // none (reltuples -1, or 0 before PostgreSQL 14): count it, stopping at the cap — then it's exact.
+      const withData = tables.filter(t => ok.get(t.oid) && t.kind === 'r' && t.cols.some(c => !c.gen));   // partitioned parents: the partitions hold the rows
+      const unknown = withData.filter(t => !(t.est > 0));
+      const COUNT_CAP = rows ?? 1000000;
+      for (const [k, t] of unknown.entries()) {
+        progress?.('Counting rows…', { lead: `table ${k + 1} of ${unknown.length}`, frac: k / unknown.length });
+        t.est = (await all(`select count(*)::float8 as n from (select 1 from ${t.qn} limit ${COUNT_CAP}) _c`))[0].n;
+        t.exact = rows != null || t.est < COUNT_CAP;
+      }
+      for (const t of withData) t.expect = Math.min(Math.round(t.est), rows ?? Infinity);
+      const totalRows = withData.reduce((a, t) => a + t.expect, 0);
+      // The counts follow the table being copied; the bar, the whole copy.
+      const tell = (t, k, n) => progress?.(`Copying ${t.qn}`, { lead: `table ${k + 1} of ${withData.length}`,
+        done: n, total: Math.max(t.expect, n), unit: 'row', approx: !t.exact, frac: totalRows ? copied / Math.max(totalRows, copied) : k / withData.length });
       let copied = 0;
-      for (const t of tables) {
+      for (const [k, t] of withData.entries()) {
         const dc = t.cols.filter(c => !c.gen);
-        if (!ok.get(t.oid) || t.kind !== 'r' || !dc.length) continue;       // partitioned parents: the partitions hold the rows
-        progress?.(`copying ${t.qn}…`);
+        tell(t, k, 0);
         // Postgres writes each row as a VALUES tuple itself, so every type round-trips as a literal.
         await tx.exec(`declare pgquire_rows no scroll cursor for select '(' || array_to_string(array[${dc.map(c => `quote_nullable(${qi(c.name)})`).join(', ')}], ', ') || ')' from ${t.qn}${rows != null ? ` limit ${rows}` : ''}`);
         for (let n = 0; ;) {
@@ -4172,11 +4230,12 @@ async function remoteToSql(d, { rows = null, views = true, code = true } = {}, e
           if (!r.rows.length) break;
           await emit({ kind: 'data', name: t.qn, sql: `insert into ${t.qn} (${dc.map(c => qi(c.name)).join(', ')}) overriding system value values\n${r.rows.map(x => x[0]).join(',\n')}` });
           n += r.rows.length; copied += r.rows.length;
-          progress?.(`copying ${t.qn}… ${n.toLocaleString()} rows`);
+          tell(t, k, n);
         }
         await tx.exec('close pgquire_rows');
       }
 
+      progress?.(`Adding keys, indexes${views ? ' and views' : ''}…`, { busy: true });
       // Sequences continue after the copied rows.
       for (const t of tables) if (ok.get(t.oid) && !t.parent) for (const c of t.cols.filter(c => c.ident))
         await emit({ kind: 'setval', name: t.qn, sql: `select setval(pg_get_serial_sequence(${lit(t.qn)}, ${lit(c.name)}), coalesce(max(${qi(c.name)}), 0) + 1, false) from ${t.qn}` });
@@ -4216,7 +4275,7 @@ function nextFreeName(name) {
 /** Clone an in-browser database: an exact copy of its data folder, with its extensions and ERD layout. */
 function cloneDbDialog(d) {
   const name = h('input', { class: 'field', value: nextFreeName(d.name) });
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, 'Clone');
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, `Clone “${d.name}”`), h('p', {}, 'An exact copy — tables, data, views, functions — as a new database in this browser. The original is not changed.')),
@@ -4225,14 +4284,16 @@ function cloneDbDialog(d) {
   name.select();
   name.onkeydown = e => { if (e.key === 'Enter') go.click(); };
   go.onclick = async () => {
-    go.disabled = true; status.textContent = 'Copying…';
+    go.disabled = true; status.set(`Reading “${d.name}”…`, { busy: true });
     try {
-      const meta = await createDbFrom(name.value.trim() || nextFreeName(d.name), { dataDir: await dumpDatabase(d.id), extensions: dbExtensions(d.id) });
+      const dataDir = await dumpDatabase(d.id);
+      status.set(`Writing the copy · ${fmtBytes(dataDir.size)}…`, { busy: true });
+      const meta = await createDbFrom(name.value.trim() || nextFreeName(d.name), { dataDir, extensions: dbExtensions(d.id) });
       const pos = store.get(`map:${d.id}`, null);
       if (pos) store.set(`map:${meta.id}`, pos);
       m.close();
       toast(`Cloned into “${meta.name}”`, null, { label: 'Open', run: () => openDb(meta.id) });
-    } catch (e) { status.textContent = `Clone failed: ${e.message}`; go.disabled = false; }
+    } catch (e) { status.fail(`Clone failed: ${e.message}`); go.disabled = false; }
   };
 }
 /* @remote { */
@@ -4246,7 +4307,7 @@ async function copyToLocalDialog() {
   const box = (label, checked = true) => { const i = h('input', { type: 'checkbox', checked }); return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, i, label)]; };
   const [views, viewsL] = box('Views and materialized views');
   const [code, codeL] = box('Functions and triggers');
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, 'Copy');
   const est = Object.values(S.counts || {}).reduce((a, b) => a + b, 0);
   const m = modal([
@@ -4259,7 +4320,7 @@ async function copyToLocalDialog() {
       h('p', { style: 'margin:0;font-size:12px;color:var(--ink3)' }, 'With a row limit, foreign keys are added NOT VALID, since sampled rows may point at rows that weren\'t copied. Anything the browser\'s Postgres can\'t run (for example an extension it doesn\'t have) is skipped and listed.')),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   go.onclick = async () => {
-    go.disabled = true;
+    go.disabled = true; status.set('Connecting…', { busy: true });
     const failed = [];
     let result;
     try {
@@ -4269,11 +4330,11 @@ async function copyToLocalDialog() {
           try { await inst.exec(st.sql); return true; }
           catch (e) { if (!st.quiet) failed.push({ what: [st.kind, st.name].filter(Boolean).join(' '), error: e.message }); return false; }
         };
-        result = await remoteToSql(d, { rows, views: views.checked, code: code.checked }, emit, t => { status.textContent = t; });
+        result = await remoteToSql(d, { rows, views: views.checked, code: code.checked }, emit, status.set);
       } }, null);
       m.close();
       copyReport(meta, result, rows, failed);
-    } catch (e) { status.textContent = `Copy failed: ${e.message}`; go.disabled = false; }
+    } catch (e) { status.fail(`Copy failed: ${e.message}`); go.disabled = false; }
   };
 }
 function copyReport(meta, result, rows, failed) {
@@ -4293,11 +4354,12 @@ async function remoteDump() {
   const d = currentDb(), r = d.remote || {};
   const est = Object.values(S.counts || {}).reduce((a, b) => a + b, 0);
   if (est > 500000 && !(await confirmDlg({ title: 'Download everything?', body: `About ${est.toLocaleString()} rows pass through this browser into one .sql file. That can take a while and use a lot of memory.`, ok: 'Download' }))) return;
-  const status = h('p', {}, 'starting…');
-  const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, `Dumping “${d.name}”`), status)]);
+  const status = modalStatus();
+  status.set('Connecting…', { busy: true });
+  const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, `Dumping “${d.name}”`), h('p', {}, 'Schema and data as SQL, read in one consistent snapshot.')), h('div', { class: 'modal-f' }, status)]);
   const parts = [`-- pgquire v${APP_VERSION} SQL dump of "${d.name}" (${r.user}@${r.host}/${r.database}) · ${new Date().toISOString()}\n-- Load with: psql -d yourdb -f thisfile.sql   (or pgquire → New database from file)\n\n`];
   try {
-    await remoteToSql(d, {}, async st => { parts.push(st.sql + ';\n\n'); return true; }, t => { status.textContent = t; });
+    await remoteToSql(d, {}, async st => { parts.push(st.sql + ';\n\n'); return true; }, status.set);
     const blob = new Blob(parts, { type: 'application/sql' });
     downloadBlob(blob, `${fileSafe(d.name)}.sql`);
     toast(`SQL dump downloaded · ${fmtBytes(blob.size)}`);
@@ -4434,15 +4496,14 @@ async function connectRemoteDialog() {
   const seg = h('div', { style: 'display:flex;gap:4px' }, segBtn('url', 'Connection string'), segBtn('fields', 'Fields'));
   const testBtn = h('button', { class: 'btn ghost' }, 'Test');
   testBtn.onclick = async () => {
-    if (!dsnOf()) { status.textContent = 'Fill in the connection first.'; return; }
-    testBtn.disabled = true; status.style.color = ''; status.textContent = 'Testing…';
+    if (!dsnOf()) { status.fail('Fill in the connection first.'); return; }
+    testBtn.disabled = true; status.set('Testing…', { busy: true }); status.title = '';
     try {
       const r = await api('POST', '/api/profiles/test', { dsn: dsnOf() });
-      status.textContent = `✓ PostgreSQL ${r.serverVersion} · ${r.database} as ${r.user} · ${r.tls ? 'encrypted (TLS)' : 'not encrypted'}`
-        + (ro.checked && r.role?.writable ? ` · ${roleWho(r.role)} can write, so read-only will only be a guard rail — you can create a read-only login once connected` : '');
-      status.style.color = r.tls ? 'var(--ink2)' : 'var(--red)';
+      (r.tls ? status.set : status.fail)(`✓ PostgreSQL ${r.serverVersion} · ${r.database} as ${r.user} · ${r.tls ? 'encrypted (TLS)' : 'not encrypted'}`
+        + (ro.checked && r.role?.writable ? ` · ${roleWho(r.role)} can write, so read-only will only be a guard rail — you can create a read-only login once connected` : ''));
       if (!r.tls) status.title = 'Passwords and data travel in the clear. Fine on localhost; use sslmode=require elsewhere.';
-    } catch (e) { status.textContent = e.message; status.style.color = 'var(--red)'; }
+    } catch (e) { status.fail(e.message); }
     testBtn.disabled = false;
   };
   const box = (checked, label, hint) => {
@@ -4455,7 +4516,7 @@ async function connectRemoteDialog() {
   let roTouched = false;
   ro.onchange = () => { roTouched = true; };
   prod.onchange = () => { if (!roTouched) ro.checked = prod.checked; };
-  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, 'Connect');
   const saved = profiles.length > 0 && h('div', {},
     h('div', { class: 'smallcaps', style: 'margin-bottom:4px' }, 'On this server'),
@@ -4476,8 +4537,8 @@ async function connectRemoteDialog() {
       prodL, roL, saveL),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), testBtn, go)], { wide: true });
   go.onclick = async () => {
-    if (!name.value.trim() || !dsnOf()) { status.textContent = mode === 'url' ? 'A name and a connection string are both needed.' : 'A name and a host are both needed.'; return; }
-    go.disabled = true; status.textContent = 'Connecting…';
+    if (!name.value.trim() || !dsnOf()) { status.fail(mode === 'url' ? 'A name and a connection string are both needed.' : 'A name and a host are both needed.'); return; }
+    go.disabled = true; status.set('Connecting…', { busy: true });
     try {
       const r = await api('POST', '/api/profiles', { name: name.value.trim(), dsn: dsnOf(), tag: prod.checked ? 'prod' : '', readOnly: ro.checked, save: save.checked });
       m.close();
@@ -4485,7 +4546,7 @@ async function connectRemoteDialog() {
       const dbsOn = await api('GET', `/api/profiles/${encodeURIComponent(r.profile.name)}/databases`).catch(() => null);
       if (dbsOn?.databases?.length > 1) pickDatabasesDialog(r.profile, { open: true, intro: `Connected. This server has ${dbsOn.databases.length} databases you can open — which should appear in the switcher?` });
       else openRemote(r.profile);
-    } catch (e) { status.textContent = e.message; go.disabled = false; }
+    } catch (e) { status.fail(e.message); go.disabled = false; }
   };
   name.focus();
 }
