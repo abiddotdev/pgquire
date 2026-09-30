@@ -340,6 +340,16 @@ select.field { padding-right: 4px; }
 .act span { font-size: 12px; color: var(--ink3); line-height: 1.4; }
 .home h2 { font: italic 500 20px var(--serif); margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; border-bottom: 1px solid var(--rule); padding-bottom: 6px; max-width: 900px; }
 .home h2 small { font: 12px var(--sans); color: var(--ink3); font-style: normal; }
+.readme { max-width: 820px; }
+.readme .home-hero { margin-bottom: 34px; }
+.readme .foot a { color: var(--ink2); }
+.readme section { margin: 0 0 26px; }
+.readme ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 7px; }
+.readme li { font-size: 13.5px; line-height: 1.5; color: var(--ink2); }
+.readme li b { color: var(--ink); font-weight: 600; }
+.readme kbd { font: 11px var(--mono); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 3px; padding: 1px 5px; background: var(--sheet); color: var(--ink); }
+.readme .keys { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; align-items: baseline; font-size: 13.5px; color: var(--ink2); }
+.readme .foot { font-size: 12px; color: var(--ink3); border-top: 1px solid var(--rule); padding-top: 10px; }
 .shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; max-width: 900px; }
 .folio { text-align: left; background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 12px 14px 10px; position: relative; overflow: hidden; animation: rise .4s both; transition: border-color .15s, transform .15s; }
 .folio::before { content: ""; position: absolute; left: 10px; top: 0; bottom: 0; border-left: 3px double var(--red); opacity: .6; }
@@ -1237,7 +1247,8 @@ function restoreTabs() {
   saved.tabs.forEach((t, i) => {
     const tab = t.type === 'table' ? (S.byKey[t.key] ? mkTableTab(t.key, t.view) : null)
       : t.type === 'query' ? Object.assign(mkQueryTab(t.sql, t.title), { savedId: t.savedId || null })
-      : t.type === 'map' ? { id: uid(), type: 'map', schemas: t.schemas || (t.schema ? [t.schema] : []) } : null;
+      : t.type === 'map' ? { id: uid(), type: 'map', schemas: t.schemas || (t.schema ? [t.schema] : []) }
+      : t.type === 'readme' ? { id: uid(), type: 'readme' } : null;
     if (!tab) return;
     S.tabs.push(tab);
     if (i === saved.activeIndex) activeIdx = S.tabs.length - 1;
@@ -1366,8 +1377,8 @@ function renderTabs() {
   host.replaceChildren(...[
     h('button', { class: 'tab' + (!S.active ? ' active' : ''), title: 'Overview', onclick: () => activate(null) }, ic('home')),
     ...S.tabs.map(t => {
-      const label = t.type === 'table' ? S.byKey[t.key]?.name || t.key : t.type === 'query' ? t.title : 'ERD';
-      const iconName = t.type === 'table' ? (S.byKey[t.key]?.kind === 'v' ? 'view' : 'table') : t.type === 'query' ? 'query' : 'map';
+      const label = t.type === 'table' ? S.byKey[t.key]?.name || t.key : t.type === 'query' ? t.title : t.type === 'readme' ? 'README' : 'ERD';
+      const iconName = t.type === 'table' ? (S.byKey[t.key]?.kind === 'v' ? 'view' : 'table') : t.type === 'query' ? 'query' : t.type === 'readme' ? 'book' : 'map';
       const el = h('div', { class: `tab t-${t.type}` + (t.id === S.active ? ' active' : ''), title: label },
         ic(iconName), h('span', { class: 'tt' }, label),
         t.type === 'query' && (() => {
@@ -1409,6 +1420,7 @@ function renderPane() {
   if (tab.type === 'table') return renderTableTab(tab, pane);
   if (tab.type === 'query') return renderQueryTab(tab, pane, keep);
   if (tab.type === 'map') return renderMap(tab, pane);
+  if (tab.type === 'readme') return renderReadme(pane);
 }
 
 function renderAll() {
@@ -1540,6 +1552,7 @@ function renderHome(pane) {
     empty/*remote:*/ && !isRemote(S.id)/*:remote*/ ? { icon: 'sample', t: 'Load the sample', s: 'A small bookstore: authors, books, customers, orders.', run: loadSample }
           : { icon: 'map', t: 'Open the ERD', s: 'Entity-relationship diagram: every table and how they reference each other.', run: openMap },
     { icon: 'quill', t: 'Ask the Clerk', s: 'An AI that can read, query and change this database — with your approval.', blue: true, run: () => { openClerk(); $('clerkText')?.focus(); } },
+    { icon: 'book', t: 'What pgquire can do', s: 'The README: tables, queries, the Clerk, moving data — every feature in one place.', run: openReadme },
   ];
   pane.append(h('div', { class: 'home' },
     h('div', { class: 'home-hero' },
@@ -1575,6 +1588,97 @@ function renderHome(pane) {
       h('div', { class: 'fn' }, t.key),
       h('div', { class: 'fm' }, h('span', {}, t.kind === 'v' ? 'view' : plural(S.counts[t.key] ?? 0, 'row')), h('span', {}, plural(t.cols.length, 'column'))),
       h('div', { class: 'fc' }, t.cols.map(c => c.name).join(' · ')))))));
+}
+
+/* ==========================================================================
+   README tab — what pgquire can do, for the kind of database that's open
+   ========================================================================== */
+function openReadme() {
+  let tab = S.tabs.find(t => t.type === 'readme');
+  if (!tab) { tab = { id: uid(), type: 'readme' }; S.tabs.push(tab); }
+  activate(tab.id);
+}
+/** Sections of [feature, what it does] pairs; false entries are skipped. The server build (this file)
+ *  describes the whole app — in-browser and remote databases; the Pages copy only the in-browser side. */
+function readmeSections() {
+  const remote = isRemote(S.id), r = currentDb()?.remote || {}; // @remote
+  return [
+    { t: 'Where your data lives', items: [
+      ['In this browser', 'A real PostgreSQL 18 (PGlite, compiled to WebAssembly), stored in this browser\'s IndexedDB. Nothing leaves the machine unless you ask the Clerk, share a link or export a file.'],
+      ['On your servers', 'Real PostgreSQL servers, reached through the pgquire server on your machine with one dedicated connection per browser tab. Connect one from the switcher with a connection string or separate fields; Test shows the server version and whether the link is encrypted.'], // @remote
+      ['Credentials', 'Connection details stay with the pgquire server (connections.json, readable only by you), never in the browser.'], // @remote
+      ['Per address', 'Each web address has its own storage: databases made on the website don\'t appear in the page the pgquire server opens, and the other way round. Move them with Export session and Open a session file.'],
+      ['Many databases', 'Create as many as you like from the switcher; each has its own colour, tabs, saved queries and chats.'],
+      ['Servers in the switcher', 'Server databases sit next to the in-browser ones; several databases on one server are grouped under it.'], // @remote
+    ] },
+    { t: 'Safety on server databases', items: [ // @remote
+      ['Production', 'Connections tagged production are red everywhere and ask before every write — grid edits, structure changes, imports, Undo, the editor and the Clerk.'], // @remote
+      ['Read-only connections', 'Tables open non-editable and writes are refused. It\'s a guard rail, not a lock: pgquire can create a login that truly can\'t write.'], // @remote
+      ['Connection status', 'The dot next to the database name is green when connected (the tooltip says whether it\'s encrypted), pulses while working, and turns red with a Reconnect banner if the pgquire server stops.'], // @remote
+      ['Timeouts', 'Statements stop after the server\'s statement timeout (5 minutes by default). A transaction left idle for 2 minutes is rolled back, and pgquire says so.'], // @remote
+    ] }, // @remote
+    { t: 'Browse and edit', items: [
+      ['Tables and views', 'The Index lists them, grouped by schema when there\'s more than one; Ctrl K jumps to any of them.'],
+      ['Grid', 'Page through rows, sort by a column, filter with a SQL condition (price > 10 and genre ilike \'%fiction%\').'],
+      ['Edit in place', 'Double-click or Enter to edit a cell, + Row to add one, select rows to delete them.'],
+      ['Undo', 'Ctrl+Z puts back the last grid change, and the message says what it can\'t restore (cascaded deletes, triggers that ran).'],
+      ['Follow keys', 'Right-click a cell to jump to the row a foreign key points to.'],
+      ['Structure', 'Columns, indexes and constraints with the table\'s CREATE statement; add, rename or drop columns there.'],
+    ] },
+    { t: 'Query', items: [
+      ['SQL editor', 'Highlighting and line numbers; Ctrl+Enter runs everything or just the selection. Every statement\'s result is kept and you can flip between them.'],
+      ['Results', 'Download as CSV or copy for a spreadsheet.'],
+      ['Full results from a server', 'Results past the display cap (50,000 rows by default) still download in full: the rows stream straight from the server into the CSV.'], // @remote
+      ['Big scripts', 'Past 100 KB — or with pg_dump\'s COPY … FROM stdin — a script runs in chunks with progress and Stop, as one transaction unless it manages its own; an error names the statement and line. Run file runs a .sql straight from disk.'],
+      ['Transactions', 'BEGIN in the editor stays open across runs. A banner says so, with Commit and Roll back; edits in the grid meanwhile become part of it.'],
+      ['Saved queries and journal', 'Save a tab with Ctrl+S. The journal (Ctrl+Shift+J) lists every statement run — yours, the grid\'s and the Clerk\'s — with timings.'],
+    ] },
+    { t: 'Design the schema', items: [
+      ['New table', 'Define columns visually, in the schema you pick, and see the SQL it writes.'],
+      ['Import a CSV', 'Column types are inferred; adjust them before loading.'],
+      ['Schemas', 'Each query tab shows the current schema; click it to switch or reset the search path.'],
+      ['ERD', 'Every table and how they reference each other, filtered by schema. Export as SVG or PNG, or copy as Mermaid, DBML or text.'],
+      ['Extensions', `${EXT.length} extensions load into the browser on demand — fuzzy search, UUIDs, crypto, vectors, PostGIS and more.`],
+      ['Extensions on a server', 'See what the server offers, and create or drop them through the usual production checks.'], // @remote
+    ] },
+    { t: 'The Clerk (AI)', items: [
+      ['Bring your own model', 'Any OpenAI-compatible endpoint: OpenRouter, OpenAI, Groq, or a local Ollama or LM Studio. Your API key stays in this tab\'s memory only — never saved, sent only to that endpoint.'],
+      ['What it can do', 'Read the schema, run SQL, open tables, write queries into the editor and enable extensions. It sees the tab you\'re on, and you can attach tables or query tabs.'],
+      ['On a server', 'It knows it\'s working on a real server — and whether it\'s production or read-only — prefers reads, and asks you to run CREATE EXTENSION yourself.'], // @remote
+      ['Your approval', 'Changes wait for your stamp (unless you turn that off); reads are tried read-only first.'],
+      ['On production', 'It always asks before changing anything, and Approve all is hidden.'], // @remote
+      ['Conversations', 'Several per database, sent with full context or compacted to save tokens; export and import them as JSON.'],
+    ] },
+    { t: 'Move data', items: [
+      ['Copy to a local database', 'From a server into this browser — a sample or every row — to experiment on without touching the server.'], // @remote
+      ['SQL dump', 'Schema and data as a .sql file that loads with psql, or here as a new database.'],
+      ['SQL dump from a server', 'Read from the catalog in one consistent snapshot, without needing pg_dump.'], // @remote
+      ['Clone', 'An exact copy as a new database in this browser, named with the next free v1, v2….'],
+      ['Sessions', 'Export in-browser databases with their tabs, saved queries and chats as one .pgquire file; open it in another browser or address.'],
+      ['Share as link', 'The data rides in the link itself (the part after #, which browsers never send to a server).'],
+      ['New database from a file', 'A .sql dump or a PGlite data folder (.tar.gz).'],
+      remote && ['On this database', `Clone, sessions and share links need an in-browser database; Copy to a local database makes one from “${dbLabel(currentDb())}”.`], // @remote
+    ] },
+  ];
+}
+function renderReadme(pane) {
+  const remote = isRemote(S.id), r = currentDb()?.remote || {}; // @remote
+  const keys = [['Ctrl K', 'jump to a table, database or command — or type SQL'], ['Ctrl+Enter', 'run the editor (or the selection)'], ['Ctrl+Alt+N', 'new query tab'], ['Ctrl+S', 'save the query'],
+    ['Ctrl+Alt+R', 'insert a row'], ['Ctrl+Z', 'undo the last grid change'], ['Ctrl+J', 'the Clerk'], ['Ctrl+Shift+J', 'the journal']];
+  pane.append(h('div', { class: 'home readme' },
+    h('div', { class: 'home-hero' },
+      h('div', { class: 'smallcaps' }, `pgquire ${APP_VERSION} · README`),
+      h('h1', { html: 'Postgres in your browser,<br><em>and on your servers.</em>' }), // @remote
+      h('p', {}, remote // @remote
+        ? `You're on “${dbLabel(currentDb())}”, a ${r.tag === 'prod' ? 'production ' : ''}database on ${r.host || 'a remote server'}${r.readOnly ? ' (read-only connection)' : ''}. Changes here affect the real server.` // @remote
+        : `You're on “${dbLabel(currentDb())}”, an in-browser database. Connect a Postgres server from the switcher to work on real databases too.`)), // @remote
+      // @pages: h('h1', { html: 'Postgres in your browser,<br><em>kept like a ledger.</em>' }),
+      // @pages: h('p', {}, 'Everything here works on this in-browser database. Nothing to install, nothing sent anywhere unless you choose to.')),
+    readmeSections().map(sec => h('section', {}, h('h2', {}, sec.t),
+      h('ul', {}, sec.items.filter(Boolean).map(([b, text]) => h('li', {}, h('b', {}, b), ' — ', text))))),
+    h('section', {}, h('h2', {}, 'Keys', h('small', {}, 'Cmd instead of Ctrl on a Mac')),
+      h('div', { class: 'keys' }, keys.flatMap(([k, what]) => [h('span', {}, k.split(/(?<=[^+ ])[+ ](?=\S)/).flatMap((x, i) => [i ? '+' : null, h('kbd', {}, x)]).filter(Boolean), ' '), h('span', {}, what)]))),
+    h('div', { class: 'foot' }, 'Source code, and releases of the pgquire server (for connecting to real Postgres): ', h('a', { href: 'https://github.com/abiddotdev/pgquire', target: '_blank', rel: 'noopener' }, 'github.com/abiddotdev/pgquire'), '.')));
 }
 
 /* ==========================================================================
@@ -4784,6 +4888,7 @@ const COMMANDS = [
   { label: 'Import a CSV', k: 'import csv upload file', run: importCsvDialog },
   { label: 'Open the ERD', k: 'erd chart map diagram er entity relationships schema', run: openMap },
   { label: 'Overview', k: 'home overview dashboard', run: () => activate(null) },
+  { label: 'README — what pgquire can do', k: 'readme help about features docs guide keys shortcuts', run: openReadme },
   { label: 'Toggle the journal', k: 'journal log history', run: toggleJournal },
   { label: 'Toggle day / night', k: 'theme dark light night day', run: toggleTheme },
   { label: 'Load the sample bookstore', k: 'sample demo example data', run: loadSample/*remote:*/, when: () => !isRemote(S.id)/*:remote*/ },
@@ -5096,6 +5201,7 @@ function describeView() {
       text: `The user is in the query editor tab "${tab.title}". Editor contents:\n${tab.sql.slice(0, 4000) || '(empty)'}\n${tab.error ? `Last run failed: ${tab.error}` : r ? `Last result: ${r.fields.length ? `${r.rows.length} rows, columns ${r.fields.map(f => f.name).join(', ')}` : 'ok'}` : 'Not run yet.'}`,
     };
   }
+  if (tab.type === 'readme') return { chip: 'README', text: 'The user is reading pgquire\'s README: what the app can do.' };
   return { chip: 'ERD', text: 'The user is looking at the entity-relationship diagram (ERD) of the schema.' };
 }
 
