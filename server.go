@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -308,8 +309,10 @@ func (s *server) withSession(next sessionHandler) http.HandlerFunc {
 }
 
 // reply sends results, or the Postgres error (400) — or 410 if the connection dropped (the
-// statement may or may not have run, so the page reconnects but doesn't retry).
+// statement may or may not have run, so the page reconnects but doesn't retry). X-Pgquire-Tx
+// carries the transaction status, so the page knows when a BEGIN of the user's is still open.
 func (s *server) reply(w http.ResponseWriter, sess *session, v any, err error) {
+	w.Header().Set("X-Pgquire-Tx", sess.tx())
 	switch {
 	case errors.Is(err, errSessionLost) || (err != nil && sess.conn.IsClosed()):
 		s.sessions.close(sess.id)
@@ -332,7 +335,7 @@ func (s *server) query(w http.ResponseWriter, r *http.Request, sess *session) {
 		return
 	}
 	var res result
-	err = sess.run(r.Context(), func(ctx context.Context, c pgConn) error {
+	err = sess.run(r.Context(), in.Req, func(ctx context.Context, c pgConn) error {
 		var e error
 		res, e = queryParams(ctx, c, in.SQL, params, s.cfg.maxRows)
 		return e
@@ -343,12 +346,13 @@ func (s *server) query(w http.ResponseWriter, r *http.Request, sess *session) {
 func (s *server) exec(w http.ResponseWriter, r *http.Request, sess *session) {
 	var in struct {
 		SQL string `json:"sql"`
+		Req uint64 `json:"req"`
 	}
 	if !readJSON(w, r, &in) {
 		return
 	}
 	var res []result
-	err := sess.run(r.Context(), func(ctx context.Context, c pgConn) error {
+	err := sess.run(r.Context(), in.Req, func(ctx context.Context, c pgConn) error {
 		var e error
 		res, e = execScript(ctx, c, in.SQL, s.cfg.maxRows)
 		return e
@@ -358,7 +362,8 @@ func (s *server) exec(w http.ResponseWriter, r *http.Request, sess *session) {
 
 func (s *server) cancel(w http.ResponseWriter, r *http.Request) {
 	sess := s.sessions.get(r.PathValue("id"))
-	writeJSON(w, http.StatusOK, map[string]any{"cancelled": sess != nil && sess.interrupt()})
+	req, _ := strconv.ParseUint(r.URL.Query().Get("req"), 10, 64) // absent: whatever is running
+	writeJSON(w, http.StatusOK, map[string]any{"cancelled": sess != nil && sess.interrupt(req)})
 }
 
 func (s *server) closeSession(w http.ResponseWriter, r *http.Request) {

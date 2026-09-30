@@ -41,9 +41,13 @@ Then pick **Connect remote Postgres…** in the database switcher and paste a co
 
 `./pgquire -h` lists the options. Tests: `PGQUIRE_TEST_DSN=postgres://… go test ./...`
 
+### Editing the page
+
+Edit `index-remote.html`: it's the page the server embeds. `index.html` (the GitHub Pages copy, PGlite only) is generated from it by `go generate`, which drops everything marked remote-only (`/* @remote */`, `// @remote` or `<!-- @remote -->` at the end of a line, `/* @remote { */ … /* } @remote */` blocks, inline `/*remote:*/ … /*:remote*/` in JS and CSS) and switches on `// @pages:` lines. A test fails when `index.html` is out of date.
+
 ### Releasing
 
-Bump `APP_VERSION` in `index.html` and `Version` in `main.go` together (a test checks that they match), then push a tag like `v1.1`. The release workflow builds Linux, macOS and Windows binaries and attaches them to a GitHub release.
+Bump `APP_VERSION` in `index-remote.html` and `Version` in `main.go` together (a test checks that they match), run `go generate`, then push a tag like `v1.1`. The release workflow builds Linux, macOS and Windows binaries and attaches them to a GitHub release.
 
 ## License
 

@@ -1,9 +1,12 @@
 // Command pgquire serves the pgquire workbench and lets it talk to real Postgres servers.
 //
-// The page is the same single-file index.html that runs on its own (PGlite in the browser).
-// Served from here, it also finds /api and can open remote connections, which appear next to the
+// The page is index-remote.html: the single-file workbench (PGlite in the browser) plus remote support.
+// Served from here, it finds /api and can open remote connections, which appear next to the
 // in-browser databases. Only loopback clients holding the startup token can use the API.
+// index.html, the GitHub Pages copy, is generated from it without the remote parts (internal/pages).
 package main
+
+//go:generate go run ./internal/pages/gen
 
 import (
 	"context"
@@ -25,10 +28,10 @@ import (
 	"time"
 )
 
-// Version is the pgquire release; keep it in step with APP_VERSION in index.html.
+// Version is the pgquire release; keep it in step with APP_VERSION in index-remote.html.
 var Version = "1.0"
 
-//go:embed index.html
+//go:embed index-remote.html
 var indexHTML []byte
 
 func main() {

@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-<!-- Generated from index-remote.html by `go generate` — edit that file, not this one. -->
 <html lang="en" data-theme="day">
 <head>
 <meta charset="utf-8">
@@ -483,11 +482,20 @@ select.field { padding-right: 4px; }
 .db-kind { font: 600 9px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 3px 5px 2px; margin-left: 6px; border: 1px solid currentColor; border-radius: 3px; color: var(--ink3); }
 .db-kind:empty { display: none; }
 .dbswitch #dbWhere { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-dot { display: none; width: 7px; height: 7px; border-radius: 50%; flex: none; margin-left: 2px; } /* @remote */
+.conn-dot.ok, .conn-dot.busy, .conn-dot.down { display: inline-block; } /* @remote */
+.conn-dot.ok { background: #3a9d5d; } /* @remote */
+.conn-dot.busy { background: #d49a2a; animation: connpulse .9s ease-in-out infinite; } /* @remote */
+.conn-dot.down { background: var(--red); } /* @remote */
+@keyframes connpulse { 50% { opacity: .25; } } /* @remote */
 .conn-banner { position: fixed; top: 62px; left: 50%; transform: translateX(-50%); z-index: 150; display: flex; align-items: center; gap: 12px; padding: 8px 10px 8px 14px; font-size: 13px;
   background: var(--sheet); border: 1px solid var(--red); border-radius: 6px; box-shadow: var(--shadow); }
 .conn-banner[hidden] { display: none; }
 .tx-banner { border-color: #d49a2a; gap: 8px; }
+.conn-banner:not([hidden]) ~ .tx-banner { top: 106px; } /* @remote */
 .menu button:disabled { opacity: .5; cursor: default; }
+.origin-note { margin: 0 0 22px; padding: 12px 14px; border: 1px dashed var(--ink3); border-radius: 6px; background: var(--sheet); font-size: 13px; max-width: 720px; } /* @remote */
+.origin-note p { margin: 4px 0 10px; color: var(--ink2); } /* @remote */
 .move-row { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); margin-top: 6px; }
 .move-row:hover { border-color: var(--ink3); background: var(--sheet); }
 .move-row .ic { margin-top: 2px; flex: none; }
@@ -495,6 +503,12 @@ select.field { padding-right: 4px; }
 .move-row small { color: var(--ink3); font-size: 12px; }
 .menu button:disabled:hover { background: none; }
 .dbswitch .name .db-kind { flex: none; overflow: visible; }   /* the name truncates, not the chip */
+.db-kind.prod { color: #fff; background: var(--red); border-color: var(--red); } /* @remote */
+.db-kind.warn { border-style: dashed; } /* @remote */
+.db-kind.prod.warn { outline: 1px dashed var(--red); outline-offset: 2px; } /* @remote */
+.remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; } /* @remote */
+.remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; } /* @remote */
+.remote-row .who { color: var(--ink3); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; } /* @remote */
 .wordmark .ver { font: 600 9px var(--mono); font-style: normal; color: var(--red); letter-spacing: .08em; margin-left: 3px; align-self: flex-start; margin-top: 3px; }
 .clerk-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .clerk-title h2 { flex: none; }
@@ -804,6 +818,7 @@ select.field { padding-right: 4px; }
     <button class="dbswitch" id="dbSwitch" title="Switch database">
       <span class="smallcaps" id="dbWhere">Database</span>
       <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span>
+      <i class="conn-dot" id="dbDot"></i> <!-- @remote -->
       <span class="db-kind" id="dbKind"></span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
     </button>
     <div class="omni" id="omni">
@@ -847,6 +862,7 @@ select.field { padding-right: 4px; }
   <section class="journal" id="journal"></section>
 </div>
 <div class="toasts" id="toasts"></div>
+<div class="conn-banner" id="connBanner" hidden><span id="connMsg"></span><button class="btn sm" id="connRetry">Reconnect</button></div> <!-- @remote -->
 <div class="conn-banner tx-banner" id="txBanner" hidden><span id="txMsg"></span><button class="btn sm" id="txCommit">Commit</button><button class="btn sm" id="txRollback">Roll back</button></div>
 
 <script type="module">
@@ -862,6 +878,7 @@ const PGDUMP_URL = 'https://cdn.jsdelivr.net/npm/@electric-sql/pglite-tools@0.4.
 const DEFAULT_BASE = 'https://openrouter.ai/api/v1';
 const DEFAULT_MODEL = 'xiaomi/mimo-v2.5';
 const PAGE = 100;
+const REMOTE_COUNT_CAP = 100000;   // filtered counts on remote tables stop here // @remote
 const MAX_STEPS = 16;
 
 /* ---------- tiny helpers ---------- */
@@ -1019,6 +1036,13 @@ async function openDb(id, opts = {}) {
     bootMsg(null);
   } catch (e) {
     console.error(e);
+    /* @remote { */
+    if (isRemote(id)) {                          // don't strand the user on the boot screen: go back to a local database
+      toast(`Couldn't connect to “${currentDb()?.name}”: ${e.message}`, 'bad');
+      const local = loadDbs().find(d => !d.kind);
+      return openDb((local || newDbMeta()).id);
+    }
+    /* } @remote */
     bootMsg(navigator.onLine ? `Couldn't open the database: ${e.message}` : 'Offline — the Postgres engine needs to download once.', true, true);
   }
 }
@@ -1074,7 +1098,7 @@ async function refreshSchema({ initial } = {}) {
   const byOid = {};
   const tables = rels.rows.map(r => {
     const key = r.schema === 'public' ? r.name : `${r.schema}.${r.name}`;
-    const t = { oid: r.oid, schema: r.schema, name: r.name, key, kind: r.kind, cols: [], pk: [], fks: [], cons: [], editable: (r.kind === 'r' || r.kind === 'p') };
+    const t = { oid: r.oid, schema: r.schema, name: r.name, key, kind: r.kind, cols: [], pk: [], fks: [], cons: [], editable: (r.kind === 'r' || r.kind === 'p')/*remote:*/ && !readOnlyConn()/*:remote*/ };
     byOid[r.oid] = t;
     return t;
   });
@@ -1101,7 +1125,24 @@ async function refreshSchema({ initial } = {}) {
   // Row counts for base tables (views may be expensive).
   const counted = tables.filter(t => t.kind !== 'v');
   const counts = {}, approx = new Set();
-  if (counted.length) {
+  /* @remote { */
+  if (counted.length && S.db.remote) {
+    // A real server can hold huge tables: count small ones exactly, take the planner's estimate for the rest.
+    const est = await q(`select c.oid::int as oid, pg_relation_size(c.oid) < 8388608 and c.relkind in ('r', 'm') as small,
+        (case when c.relkind = 'p' then (select sum(greatest(ch.reltuples, 0)) from pg_inherits i join pg_class ch on ch.oid = i.inhrelid where i.inhparent = c.oid)
+              else coalesce(nullif(c.reltuples, -1), s.n_live_tup, 0) end)::bigint as n
+      from pg_class c left join pg_stat_all_tables s on s.relid = c.oid where c.oid = any($1::int[])`, [counted.map(t => t.oid)]);
+    const byOid = new Map(counted.map(t => [t.oid, t]));
+    const small = [];
+    for (const r of est.rows) { const t = byOid.get(r.oid); if (!t) continue; if (r.small) small.push(t); else { counts[t.key] = r.n; approx.add(t.key); } }
+    const parts = small.map((t, i) => `select ${i} as i, count(*)::int as n from ${qt(t)}`);
+    for (let i = 0; i < parts.length; i += 60) {
+      const r = await q(parts.slice(i, i + 60).join(' union all '));
+      for (const row of r.rows) counts[small[row.i].key] = row.n;
+    }
+  } else if (counted.length) {
+  /* } @remote */
+  // @pages: if (counted.length) {
     const parts = counted.map((t, i) => `select ${i} as i, count(*)::int as n from ${qt(t)}`);
     for (let i = 0; i < parts.length; i += 60) {
       const r = await q(parts.slice(i, i + 60).join(' union all '));
@@ -1481,6 +1522,7 @@ function tableMenu(t, x, y) {
     { label: 'Empty table…', danger: true, run: () => truncateTable(t) },
     { label: 'Drop table…', danger: true, icon: 'trash', run: () => dropRelation(t) });
   else if (t.kind === 'v' || t.kind === 'm') items.push('-', { label: 'Drop view…', danger: true, icon: 'trash', run: () => dropRelation(t) });
+  else items.push('-', { label: 'Read-only connection', header: true }); // @remote
   showMenu(x, y, items);
 }
 
@@ -1495,7 +1537,7 @@ function renderHome(pane) {
     { icon: 'query', t: 'Write a query', s: 'A proper SQL editor with results you can export.', run: () => openQuery() },
     { icon: 'plus', t: 'Create a table', s: 'Define columns visually; see the SQL it writes.', run: createTableDialog },
     { icon: 'upload', t: 'Import a CSV', s: 'Types are inferred; you can adjust before loading.', run: importCsvDialog },
-    empty ? { icon: 'sample', t: 'Load the sample', s: 'A small bookstore: authors, books, customers, orders.', run: loadSample }
+    empty/*remote:*/ && !isRemote(S.id)/*:remote*/ ? { icon: 'sample', t: 'Load the sample', s: 'A small bookstore: authors, books, customers, orders.', run: loadSample }
           : { icon: 'map', t: 'Open the ERD', s: 'Entity-relationship diagram: every table and how they reference each other.', run: openMap },
     { icon: 'quill', t: 'Ask the Clerk', s: 'An AI that can read, query and change this database — with your approval.', blue: true, run: () => { openClerk(); $('clerkText')?.focus(); } },
   ];
@@ -1503,9 +1545,29 @@ function renderHome(pane) {
     h('div', { class: 'home-hero' },
       h('div', { class: 'smallcaps' }, `${d?.name || ''} · created ${new Date(d?.created || Date.now()).toLocaleDateString()}`),
       h('h1', { html: empty ? 'An empty ledger,<br><em>ready for entries.</em>' : `${plural(S.tables.length, 'table')}, <em>${plural(total, 'row')}.</em>` }),
-      h('p', {}, empty
+      /* @remote { */
+      h('p', {}, isRemote(S.id)
+        ? `Connected to ${d.remote?.database || d.name} on ${d.remote?.host || 'a remote server'}${isProd() ? ' — a production database' : ''}. Changes here affect the real server${readOnlyConn() ? ', though this connection is read-only' : ''}; to experiment freely, use Copy to a local database in the switcher.`
+        : empty
+      /* } @remote */
+      // @pages: h('p', {}, empty
         ? 'This is a real PostgreSQL database living in your browser. Nothing leaves this machine unless you ask the Clerk. Start with a table, a CSV, or the sample books.'
         : 'Pick a table from the index to browse and edit rows, open the ERD to see relationships, or press Ctrl K to jump anywhere.')),
+    /* @remote { */
+    guardOnly() && h('div', { class: 'origin-note', style: 'border-color:var(--red)' },
+      h('b', {}, 'This read-only connection can still write'),
+      h('p', {}, `It logs in as ${roleWho()}, which is allowed to change data. pgquire's read-only setting is a guard rail — SQL can switch it off. A login that isn't allowed to write can't be talked around, here or in any other tool.`),
+      h('button', { class: 'btn sm', onclick: readOnlyLoginDialog }, 'Create a read-only login…')),
+    S.server && !store.get('originNote', false) && (() => {
+      const card = h('div', { class: 'origin-note' },
+        h('b', {}, 'Looking for databases you made on the pgquire website?'),
+        h('p', {}, 'Browsers keep each address\'s storage separate, so in-browser databases from the website don\'t show up here, and ones made here stay here. To bring them over: on the website, Move data → Export session; here, Move data → Open a session file.'),
+        h('div', { style: 'display:flex;gap:8px' },
+          h('button', { class: 'btn sm', onclick: () => pickSessionFile() }, ic('upload'), 'Open a session file…'),
+          h('button', { class: 'btn sm ghost', onclick: () => { store.set('originNote', true); card.remove(); } }, 'Got it')));
+      return card;
+    })(),
+    /* } @remote */
     h('div', { class: 'home-actions' }, acts.map((a, i) => h('button', { class: 'act' + (a.blue ? ' blue' : ''), style: `animation-delay:${i * 45}ms`, onclick: a.run },
       h('span', { class: 'glyph' }, ic(a.icon)), h('b', {}, a.t), h('span', {}, a.s)))),
     !empty && h('h2', {}, 'Folios', h('small', {}, 'every table and view')),
@@ -1536,7 +1598,14 @@ async function loadRows(tab) {
   const order = tab.sort ? ` order by _t.${qi(tab.sort.col)} ${tab.sort.dir} nulls last`
     : t.pk.length ? ` order by ${t.pk.map(p => '_t.' + qi(p)).join(', ')}` : t.editable ? ' order by _t.ctid' : '';
   try {
-    {
+    /* @remote { */
+    if (S.db.remote && !where && S.approx?.has(t.key)) { tab.total = S.counts[t.key]; tab.approx = true; }
+    else if (S.db.remote) {                                  // count, but stop at a limit
+      const cnt = await q(`select count(*)::int as n from (select 1 from ${qt(t)} _t${where} limit ${REMOTE_COUNT_CAP + 1}) _c`);
+      tab.total = cnt.rows[0].n; tab.approx = tab.total > REMOTE_COUNT_CAP;
+    } else {
+    /* } @remote */
+    // @pages: {
       const cnt = await q(`select count(*)::int as n from ${qt(t)} _t${where}`);
       tab.total = cnt.rows[0].n; tab.approx = false;
     }
@@ -1551,7 +1620,7 @@ async function loadRows(tab) {
 function renderTableTab(tab, pane) {
   const t = S.byKey[tab.key];
   if (!t) { pane.append(h('div', { class: 'placeholder' }, 'This table no longer exists.')); return; }
-  const isView = t.kind === 'v' || t.kind === 'm';
+  const isView = t.kind === 'v' || t.kind === 'm'/*remote:*/, ro = !isView && !t.editable/*:remote*/;/*remote:*/   // ro: a table on a read-only connection/*:remote*/
   const applyFilter = v => { tab.filter = v.trim(); tab.page = 0; tab.dirty = true; renderPane(); };
   const filterInput = h('input', { value: tab.filter, placeholder: 'price > 10 and genre ilike \'%fiction%\'', spellcheck: false,
     oninput: () => syncFilter(),
@@ -1575,8 +1644,9 @@ function renderTableTab(tab, pane) {
   syncFilter();
   const selCount = tab.sel.size;
   const bar = h('div', { class: 'toolbar' },
-    h('h1', {}, t.name, h('small', {}, t.schema !== 'public' ? t.schema + ' · ' : '', isView ? 'view' : plural(S.counts[t.key] ?? 0, 'row'))
-      ),
+    h('h1', {}, t.name, h('small', {}, t.schema !== 'public' ? t.schema + ' · ' : '', isView ? 'view' : plural(S.counts[t.key] ?? 0, 'row'))/*remote:*/,/*:remote*/
+      // @pages: ),
+      ro && h('span', { class: 'db-kind', style: 'margin-left:10px;vertical-align:middle', title: 'This connection is read-only: you can browse and query, not change data. Change it in Connect remote Postgres.' }, 'read-only')), // @remote
     h('div', { class: 'seg' },
       h('button', { class: tab.view === 'rows' ? 'on' : '', onclick: () => { tab.view = 'rows'; persistTabs(); renderPane(); } }, 'Rows'),
       h('button', { class: tab.view === 'structure' ? 'on' : '', onclick: () => { tab.view = 'structure'; persistTabs(); renderPane(); } }, 'Structure')),
@@ -1608,7 +1678,11 @@ function renderTableTab(tab, pane) {
       tab.filter && h('span', { style: 'color:var(--red)' }, 'filtered'),
       tab.sort && h('span', {}, `sorted by ${tab.sort.col} ${tab.sort.dir}`),
       h('div', { class: 'spacer' }),
-      t.editable && h('span', { style: 'color:var(--ink3)' }, 'Double-click or Enter to edit · right-click for more'),
+      /* @remote { */
+      t.editable ? h('span', { style: 'color:var(--ink3)' }, 'Double-click or Enter to edit · right-click for more')
+        : ro && h('span', { style: 'color:var(--ink3)' }, 'Read-only connection · browsing only'),
+      /* } @remote */
+      // @pages: t.editable && h('span', { style: 'color:var(--ink3)' }, 'Double-click or Enter to edit · right-click for more'),
       h('button', { class: 'btn sm ghost', disabled: tab.page === 0, onclick: () => { tab.page--; tab.dirty = true; renderPane(); } }, '‹ Prev'),
       h('button', { class: 'btn sm ghost', disabled: tab.approx ? tab.rows.length < PAGE : to >= tab.total, onclick: () => { tab.page++; tab.dirty = true; renderPane(); } }, 'Next ›')].filter(Boolean));
     if (tab.markRow != null) {
@@ -1757,6 +1831,7 @@ function undoCaveat(t, op) {
 }
 async function gridWrite(info, stmts, undoStmts) {
   const { label, t, op, col } = typeof info === 'string' ? { label: info } : info;
+  if (!(await prodWriteOk(stmts.map(s => s.sql).join(';\n')))) return null; // @remote
   const t0 = performance.now();
   let results, joined;
   try {
@@ -1785,6 +1860,7 @@ async function gridWrite(info, stmts, undoStmts) {
 
 async function undoLast() {
   const u = S.undo.at(-1);
+  if (u && !(await prodWriteOk(u.stmts.map(s => s.sql).join(';\n')))) return; // @remote
   S.undo.pop();
   if (!u) { toast('Nothing to undo'); return; }
   const t0 = performance.now();
@@ -1966,6 +2042,7 @@ async function renderStructure(tab, t, pane) {
 }
 
 async function runDDL(sql, label, { confirmed } = {}) {
+  if (!confirmed && !(await prodWriteOk(sql))) return false;    // dialogs that already asked pass confirmed // @remote
   const t0 = performance.now();
   try {
     await S.db.exec(sql);
@@ -1995,13 +2072,15 @@ async function dropColumn(t, c) {
   if (await confirmDlg({ title: `Drop column ${c.name}?`, body: 'Its data will be deleted. This cannot be undone.', ok: 'Drop column', danger: true })
       && await runDDL(`alter table ${qt(t)} drop column ${qi(c.name)};`, `Dropped column ${c.name}`)) renderPane();
 }
+const onProd = () => isProd() ? `${currentDb().name} is a production database. ` : isRemote(S.id) ? `This is the real ${currentDb().name} server. ` : ''; // @remote
 async function truncateTable(t) {
-  if (await confirmDlg({ title: `Empty ${t.key}?`, body: `All ${(S.approx?.has(t.key) ? '~' : '') + plural(S.counts[t.key] ?? 0, 'row')} will be deleted. This cannot be undone.`, ok: 'Empty table', danger: true }))
+  // On a remote server there's no undo and others may depend on the data: make it deliberate. // @remote
+  if (await confirmDlg({ title: `Empty ${t.key}?`, body: /*remote:*/onProd() + /*:remote*/`All ${(S.approx?.has(t.key) ? '~' : '') + plural(S.counts[t.key] ?? 0, 'row')} will be deleted. This cannot be undone.`, ok: 'Empty table', danger: true/*remote:*/, typeToConfirm: isRemote(S.id) ? t.name : undefined/*:remote*/ }))
     await runDDL(`truncate ${qt(t)} restart identity cascade;`, `Emptied ${t.name}`, { confirmed: true });
 }
 async function dropRelation(t) {
   const what = t.kind === 'v' ? 'view' : t.kind === 'm' ? 'materialized view' : 'table';
-  if (await confirmDlg({ title: `Drop ${what} ${t.key}?`, body: `This permanently removes it and its data. Dependent objects are dropped too.`, ok: `Drop ${what}`, danger: true, typeToConfirm: t.name }))
+  if (await confirmDlg({ title: `Drop ${what} ${t.key}?`, body: /*remote:*/onProd() + /*:remote*/`This permanently removes it and its data. Dependent objects are dropped too.`, ok: `Drop ${what}`, danger: true, typeToConfirm: t.name }))
     await runDDL(`drop ${what} ${qt(t)} cascade;`, `Dropped ${t.key}`, { confirmed: true });
 }
 
@@ -2038,7 +2117,7 @@ const shapeResult = r => ({
   // date (1082) values arrive as JS Dates at UTC midnight — show them as plain dates.
   rows: r.rows.map(row => row.map((v, i) => r.fields[i]?.dataTypeID === 1082 && v instanceof Date && !isNaN(v) ? v.toISOString().slice(0, 10) : fmtVal(v))),
   affected: r.fields.length ? null : r.affectedRows ?? null,
-  truncated: r.truncated ?? null,
+  truncated: r.truncated ?? null,/*remote:*/     // remote: total row count when only the first rows were sent/*:remote*/
 });
 
 /** `#` at the start of a line is a comment in the editor (Postgres itself only knows -- and block comments).
@@ -2169,7 +2248,7 @@ function resultPile(merge) {
     raw.forEach((r, i) => {
       const n = first + i + 1, sr = shapeResult(r), last = list.at(-1);
       // PGlite reports a running total across one exec's statements; turn it back into each statement's own count.
-      if (!sr.fields.length && sr.affected != null) { const own = Math.max(0, sr.affected - sum); sum = Math.max(sum, sr.affected); sr.affected = own; }
+      if (/*remote:*/!S.db?.remote && /*:remote*/!sr.fields.length && sr.affected != null) { const own = Math.max(0, sr.affected - sum); sum = Math.max(sum, sr.affected); sr.affected = own; }
       if (merge && !sr.fields.length && last && !last.fields.length) { last.last = n; last.stmts++; last.affected = (last.affected ?? 0) + (sr.affected ?? 0); return; }
       list.push({ ...sr, n, last: n, stmts: 1 });
     });
@@ -2237,6 +2316,7 @@ const paintProgress = tab => { const el = document.querySelector(`.run-progress[
 async function runQueryTab(tab, sql, file) {
   sql = (sql ?? tab.sql).trim();
   if (!sql) return;
+  if (!(await prodWriteOk(sql))) return; // @remote
   const dump = COPY_STDIN.test(sql), big = dump || sql.length > BIG_SCRIPT;
   tab.running = true; tab.stop = false; tab.progress = big ? [0, 0] : null; tab.errorNote = tab.errorSql = null; tab.stmts = null; tab.stopped = false;
   tab.ranSql = big ? '' : sql;
@@ -2346,8 +2426,8 @@ function renderQueryTab(tab, pane, keep) {
 
   const results = h('div', { class: 'results' });
   if (tab.running) results.append(h('div', { class: 'placeholder' }, 'Running…', tab.progress && h('span', { class: 'run-progress', 'data-tab': tab.id }, progressText(tab)),
-    (tab.progress) && h('button', { class: 'btn sm', style: 'margin-left:10px', title: tab.progress ? 'Stops between chunks; the script\'s transaction is rolled back' : null,
-      onclick: e => { tab.stop = true; e.currentTarget.disabled = true; } }, 'Stop')));
+    (/*remote:*/S.db?.remote || /*:remote*/tab.progress) && h('button', { class: 'btn sm', style: 'margin-left:10px', title: tab.progress ? 'Stops between chunks; the script\'s transaction is rolled back' : null,
+      onclick: e => { tab.stop = true; /*remote:*/if (S.db?.remote) S.db.cancel(); /*:remote*/e.currentTarget.disabled = true; } }, 'Stop')));
   else if (tab.error) results.append(h('div', { class: 'pane-error' }, h('div', { style: 'min-width:0;flex:1' }, tab.error,
       tab.errorNote && h('div', { style: 'margin-top:4px;opacity:.85' }, tab.errorNote),
       tab.errorSql && h('pre', { class: 'err-stmt' }, tab.errorSql.length > 1200 ? tab.errorSql.slice(0, 1200) + '…' : tab.errorSql)),
@@ -2367,6 +2447,8 @@ function renderQueryTab(tab, pane, keep) {
         tab.stmts ? ` · ${plural(tab.stmts, 'statement')} in all` : '', ` · ${tab.ms.toLocaleString()} ms`),
       h('div', { class: 'spacer' }),
       cur?.fields.length > 0 && (() => {
+        // A capped remote result: stream the whole thing, when the query can run on its own. // @remote
+        if (cur.truncated && S.db?.remote && tab.single) return h('button', { class: 'btn sm ghost', title: 'Runs the query again and streams every row to a file', onclick: () => remoteCsv(hashComments(tab.ranSql), `${tab.title}.csv`) }, ic('download'), `CSV (all ${cur.truncated.toLocaleString()})`); // @remote
         return h('button', { class: 'btn sm ghost', title: cur.truncated ? 'Only the rows shown — run this query on its own to download all of them' : null, onclick: () => downloadCsv(cur.fields.map(f => f.name), cur.rows, `${tab.title}.csv`) }, ic('download'), 'CSV');
       })(),
       cur?.fields.length > 0 && h('button', { class: 'btn sm ghost', onclick: () => { navigator.clipboard?.writeText(toCsv(cur.fields.map(f => f.name), cur.rows, '\t')); toast('Copied as TSV — paste into a spreadsheet'); } }, ic('copy'), 'Copy')));
@@ -2386,7 +2468,7 @@ function readGrid(r) {
     h('thead', {}, h('tr', {}, h('th', { class: 'rn' }), cols.map(c => h('th', { style: 'cursor:default' }, h('div', { class: 'cn' }, c.name))))),
     h('tbody', {}, shown.map((row, i) => h('tr', {}, h('td', { class: 'rn num' }, i + 1),
       row.map((v, ci) => h('td', { class: cellClass(cols[ci], v), title: v != null && v.length > 40 ? v.slice(0, 600) : '' }, v == null || cols[ci].cat === 'B' ? '' : v)))),
-      r.rows.length > shown.length && h('tr', {}, h('td', { colspan: cols.length + 1, class: 'grid-empty', style: 'padding:14px' }, `Showing 2,000 of ${(r.truncated || r.rows.length).toLocaleString()} rows — ${'export CSV for all'}.`))));
+      r.rows.length > shown.length && h('tr', {}, h('td', { colspan: cols.length + 1, class: 'grid-empty', style: 'padding:14px' }, `Showing 2,000 of ${(r.truncated || r.rows.length).toLocaleString()} rows — ${/*remote:*/r.truncated && S.db?.remote ? 'CSV (all) downloads every one' : /*:remote*/'export CSV for all'}.`))));
 }
 
 /* ---------- CSV ---------- */
@@ -2400,8 +2482,20 @@ function downloadBlob(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 const downloadCsv = (header, rows, name) => downloadBlob(new Blob([toCsv(header, rows)], { type: 'text/csv' }), name);
+/* @remote { */
+/** Stream a query's whole result to a CSV file through the pgquire server — no row cap. */
+async function remoteCsv(sql, filename) {
+  try {
+    if (!S.db.sid) await S.db.open();
+    const { url } = await api('POST', `/api/sessions/${S.db.sid}/exports`, { sql, filename });
+    const a = h('a', { href: url, download: '' }); document.body.append(a); a.click(); a.remove();
+    toast('Downloading the full result as CSV…');
+  } catch (e) { toast(e.message, 'bad'); }
+}
+/* } @remote */
 async function exportTableCsv(t, tab) {
   const where = tab?.filter?.trim() ? ` where ${tab.filter}` : '';
+  if (S.db?.remote) return remoteCsv(`select * from ${qt(t)} _t${where}`, `${t.name}.csv`);   // the page's 50k cap doesn't apply // @remote
   try {
     const r = await q(`select ${t.cols.map(c => `${qi(c.name)}::text`).join(', ')} from ${qt(t)}${where}`, [], true);
     downloadCsv(t.cols.map(c => c.name), r.rows, `${t.name}.csv`);
@@ -2557,6 +2651,7 @@ function importCsvDialog({ schema } = {}) {
   go.onclick = async () => {
     if (!rows?.length) { file.click(); return; }
     const tname = slug(nameI.value);
+    if (!(await prodWriteOk(`create table ${target(tname)} … -- and insert ${plural(rows.length - (header.checked ? 1 : 0), 'row')} from CSV`))) return; // @remote
     const data = header.checked ? rows.slice(1) : rows;
     go.disabled = true;
     const t0 = performance.now();
@@ -2623,6 +2718,7 @@ select b.title, a.name as author, sum(oi.qty)::int as copies, sum(oi.qty * b.pri
   from order_items oi join books b on b.id = oi.book_id join authors a on a.id = b.author_id
  group by b.title, a.name order by revenue desc;`;
 async function loadSample() {
+  if (isRemote(S.id)) return toast('The sample bookstore is for databases in this browser — make a new one to try it.', 'bad'); // @remote
   if (S.byKey.books || S.byKey.authors) { toast('Sample tables already exist here — create a new database for a fresh copy.', 'bad'); return; }
   if (await runDDL(SAMPLE_SQL.trim(), 'Loaded the sample bookstore')) openMap();
 }
@@ -3010,45 +3106,209 @@ $('dbSwitch').onclick = e => {
   const dbs = loadDbs();
   const entry = (d, label = d.name) => {
     const sw = h('span', { class: 'db-sw', role: 'button', title: 'Click for a new colour', style: `--c:${dbColor(d)}` });
-    sw.onclick = e => { e.stopPropagation(); sw.style.setProperty('--c', recolorDb(d.id)); };
-    const br = h('span', { class: 'db-branch', role: 'button', title: 'Clone into a new database in this browser' }, ic('branch'));
-    br.onclick = e => { e.stopPropagation(); closeMenu(); cloneDbDialog(d); };
-    return { label, cur: d.id === S.id, left: sw, right: br, hint: d.id === S.id ? 'open' : '', run: () => d.id !== S.id && openDb(d.id) };
+    /* @remote { */
+    sw.onclick = e => { e.stopPropagation(); if (isProdDb(d)) return toast('Production databases are always red.'); sw.style.setProperty('--c', recolorDb(d.id)); };
+    const kind = d.kind === 'remote' && d.remote?.tag === 'prod' ? 'prod' : '';
+    const remote = d.kind === 'remote';
+    const br = h('span', { class: 'db-branch', role: 'button', title: remote ? 'Copy into a new database in this browser' : 'Clone into a new database in this browser' }, ic(remote ? 'copy' : 'branch'));
+    br.onclick = async e => { e.stopPropagation(); closeMenu(); if (!remote) return cloneDbDialog(d); if (d.id !== S.id) await openDb(d.id); if (S.id === d.id) copyToLocalDialog(); };
+    return { label, cur: d.id === S.id, left: sw, right: br, hint: [kind, d.id === S.id ? 'open' : ''].filter(Boolean).join(' · '), run: () => d.id !== S.id && openDb(d.id) };
+    /* } @remote */
+    // @pages: sw.onclick = e => { e.stopPropagation(); sw.style.setProperty('--c', recolorDb(d.id)); };
+    // @pages: const br = h('span', { class: 'db-branch', role: 'button', title: 'Clone into a new database in this browser' }, ic('branch'));
+    // @pages: br.onclick = e => { e.stopPropagation(); closeMenu(); cloneDbDialog(d); };
+    // @pages: return { label, cur: d.id === S.id, left: sw, right: br, hint: d.id === S.id ? 'open' : '', run: () => d.id !== S.id && openDb(d.id) };
   };
-  const listed = [{ label: 'Databases', header: true }, ...dbs.map(d => entry(d))];
+  /* @remote { */
+  // Grouped by where the data lives: this browser, then each server with the databases added from it.
+  const servers = new Map();
+  for (const d of dbs.filter(d => d.kind === 'remote')) { if (!servers.has(d.profile)) servers.set(d.profile, []); servers.get(d.profile).push(d); }
+  const listed = !servers.size ? [{ label: 'Databases', header: true }, ...dbs.map(d => entry(d))] : [
+    { label: 'In this browser', header: true }, ...dbs.filter(d => d.kind !== 'remote').map(d => entry(d)),
+    ...[...servers].flatMap(([prof, list]) => [
+      { label: `${prof}${list[0].remote?.host ? ' — ' + list[0].remote.host : ''}`, header: true },
+      ...list.map(d => entry(d, remoteDbOf(d) || d.name)),        // the group names the server; entries name databases
+      S.server?.authed && { label: 'Other databases on this server…', icon: 'plus', run: () => pickDatabasesDialog({ ...list[0].remote, name: prof, database: undefined }) }]),
+  ];
   showMenu(r.left, r.bottom + 4, [
+  /* } @remote */
+  // @pages: const listed = [{ label: 'Databases', header: true }, ...dbs.map(d => entry(d))];
+  // @pages: showMenu(r.left, r.bottom + 4, [
     ...listed,
     '-',
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
+    /* @remote { */
+    S.server ? { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog }
+      : { label: 'Connect remote Postgres…', icon: 'plus', hint: 'needs the pgquire app', run: needsAppDialog },
+    /* } @remote */
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
-    { label: 'Share as link…', icon: 'share', run: shareDialog },
+    isRemote(S.id) && S.db?.info?.role?.writable && { label: 'Create a read-only login…', icon: 'pen', hint: guardOnly() ? 'recommended' : '', run: readOnlyLoginDialog }, // @remote
+    { label: 'Share as link…', icon: 'share', run: shareDialog/*remote:*/, disabled: !dbCaps().share, hint: dbCaps().share ? '' : 'in-browser only', why: 'A link carries the data itself, so it needs a database in this browser. Use Copy to a local database first.'/*:remote*/ },
     '-',
-    { label: 'Move data…', icon: 'download', hint: 'dump · export · import', run: moveDataDialog },
+    { label: 'Move data…', icon: 'download', hint: /*remote:*/isRemote(S.id) ? 'copy · dump · import' : /*:remote*/'dump · export · import', run: moveDataDialog },
     '-',
-    { label: 'Delete this database…', icon: 'trash', danger: true, run: deleteDb },
+    /*remote:*/isRemote(S.id) ? { label: 'Remove this connection…', icon: 'trash', run: deleteDb } : /*:remote*/{ label: 'Delete this database…', icon: 'trash', danger: true, run: deleteDb },
   ].filter(Boolean));
 };
+/* @remote { */
+/** Create a login that can read everything and change nothing, and (optionally) switch this connection
+ *  to it. The pgquire server generates the password and keeps it; the page only ever sees a placeholder. */
+async function readOnlyLoginDialog() {
+  const d = currentDb();
+  if (d?.kind !== 'remote') return;
+  const path = `/api/profiles/${encodeURIComponent(d.profile)}/readonly-role`;
+  const name = h('input', { class: 'field', value: 'pgquire_ro', spellcheck: false, style: 'font-family:var(--mono)' });
+  let typed = false, bump = 1;          // until you type a name, a taken default moves on: pgquire_ro_2, _3…
+  const sw = h('input', { type: 'checkbox', checked: true });
+  const pre = h('pre', { class: 'sqlpreview', style: 'max-height:240px' });
+  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const go = h('button', { class: 'btn ink', disabled: true }, 'Create login');
+  let sql = '', timer = null;
+  const load = async () => {
+    try {
+      const p = await api('POST', path, { role: name.value.trim(), database: remoteDbOf(d), dryRun: true });
+      if (p.exists && !typed && bump < 20) { name.value = `pgquire_ro_${++bump}`; return load(); }
+      sql = [...p.create, ...p.grantAll, ...(p.perSchema.length ? [`-- ${p.grantAll.length ? 'if that grant isn\'t allowed' : 'before PostgreSQL 14'}: read access per schema instead`, ...p.perSchema] : [])]
+        .map(x => x.startsWith('--') ? x : x + ';').join('\n');
+      pre.innerHTML = highlightSQL(sql);
+      go.disabled = !p.canCreate || p.exists;
+      status.style.color = p.canCreate && !p.exists ? 'var(--ink3)' : 'var(--red)';
+      status.textContent = p.exists ? 'A login with that name already exists — pick another.'
+        : !p.canCreate ? `${p.user} isn't allowed to create logins. Copy the SQL for an admin (they choose the password), then connect with that login.`
+        : `Runs as ${p.user} on ${p.database}.`;
+    } catch (e) { go.disabled = true; status.style.color = 'var(--red)'; status.textContent = e.message; }
+  };
+  name.oninput = () => { typed = true; clearTimeout(timer); timer = setTimeout(load, 300); };
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Create a read-only login'),
+      h('p', {}, `pgquire's read-only setting is a guard rail: SQL can switch it off. A login that isn't allowed to write can't be talked around — in pgquire or any other tool. This creates one that can read all data on ${d.remote?.host || 'the server'} and change nothing. pgquire generates its password and keeps it; you never need to type it.`)),
+    h('div', { class: 'modal-b' },
+      h('label', { class: 'lab' }, 'Login name', name),
+      h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, sw, 'Use it for this connection from now on'),
+      pre),
+    h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }),
+      h('button', { class: 'btn ghost', onclick: () => { navigator.clipboard?.writeText(sql); toast('SQL copied — replace the password placeholder'); } }, ic('copy'), 'Copy SQL'),
+      h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
+  go.onclick = async () => {
+    go.disabled = true; status.style.color = ''; status.textContent = 'Creating…';
+    try {
+      const r = await api('POST', path, { role: name.value.trim(), database: remoteDbOf(d), switch: sw.checked });
+      m.close();
+      if (r.switched && S.id === d.id && S.db?.remote) {
+        await S.db.open();                                  // the server closed the old sessions; this one uses the new login
+        saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, remote: { ...S.db.info.profile, database: S.db.info.database } } : x));
+        showDbKind(); renderAll();
+      }
+      const how = r.grants === 'pg_read_all_data' ? 'read all data' : `read the ${plural(r.schemas.length, 'schema')} of ${r.database}`;
+      const removal = r.removeSQL.map(x => x + ';').join('\n');
+      toast(`${r.switched ? `Now connected as ${r.role}: it can ${how}, and can't change anything.` : `Created ${r.role}: it can ${how}. Connect with it to use it.`} To remove it later, forget this connection (pgquire offers to drop it) or run the removal SQL on ${r.database}.`,
+        null, { label: 'Copy removal SQL', run: () => { navigator.clipboard?.writeText(removal); toast('Removal SQL copied'); } });
+    } catch (e) { go.disabled = false; status.style.color = 'var(--red)'; status.textContent = e.message; }
+  };
+  load(); name.focus();
+}
+const removeRoleSQL = role => `drop owned by ${qi(role)};\ndrop role ${qi(role)};`;
+/** Forget a saved connection on the pgquire server. If pgquire created a login for it, offer to remove that
+ *  too — once the connection is forgotten, nobody knows that login's password. Resolves true if forgotten. */
+function forgetConnection(p) {
+  return new Promise(res => {
+    const role = p.createdRole, removal = role ? removeRoleSQL(role) : '';
+    const drop = h('input', { type: 'checkbox', checked: true });
+    const status = h('span', { style: 'font-size:12px;color:var(--red)' });
+    const go = h('button', { class: 'btn red' }, 'Forget');
+    let keepRole = false;
+    const m = modal([
+      h('div', { class: 'modal-h' }, h('h2', {}, `Forget “${p.name}”?`), h('p', {}, 'The pgquire server stops remembering this connection. Its databases are not touched.')),
+      role && h('div', { class: 'modal-b' },
+        h('p', { style: 'margin:0;font-size:13px' }, `It uses ${role}, a login pgquire created on ${p.host}${p.createdRoleDb ? ` (in ${p.createdRoleDb})` : ''}. Once the connection is forgotten, nobody knows that login's password.`),
+        h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, drop, `Also remove the login ${role} from the server`),
+        h('pre', { class: 'sqlpreview', html: highlightSQL(removal) }),
+        h('button', { class: 'btn sm ghost', style: 'align-self:flex-start', onclick: () => { navigator.clipboard?.writeText(removal); toast('Removal SQL copied'); } }, ic('copy'), 'Copy SQL')),
+      h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => { m.close(); res(false); } }, 'Cancel'), go)]);
+    m.bg.addEventListener('cancel', () => res(false));
+    go.onclick = async () => {
+      const dropping = !!role && drop.checked && !keepRole;
+      go.disabled = true; status.textContent = '';
+      try {
+        await api('DELETE', `/api/profiles/${encodeURIComponent(p.name)}${dropping ? '?dropRole=1' : ''}`);
+        m.close();
+        toast(dropping ? `Forgot ${p.name} and removed the login ${role}` : role ? `Forgot ${p.name}. The login ${role} is still on the server.` : `Forgot ${p.name}`);
+        res(true);
+      } catch (e) {
+        go.disabled = false;
+        if (dropping) { keepRole = true; go.textContent = 'Forget anyway'; status.textContent = `Couldn't remove ${role}: ${e.message}. Copy the SQL for an admin, or forget the connection anyway.`; }
+        else status.textContent = e.message;
+      }
+    };
+  });
+}
+/** On the website (no pgquire server): explain how remote Postgres works instead of hiding it. */
+function needsAppDialog() {
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Connect to a real Postgres server'),
+      h('p', {}, 'Browsers can\'t talk to Postgres directly, so this needs the small pgquire app on your computer. It runs this same workbench and connects to your servers for you; passwords stay in the app.')),
+    h('div', { class: 'modal-b' },
+      h('ol', { style: 'margin:0;padding-left:20px;line-height:1.7;font-size:13.5px' },
+        h('li', {}, 'Download pgquire for your system from the releases page.'),
+        h('li', {}, 'Run it. It opens pgquire at 127.0.0.1:8432 with a sign-in link.'),
+        h('li', {}, 'In the database switcher, choose Connect remote Postgres…')),
+      h('p', { style: 'margin:0;font-size:12.5px;color:var(--ink3)' }, 'Databases made here stay in this site\'s storage. To take them along, use Move data → Export session.')),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'),
+      h('a', { class: 'btn ink', href: 'https://github.com/abiddotdev/pgquire/releases', target: '_blank', rel: 'noopener', onclick: () => m.close() }, 'Download pgquire'))]);
+}
+/* } @remote */
 /** Every way data leaves or enters, in one place, with the direction stated. */
 function moveDataDialog() {
-  const d = currentDb(), name = dbLabel(d);
+  const d = currentDb()/*remote:*/, remote = isRemote(S.id)/*:remote*/, name = dbLabel(d);
   const row = (icon, title, sub, run) => h('button', { class: 'move-row', onclick: () => { m.close(); run(); } }, ic(icon), h('span', {}, h('b', {}, title), h('small', {}, sub)));
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Move data'),
-      h('p', {}, `“${name}” lives in this browser. Save it as a file, or bring data in from one.`)),
+      h('p', {}, /*remote:*/remote ? `“${name}” lives on ${d.remote?.host || 'a remote server'}. Copy it into this browser to experiment safely, or save it as a file.` : /*:remote*/`“${name}” lives in this browser. Save it as a file, or bring data in from one.`)),
     h('div', { class: 'modal-b' },
       h('div', { class: 'smallcaps' }, `Out of ${name} →`),
-      row('branch', 'Clone this database', 'An exact copy as a new database in this browser, named with the next free v1, v2….', () => cloneDbDialog(d)),
+      remote && row('copy', 'Copy to a local database', 'An in-browser copy — a sample or all rows — to experiment on without touching the server.', copyToLocalDialog), // @remote
+      /*remote:*/!remote && /*:remote*/row('branch', 'Clone this database', 'An exact copy as a new database in this browser, named with the next free v1, v2….', () => cloneDbDialog(d)),
       row('download', 'Download SQL dump (.sql)', 'Schema and data as SQL. Loads with psql, or here with “New database from a file”.', backupDb),
-      row('download', 'Export session (.pgquire)', 'In-browser databases with their tabs, saved queries and chats — to move to another browser or address.', exportSessionDialog),
+      /*remote:*/!remote && /*:remote*/row('download', 'Export session (.pgquire)', 'In-browser databases with their tabs, saved queries and chats — to move to another browser or address.', exportSessionDialog),
       h('div', { class: 'smallcaps', style: 'margin-top:14px' }, '→ Into this browser'),
       row('upload', 'New database from a file', 'A .sql dump, or a PGlite data folder (.tar.gz).', restoreDb),
       row('upload', 'Open a session file (.pgquire)', 'Databases, tabs, saved queries and chats from an export.', pickSessionFile)),
     h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))]);
 }
+/* @remote { */
+/** Extensions on a remote server: what it offers, created or dropped through the usual write checks. */
+async function remoteExtensionsDialog() {
+  let rows;
+  try { rows = (await q(`select name, default_version as def, installed_version as inst, comment from pg_available_extensions order by installed_version is null, name`)).rows; }
+  catch (e) { return toast(e.message, 'bad'); }
+  const filter = h('input', { class: 'field', placeholder: 'filter — e.g. trgm, vector, crypto' });
+  const list = h('div', { class: 'remote-list', style: 'max-height:420px' });
+  const change = async (r, add) => {
+    if (!add && !(await confirmDlg({ title: `Drop extension ${r.name}?`, body: `${onProd()}Anything that uses it (types, functions, indexes) has to go first, or the drop fails.`, ok: 'Drop extension', danger: true }))) return;
+    if (await runDDL(add ? `create extension if not exists ${qi(r.name)}` : `drop extension ${qi(r.name)}`, `${add ? 'Created' : 'Dropped'} extension ${r.name}`, { confirmed: !add })) { r.inst = add ? r.def : null; draw(); }
+  };
+  const draw = () => {
+    const f = filter.value.trim().toLowerCase();
+    list.replaceChildren(...rows.filter(r => !f || r.name.includes(f) || (r.comment || '').toLowerCase().includes(f)).map(r => h('div', { class: 'remote-row' },
+      h('b', { style: 'font-family:var(--mono)' }, r.name), h('span', { class: 'who', title: r.comment || '' }, r.comment || ''),
+      r.inst ? h('span', { class: 'db-kind', title: 'installed' }, r.inst) : h('span', { style: 'color:var(--ink3);font:11px var(--mono)' }, r.def),
+      readOnlyConn() ? null : r.inst ? h('button', { class: 'btn sm ghost', onclick: () => change(r, false) }, 'Drop…') : h('button', { class: 'btn sm', onclick: () => change(r, true) }, 'Create'))));
+  };
+  filter.oninput = draw;
+  const d = currentDb();
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Extensions on this server'),
+      h('p', {}, `What ${d.remote?.host || 'the server'} has available. Creating one needs the right privileges there${readOnlyConn() ? ' — this connection is read-only, so you can only look' : ''}.`)),
+    h('div', { class: 'modal-b' }, filter, list),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))], { wide: true });
+  draw(); filter.focus();
+}
+/* } @remote */
 /* ---------- SQL dumps (pg_dump) and restores ---------- */
 let pgDumpFn = null;
 async function sqlDump(id) {
+  if (!dbCaps(id).dump) throw new Error('SQL dumps aren\'t available for remote databases yet.'); // @remote
   if (!pgDumpFn) ({ pgDump: pgDumpFn } = await import(PGDUMP_URL));
   // --inserts: PGlite can't run COPY … FROM stdin as a script. Owners/grants are meaningless here.
   const args = ['--inserts', '--rows-per-insert=1000', '--no-owner', '--no-privileges'];
@@ -3113,6 +3373,7 @@ async function createDbFrom(name, { sql, dataDir, extensions, build }, onProgres
 }
 
 async function backupDb() {
+  if (isRemote(S.id)) return remoteDump(); // @remote
   try {
     toast('Dumping…');
     const sql = await sqlDump(S.id);
@@ -3138,9 +3399,16 @@ function restoreDb() {
 }
 async function deleteDb() {
   const d = currentDb();
-  if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
+  /* @remote { */
+  if (d.kind === 'remote') {
+    const role = d.remote?.createdRole;
+    if (!(await confirmDlg({ title: `Remove “${d.name}” from the list?`, body: 'Only this entry goes: its tabs, journal and chats in this browser. The remote database and its data are not touched, and the pgquire server still remembers the connection if it was saved.'
+      + (role ? `\n\nIt uses ${role}, a login pgquire created. The connection still exists, so the login stays. To remove it too, forget the connection in Connect remote Postgres (pgquire offers to drop it), or run on ${d.remote.createdRoleDb || 'the server'}:\n${removeRoleSQL(role)}` : ''), ok: 'Remove' }))) return;
+  } else if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
+  /* } @remote */
+  // @pages: if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
   await S.db.close().catch(() => {}); S.db = null;
-  indexedDB.deleteDatabase(`/pglite/ledger-${d.id}`);
+  /*remote:*/if (!isRemote(d.id)) /*:remote*/indexedDB.deleteDatabase(`/pglite/ledger-${d.id}`);
   for (const k of ['tabs', 'journal', 'map', 'clerk', 'clerkv2', 'saved']) store.del(`${k}:${d.id}`);
   for (const k of store.keys(`conv:${d.id}:`)) store.del(k);
   const rest = loadDbs().filter(x => x.id !== d.id);
@@ -3211,13 +3479,17 @@ const gunzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]
 const fmtBytes = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
 
 async function dumpDatabase(id) {
+  if (!dbCaps(id).dataDir) throw new Error('Exact copies are only possible for databases in this browser.'); // @remote
   if (id === S.id && S.db) return S.db.dumpDataDir('gzip');
   const inst = await openInstance(id);   // other databases: open briefly (with their extensions), dump, close
   try { return await inst.dumpDataDir('gzip'); } finally { await inst.close().catch(() => {}); }
 }
 
 function exportSessionDialog() {
-  const dbs = loadDbs();
+  /* @remote { */
+  const dbs = loadDbs().filter(d => dbCaps(d.id).dump);          // remote databases aren't packed into sessions
+  /* } @remote */
+  // @pages: const dbs = loadDbs();
   if (!dbs.length) return toast('Only databases in this browser can be exported.');
   const chosen = new Set(dbs.some(d => d.id === S.id) ? [S.id] : []);
   const parts = Object.fromEntries(SESSION_PARTS.map(p => [p.key, p.on]));
@@ -3466,14 +3738,200 @@ async function extensionModules(ids) {
 }
 const dbExtensions = id => (loadDbs().find(d => d.id === id)?.extensions || []).filter(x => EXT_BY[x]);
 const setDbExtensions = (id, list) => saveDbs(loadDbs().map(d => d.id === id ? { ...d, extensions: withDeps(list) } : d));
+/* @remote { */
+/* ---------- remote Postgres, through the pgquire server (Go) ----------
+   The server serves this page and adds /api. Without it (GitHub Pages, a file:// copy) pgquireServer()
+   resolves to null and everything stays local. Values arrive in Postgres text format and are parsed the
+   way PGlite parses them, so the rest of the app can't tell the two kinds of database apart. */
+let serverP = null;
+const pgquireServer = () => serverP ??= (/^https?:$/.test(location.protocol)
+  ? fetch('/api/health', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => j?.app === 'pgquire' ? j : null).catch(() => null)
+  : Promise.resolve(null));
+pgquireServer().then(s => {
+  S.server = s;
+  if (s && !store.get('originNote', false) && S.db && !activeTab()) renderPane();   // Home picks up the one-time note
+});
+
+async function api(method, path, body, onResponse) {
+  const r = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined });
+  onResponse?.(r);
+  const j = await r.json().catch(() => ({ error: { message: `${r.status} ${r.statusText}` } }));
+  if (!r.ok || j?.error) throw Object.assign(new Error(j?.error?.message || `HTTP ${r.status}`), j?.error, { status: r.status });
+  return j;
+}
+
+const pgDate = s => { const d = new Date(s); return isNaN(d) ? s : d; };   // infinity, BC dates: keep the text
+const PG_PARSE = {
+  16: s => s === 't',
+  20: s => { const n = BigInt(s); return n >= Number.MIN_SAFE_INTEGER && n <= Number.MAX_SAFE_INTEGER ? Number(n) : n; },
+  21: Number, 23: Number, 26: Number, 700: Number, 701: Number,
+  17: s => { const hx = s.slice(2), b = new Uint8Array(hx.length / 2); for (let i = 0; i < b.length; i++) b[i] = parseInt(hx.substr(i * 2, 2), 16); return b; },
+  114: JSON.parse, 3802: JSON.parse,
+  1082: s => pgDate(s + 'T00:00:00Z'),
+  1114: s => pgDate(s.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1') + 'Z'),
+  1184: s => pgDate(s.replace(' ', 'T').replace(/(\.\d{3})\d+/, '$1').replace(/([+-]\d\d)$/, '$1:00')),
+};
+const PG_ARRAY_OF = { 1000: 16, 1001: 17, 1005: 21, 1007: 23, 1016: 20, 1021: 700, 1022: 701, 1028: 26, 199: 114, 3807: 3802, 1182: 1082, 1115: 1114, 1185: 1184, 1009: 25, 1014: 25, 1015: 25, 1231: 25, 2951: 25 };
+/** Parse a Postgres array literal ({a,"b c",NULL,{1,2}}) with `el` for each element. */
+function pgArray(s, el) {
+  let i = s[0] === '[' ? s.indexOf('{') : 0;          // skip explicit bounds: [0:1]={…}
+  const read = () => {
+    const out = []; i++;
+    while (i < s.length && s[i] !== '}') {
+      if (s[i] === '{') out.push(read());
+      else if (s[i] === '"') { let v = ''; i++; while (i < s.length && s[i] !== '"') { if (s[i] === '\\') i++; v += s[i++]; } i++; out.push(el(v)); }
+      else { const j = i; while (i < s.length && s[i] !== ',' && s[i] !== '}') i++; const v = s.slice(j, i); out.push(v === 'NULL' ? null : el(v)); }
+      if (s[i] === ',') i++;
+    }
+    i++;
+    return out;
+  };
+  return read();
+}
+function pgValue(oid, s) {
+  if (s == null) return null;
+  try {
+    if (PG_PARSE[oid]) return PG_PARSE[oid](s);
+    if (oid in PG_ARRAY_OF) return pgArray(s, PG_PARSE[PG_ARRAY_OF[oid]] || (x => x));
+  } catch {}
+  return s;
+}
+/** A JS value as a Postgres text parameter (the server passes it through untyped, like PGlite). */
+const pgParam = v => v == null ? null
+  : v instanceof Date ? v.toISOString()
+  : v instanceof Uint8Array ? '\\x' + Array.from(v, b => b.toString(16).padStart(2, '0')).join('')
+  : Array.isArray(v) ? '{' + v.map(x => x == null ? 'NULL' : Array.isArray(x) ? pgParam(x) : '"' + String(pgParam(x)).replace(/[\\"]/g, '\\$&') + '"').join(',') + '}'
+  : typeof v === 'boolean' ? (v ? 't' : 'f')
+  : typeof v === 'object' ? JSON.stringify(v)
+  : String(v);
+const toResult = (r, opts) => {
+  const rows = r.rows.map(row => row.map((v, i) => pgValue(r.fields[i].dataTypeID, v)));
+  return {
+    rows: opts?.rowMode === 'array' ? rows : rows.map(row => Object.fromEntries(r.fields.map((f, i) => [f.name, row[i]]))),
+    fields: r.fields, affectedRows: r.affectedRows, truncated: r.truncated ? r.totalRows : undefined,
+  };
+};
+
+/* Connection state for remote databases: a dot in the header (ok · busy · down) and, when the pgquire
+   server can't be reached, a banner with Reconnect that also retries on its own. "busy" only shows for
+   requests slower than 250 ms, so quick ones don't flicker. */
+const conn = { busy: 0, down: null, timer: null, retry: null };
+function connWork(delta) {
+  conn.busy = Math.max(0, conn.busy + delta);
+  clearTimeout(conn.timer);
+  if (conn.busy) conn.timer = setTimeout(paintConn, 250); else paintConn();
+}
+function paintConn() {
+  const dot = $('dbDot'), remote = isRemote(S.id);
+  dot.className = 'conn-dot' + (!remote ? '' : conn.down ? ' down' : conn.busy ? ' busy' : ' ok');
+  const tls = S.db?.info ? (S.db.info.tls ? ' · encrypted (TLS)' : ' · not encrypted') : '';
+  dot.title = !remote ? '' : conn.down ? conn.down : conn.busy ? 'Working…' : `Connected${tls}`;
+  $('connBanner').hidden = !remote || !conn.down;
+  $('connMsg').textContent = conn.down || '';
+  paintTx();
+}
+function connDown(msg) {
+  conn.down = msg; paintConn();
+  clearInterval(conn.retry);
+  conn.retry = setInterval(() => reconnectRemote(true), 5000);
+}
+async function reconnectRemote(quiet) {
+  if (!isRemote(S.id) || !S.db?.remote) return;
+  serverP = null;
+  const srv = await pgquireServer();
+  if (!srv || !srv.authed) { if (!quiet) toast(!srv ? 'Still can\'t reach the pgquire server.' : 'The pgquire server restarted — open the link it printed to sign in again.', 'bad'); return; }
+  try { await S.db.open(); }
+  catch (e) { if (!quiet) toast(e.message, 'bad'); return; }
+  clearInterval(conn.retry); conn.down = null; paintConn();
+  toast('Reconnected');
+  await afterWrite();
+}
+$('connRetry').onclick = () => reconnectRemote(false);
+
+/** A remote database: one dedicated server connection, driven through the same calls as PGlite.
+ *  Calls run one at a time, and a transaction holds the connection until it ends — as in PGlite.
+ *  txStatus follows the server's word after every call, so a BEGIN typed in the editor is known. */
+class RemoteDb {
+  remote = true;
+  txStatus = 'I';          // I idle · T in a transaction · E in one that failed
+  #lock = Promise.resolve();
+  #inTx = false;
+  #req = 0;                // numbers each call, so Stop cancels the one it was meant for
+  #running = 0;
+  #orphans = [];           // sessions given up on while unreachable; closed once the server answers
+  constructor(profile, database) { this.profile = profile; this.database = database; this.sid = null; this.info = null; }
+  async open() {
+    const old = this.sid;
+    this.info = await api('POST', '/api/sessions', { profile: this.profile, database: this.database });
+    this.sid = this.info.id; this.txStatus = 'I';
+    if (old && old !== this.sid) api('POST', `/api/sessions/${old}/close`).catch(() => {});   // anything left open there ends with it
+    return this;
+  }
+  async #call(op, body, retry = true) {
+    connWork(1);
+    const openTx = this.#inTx || this.txStatus !== 'I';
+    const req = this.#running = ++this.#req;
+    try {
+      if (!this.sid) await this.open();
+      const out = await api('POST', `/api/sessions/${this.sid}/${op}`, { ...body, req }, r => { const t = r.headers.get('X-Pgquire-Tx'); if (t) this.txStatus = t; });
+      if (conn.down) { conn.down = null; clearInterval(conn.retry); }
+      if (this.#orphans.length) this.#closeOrphans();
+      return out;
+    } catch (e) {
+      if (e instanceof TypeError) { connDown('Can\'t reach the pgquire server — is it still running?'); throw new Error('can\'t reach the pgquire server'); }
+      if (e.status === 401) { connDown('The pgquire server restarted — open the link it printed to sign in again.'); throw e; }
+      if (e.code === 'session_closed' && retry && !openTx) { this.sid = null; return this.#call(op, body, false); }   // expired while idle; nothing ran
+      if (e.code === 'session_closed' || e.code === 'session_lost') {                                                  // reconnect next time
+        this.sid = null; this.txStatus = 'I';
+        if (openTx) e.message += ' — the transaction that was open was rolled back, so nothing in it was saved';
+      }
+      throw e;
+    } finally { this.#running = 0; connWork(-1); }
+  }
+  /** Stop trying a session whose state is unknown (a ROLLBACK that didn't get through): the next call
+   *  opens a fresh one, and closing this one — now, or once the server answers — ends its transaction. */
+  #abandon() {
+    if (!this.sid) return;
+    this.#orphans.push(this.sid); this.sid = null; this.txStatus = 'I';
+    this.#closeOrphans();
+  }
+  #closeOrphans() {
+    for (const sid of this.#orphans.splice(0))
+      api('POST', `/api/sessions/${sid}/close`).catch(e => { if (e instanceof TypeError) this.#orphans.push(sid); });
+  }
+  #serial(fn) { const run = this.#lock.then(fn, fn); this.#lock = run.catch(() => {}); return run; }
+  async #query(sql, params = [], opts) { return toResult(await this.#call('query', { sql, params: params.map(pgParam) }), opts); }
+  async #exec(sql, opts) { return (await this.#call('exec', { sql })).map(r => toResult(r, opts)); }
+  query(sql, params, opts) { return this.#serial(() => this.#query(sql, params, opts)); }
+  exec(sql, opts) { return this.#serial(() => this.#exec(sql, opts)); }
+  /** fn(tx) in a transaction — or, if the user has one open, inside theirs (see inSavepoint). */
+  transaction(fn) {
+    return this.#serial(async () => {
+      const run = { query: (sql, params, opts) => this.#query(sql, params, opts), exec: (sql, opts) => this.#exec(sql, opts) };
+      if (this.txStatus !== 'I') return inSavepoint(run, fn);
+      await this.#exec('BEGIN');
+      this.#inTx = true;
+      let ended = false;
+      const tx = { ...run, rollback: async () => { await this.#exec('ROLLBACK'); ended = true; } };
+      try { const out = await fn(tx); if (!ended) await this.#exec('COMMIT'); return out; }
+      catch (e) { if (!ended && this.sid) await this.#exec('ROLLBACK').catch(() => this.#abandon()); throw e; }
+      finally { this.#inTx = false; }
+    });
+  }
+  /** Stop the running statement; the connection stays open. */
+  cancel() { if (this.sid && this.#running) api('POST', `/api/sessions/${this.sid}/cancel?req=${this.#running}`).catch(() => {}); }
+  async close() { const sid = this.sid; this.sid = null; if (sid) await api('POST', `/api/sessions/${sid}/close`).catch(() => {}); }
+}
+/* } @remote */
 /* ---------- the app's own transactions vs. one the user opened ----------
    A database is one connection, so a BEGIN run in a query tab stays open across everything else. The
    app's own transactions (grid edits, Undo, imports, big scripts, the Clerk's read-only trial) then run
    inside it under a savepoint instead of issuing BEGIN/COMMIT, which would commit — or roll back — the
    user's unfinished work. The banner says a transaction is open and ends it on request. */
 
-/** 'I' no transaction, 'T' one the user opened (or one that failed). */
-function txState(db = S.db) { return !db ? 'I' : db.isInTransaction?.() ? 'T' : 'I'; }
+/** 'I' no transaction, 'T' one the user opened, 'E' it failed (remote only: PGlite reports that as 'T'). */ // @remote
+// @pages: /** 'I' no transaction, 'T' one the user opened (or one that failed). */
+function txState(db = S.db) { return !db ? 'I' : /*remote:*/db.remote ? db.txStatus : /*:remote*/db.isInTransaction?.() ? 'T' : 'I'; }
 
 /** fn(tx) under a savepoint of an open transaction: released when fn returns, rolled back to when it
  *  throws or calls tx.rollback(). The transaction itself is left alone. */
@@ -3485,11 +3943,13 @@ async function inSavepoint(run, fn) {
   catch (e) { if (!ended) await back().catch(() => {}); throw e; }
 }
 
-/** Run fn(tx) in a transaction of the app's own, or inside the user's open one (tx.joined).
- *  Joined runs queue behind each other here. */
+/** Run fn(tx) in a transaction of the app's own, or inside the user's open one (tx.joined). RemoteDb // @remote
+ *  decides under its own lock; for PGlite, joined runs queue behind each other here. */ // @remote
+// @pages: /** Run fn(tx) in a transaction of the app's own, or inside the user's open one (tx.joined).
+// @pages:  *  Joined runs queue behind each other here. */
 let localJoin = Promise.resolve();
 function appTransaction(fn, db = S.db) {
-  if (txState(db) === 'I') return db.transaction(fn);
+  if (/*remote:*/db.remote || /*:remote*/txState(db) === 'I') return db.transaction(fn);
   const go = () => inSavepoint({ query: (...a) => db.query(...a), exec: (...a) => db.exec(...a) }, fn);
   const run = localJoin.then(go, go); localJoin = run.catch(() => {});
   return run;
@@ -3497,14 +3957,14 @@ function appTransaction(fn, db = S.db) {
 
 /** The open-transaction banner, and its Commit / Roll back. */
 function paintTx() {
-  const st = txState();
+  const st = /*remote:*/isRemote(S.id) && conn.down ? 'I' : /*:remote*/txState();
   $('txBanner').hidden = st === 'I';
   $('txMsg').textContent = st === 'E' ? 'The open transaction failed — nothing more runs until you roll it back.'
     : 'A transaction is open (BEGIN). Changes made now — in queries or the grid — are kept only when you commit.';
   $('txCommit').hidden = st === 'E';
 }
 async function endTx(sql) {
-  if (!S.db) return;
+  if (!S.db/*remote:*/ || (sql === 'commit' && !(await prodWriteOk(sql)))/*:remote*/) return;
   const t0 = performance.now();
   try { await S.db.exec(sql); journalAdd({ src: 'you', sql, info: 'ok', ms: Math.round(performance.now() - t0) }); toast(sql === 'commit' ? 'Committed' : 'Rolled back'); }
   catch (e) { journalAdd({ src: 'you', sql, error: e.message, ms: Math.round(performance.now() - t0) }); toast(e.message, 'bad'); }
@@ -3514,7 +3974,132 @@ async function endTx(sql) {
 $('txCommit').onclick = () => endTx('commit');
 $('txRollback').onclick = () => endTx('rollback');
 
+// Give the connection back when the tab goes away (a restored tab just reconnects). // @remote
+addEventListener('pagehide', () => { if (S.db?.remote && S.db.sid) fetch(`/api/sessions/${S.db.sid}/close`, { method: 'POST', keepalive: true }).catch(() => {}); }); // @remote
 
+/* @remote { */
+/* ---------- remote → SQL: a small pg_dump over the catalog ----------
+   No pg_dump binary needed. Runs on its own connection in one REPEATABLE READ, READ ONLY transaction, so
+   it reads a consistent snapshot and the rest of the app stays usable. emit(stmt) runs or collects each
+   statement and returns false if it failed (a table that failed gets no data). `rows` caps rows per table
+   (null = all); with a cap, foreign keys are added NOT VALID since the sampled rows may not line up.
+   Covers schemas, extensions, enums, domains, sequences, functions, tables (identity, generated,
+   partitioned), data, constraints, indexes, views, materialized views and triggers. */
+async function remoteToSql(d, { rows = null, views = true, code = true } = {}, emit, progress) {
+  const USER = `n.nspname !~ '^pg_' and n.nspname <> 'information_schema'`;
+  const NOT_EXT = oid => `not exists (select 1 from pg_depend e where e.objid = ${oid} and e.deptype = 'e')`;
+  const db = await new RemoteDb(d.profile, d.database).open();
+  try {
+    return await db.transaction(async tx => {
+      await tx.exec('set transaction isolation level repeatable read, read only');
+      const all = async (sql, params) => (await tx.query(sql, params)).rows;
+      progress?.('reading the schema…');
+      const schemas = await all(`select n.nspname as name from pg_namespace n where ${USER} and n.nspname <> 'public' and ${NOT_EXT('n.oid')} order by 1`);
+      const exts = await all(`select extname as name from pg_extension where extname <> 'plpgsql' order by 1`);
+      const enums = await all(`select format('%I.%I', n.nspname, t.typname) as qn, array(select e.enumlabel::text from pg_enum e where e.enumtypid = t.oid order by e.enumsortorder) as labels
+        from pg_type t join pg_namespace n on n.oid = t.typnamespace where t.typtype = 'e' and ${USER} and ${NOT_EXT('t.oid')} order by t.oid`);
+      const domains = await all(`select format('%I.%I', n.nspname, t.typname) as qn, format_type(t.typbasetype, t.typtypmod) as base, t.typnotnull as nn, t.typdefault as def,
+          array(select pg_get_constraintdef(c.oid) from pg_constraint c where c.contypid = t.oid) as checks
+        from pg_type t join pg_namespace n on n.oid = t.typnamespace where t.typtype = 'd' and ${USER} and ${NOT_EXT('t.oid')} order by t.oid`);
+      // Sequences not generated for identity columns (those come back with their column).
+      const seqs = await all(`select format('%I.%I', s.schemaname, s.sequencename) as qn, s.data_type::text as type, s.start_value::text as start, s.increment_by::text as inc,
+          s.min_value::text as min, s.max_value::text as max, s.cycle, s.last_value::text as last,
+          (select format('%I.%I', tn.nspname, tc.relname) || '.' || quote_ident(a.attname) from pg_depend d join pg_class tc on tc.oid = d.refobjid
+             join pg_namespace tn on tn.oid = tc.relnamespace join pg_attribute a on a.attrelid = tc.oid and a.attnum = d.refobjsubid
+            where d.objid = c.oid and d.deptype = 'a' and d.refclassid = 'pg_class'::regclass limit 1) as owner
+        from pg_sequences s join pg_namespace n on n.nspname = s.schemaname join pg_class c on c.relnamespace = n.oid and c.relname = s.sequencename
+        where ${USER} and ${NOT_EXT('c.oid')} and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'i') order by c.oid`);
+      const funcs = code ? await all(`select format('%I.%I', n.nspname, p.proname) as qn, pg_get_functiondef(p.oid) as def from pg_proc p
+          join pg_namespace n on n.oid = p.pronamespace join pg_language l on l.oid = p.prolang
+        where p.prokind in ('f', 'p') and l.lanname not in ('c', 'internal') and ${USER} and ${NOT_EXT('p.oid')} order by p.oid`) : [];
+      const tables = await all(`select c.oid::int as oid, format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind,
+          case when c.relkind = 'p' then pg_get_partkeydef(c.oid) end as partkey,
+          case when c.relispartition then pg_get_expr(c.relpartbound, c.oid) end as bound,
+          case when c.relispartition then (select format('%I.%I', pn.nspname, pc.relname) from pg_inherits i join pg_class pc on pc.oid = i.inhparent
+            join pg_namespace pn on pn.oid = pc.relnamespace where i.inhrelid = c.oid) end as parent
+        from pg_class c join pg_namespace n on n.oid = c.relnamespace
+        where c.relkind in ('r', 'p') and ${USER} and ${NOT_EXT('c.oid')} order by c.relispartition, c.oid`);
+      const oids = [tables.map(t => t.oid)];
+      const cols = await all(`select a.attrelid::int as oid, a.attname as name, format_type(a.atttypid, a.atttypmod) as type, a.attnotnull as nn,
+          pg_get_expr(d.adbin, d.adrelid) as def, a.attidentity::text as ident, a.attgenerated::text as gen
+        from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+        where a.attrelid = any($1::int[]) and a.attnum > 0 and not a.attisdropped order by a.attrelid, a.attnum`, oids);
+      const cons = await all(`select conrelid::int as oid, conname as name, contype::text as type, pg_get_constraintdef(oid) as def from pg_constraint
+        where conrelid = any($1::int[]) and conparentid = 0 and contype in ('p', 'u', 'c', 'x', 'f') order by contype = 'f', contype <> 'p', oid`, oids);
+      const idxs = await all(`select pg_get_indexdef(i.indexrelid) as def from pg_index i where i.indrelid = any($1::int[])
+        and not exists (select 1 from pg_constraint c where c.conindid = i.indexrelid and c.contype in ('p', 'u', 'x'))
+        and not exists (select 1 from pg_inherits h where h.inhrelid = i.indexrelid) order by i.indexrelid`, oids);
+      const vws = views ? await all(`select format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind, pg_get_viewdef(c.oid, true) as def
+        from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind in ('v', 'm') and ${USER} and ${NOT_EXT('c.oid')} order by c.oid`) : [];
+      const trigs = code ? await all(`select pg_get_triggerdef(t.oid, true) as def from pg_trigger t
+        where t.tgrelid = any($1::int[]) and not t.tgisinternal and coalesce((to_jsonb(t) ->> 'tgparentid')::oid, 0) = 0 order by t.oid`, oids) : [];
+
+      await emit({ kind: 'setup', sql: 'set check_function_bodies = false' });
+      for (const x of schemas) await emit({ kind: 'schema', name: x.name, sql: `create schema if not exists ${qi(x.name)}` });
+      for (const x of exts) await emit({ kind: 'extension', name: x.name, sql: `create extension if not exists ${qi(x.name)}` });
+      for (const x of enums) await emit({ kind: 'type', name: x.qn, sql: `create type ${x.qn} as enum (${x.labels.map(lit).join(', ')})` });
+      for (const x of domains) await emit({ kind: 'domain', name: x.qn, sql: `create domain ${x.qn} as ${x.base}${x.def ? ` default ${x.def}` : ''}${x.nn ? ' not null' : ''}${x.checks.map(c => ' ' + c).join('')}` });
+      for (const x of seqs) await emit({ kind: 'sequence', name: x.qn, sql: `create sequence if not exists ${x.qn} as ${x.type} increment by ${x.inc} minvalue ${x.min} maxvalue ${x.max} start with ${x.start}${x.cycle ? ' cycle' : ''}` });
+      for (const x of funcs) await emit({ kind: 'function', name: x.qn, sql: x.def.trim() });
+
+      const colsOf = new Map();
+      for (const c of cols) { if (!colsOf.has(c.oid)) colsOf.set(c.oid, []); colsOf.get(c.oid).push(c); }
+      const colDef = c => `  ${qi(c.name)} ${c.type}`
+        + (c.ident ? ` generated ${c.ident === 'a' ? 'always' : 'by default'} as identity` : '')
+        + (c.gen === 's' ? ` generated always as (${c.def}) stored` : c.def && !c.ident ? ` default ${c.def}` : '')
+        + (c.nn ? ' not null' : '');
+      const ok = new Map();
+      for (const t of tables) {
+        t.cols = colsOf.get(t.oid) || [];
+        const sql = t.parent && t.bound ? `create table ${t.qn} partition of ${t.parent} ${t.bound}`
+          : `create table ${t.qn} (\n${t.cols.map(colDef).join(',\n')}\n)${t.partkey ? ` partition by ${t.partkey}` : ''}`;
+        ok.set(t.oid, await emit({ kind: 'table', name: t.qn, sql }));
+      }
+
+      let copied = 0;
+      for (const t of tables) {
+        const dc = t.cols.filter(c => !c.gen);
+        if (!ok.get(t.oid) || t.kind !== 'r' || !dc.length) continue;       // partitioned parents: the partitions hold the rows
+        progress?.(`copying ${t.qn}…`);
+        // Postgres writes each row as a VALUES tuple itself, so every type round-trips as a literal.
+        await tx.exec(`declare pgquire_rows no scroll cursor for select '(' || array_to_string(array[${dc.map(c => `quote_nullable(${qi(c.name)})`).join(', ')}], ', ') || ')' from ${t.qn}${rows != null ? ` limit ${rows}` : ''}`);
+        for (let n = 0; ;) {
+          const [r] = await tx.exec('fetch 1000 from pgquire_rows', { rowMode: 'array' });
+          if (!r.rows.length) break;
+          await emit({ kind: 'data', name: t.qn, sql: `insert into ${t.qn} (${dc.map(c => qi(c.name)).join(', ')}) overriding system value values\n${r.rows.map(x => x[0]).join(',\n')}` });
+          n += r.rows.length; copied += r.rows.length;
+          progress?.(`copying ${t.qn}… ${n.toLocaleString()} rows`);
+        }
+        await tx.exec('close pgquire_rows');
+      }
+
+      // Sequences continue after the copied rows.
+      for (const t of tables) if (ok.get(t.oid) && !t.parent) for (const c of t.cols.filter(c => c.ident))
+        await emit({ kind: 'setval', name: t.qn, sql: `select setval(pg_get_serial_sequence(${lit(t.qn)}, ${lit(c.name)}), coalesce(max(${qi(c.name)}), 0) + 1, false) from ${t.qn}` });
+      for (const x of seqs) {
+        if (x.last != null) await emit({ kind: 'setval', name: x.qn, sql: `select setval(${lit(x.qn)}, ${x.last}, true)` });
+        if (x.owner) await emit({ kind: 'sequence', name: x.qn, sql: `alter sequence ${x.qn} owned by ${x.owner}` });
+      }
+      const byOid = new Map(tables.map(t => [t.oid, t]));
+      for (const c of cons) {
+        const t = byOid.get(c.oid);
+        if (!ok.get(c.oid)) continue;
+        const notValid = rows != null && c.type === 'f' && !/NOT VALID$/i.test(c.def) ? ' not valid' : '';
+        await emit({ kind: c.type === 'f' ? 'foreign key' : 'constraint', name: `${t.qn}.${c.name}`, sql: `alter table ${t.qn} add constraint ${qi(c.name)} ${c.def}${notValid}` });
+      }
+      for (const x of idxs) await emit({ kind: 'index', sql: x.def });
+      const failedViews = [];
+      for (const x of vws) {
+        const sql = `create ${x.kind === 'm' ? 'materialized ' : ''}view ${x.qn} as\n${x.def.trim().replace(/;$/, '')}`;
+        if (!(await emit({ kind: 'view', name: x.qn, sql, quiet: true }))) failedViews.push(sql);
+      }
+      for (const sql of failedViews) await emit({ kind: 'view', sql });  // a second pass for views that needed a later one
+      for (const x of trigs) await emit({ kind: 'trigger', sql: x.def });
+      return { tables: tables.length, rows: copied };
+    });
+  } finally { await db.close(); }
+}
+/* } @remote */
 
 /** A free name for a copy: the base name, or the next "base vN" (any vN already on the name is dropped first). */
 function nextFreeName(name) {
@@ -3546,22 +4131,292 @@ function cloneDbDialog(d) {
     } catch (e) { status.textContent = `Clone failed: ${e.message}`; go.disabled = false; }
   };
 }
+/* @remote { */
+async function copyToLocalDialog() {
+  const d = currentDb();
+  if (d?.kind !== 'remote') return;
+  const name = h('input', { class: 'field', value: nextFreeName(remoteDbOf(d) || d.name) });
+  let rows = 1000;
+  const radio = (v, label) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' },
+    h('input', { type: 'radio', name: 'copyrows', checked: v === rows, onchange: () => { rows = v; } }), label);
+  const box = (label, checked = true) => { const i = h('input', { type: 'checkbox', checked }); return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, i, label)]; };
+  const [views, viewsL] = box('Views and materialized views');
+  const [code, codeL] = box('Functions and triggers');
+  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const go = h('button', { class: 'btn ink' }, 'Copy');
+  const est = Object.values(S.counts || {}).reduce((a, b) => a + b, 0);
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Copy to a local database'), h('p', {}, `Makes an in-browser copy of “${d.name}” to experiment on freely. The remote database is only read.`)),
+    h('div', { class: 'modal-b' },
+      h('label', { class: 'lab' }, 'Name of the copy', name),
+      h('div', {}, h('div', { class: 'smallcaps', style: 'margin:6px 0 4px' }, 'Rows per table'),
+        radio(100, '100'), radio(1000, '1,000 — recommended'), radio(10000, '10,000'), radio(null, `All${est ? ` (~${est.toLocaleString()} rows)` : ''}`)),
+      h('div', {}, h('div', { class: 'smallcaps', style: 'margin:6px 0 4px' }, 'Also copy'), viewsL, codeL),
+      h('p', { style: 'margin:0;font-size:12px;color:var(--ink3)' }, 'With a row limit, foreign keys are added NOT VALID, since sampled rows may point at rows that weren\'t copied. Anything the browser\'s Postgres can\'t run (for example an extension it doesn\'t have) is skipped and listed.')),
+    h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
+  go.onclick = async () => {
+    go.disabled = true;
+    const failed = [];
+    let result;
+    try {
+      const extensions = (S.exts || []).map(x => EXT_BY_SQL[x.extname]?.id).filter(Boolean);
+      const meta = await createDbFrom(name.value.trim() || nextFreeName(remoteDbOf(d) || d.name), { extensions, build: async inst => {
+        const emit = async st => {
+          try { await inst.exec(st.sql); return true; }
+          catch (e) { if (!st.quiet) failed.push({ what: [st.kind, st.name].filter(Boolean).join(' '), error: e.message }); return false; }
+        };
+        result = await remoteToSql(d, { rows, views: views.checked, code: code.checked }, emit, t => { status.textContent = t; });
+      } }, null);
+      m.close();
+      copyReport(meta, result, rows, failed);
+    } catch (e) { status.textContent = `Copy failed: ${e.message}`; go.disabled = false; }
+  };
+}
+function copyReport(meta, result, rows, failed) {
+  const groups = new Map();
+  for (const f of failed) { const k = f.what + ' — ' + f.error; groups.set(k, (groups.get(k) || 0) + 1); }
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, `Copied to “${meta.name}”`),
+      h('p', {}, `${plural(result.tables, 'table')}, ${plural(result.rows, 'row')}${rows != null ? ` (up to ${rows.toLocaleString()} per table)` : ''}.`)),
+    groups.size > 0 && h('div', { class: 'modal-b' },
+      h('div', { class: 'smallcaps' }, `Skipped ${plural(failed.length, 'statement')}`),
+      h('div', { class: 'remote-list', style: 'font:12px var(--mono)' }, [...groups].map(([k, n]) => h('div', { class: 'remote-row' }, n > 1 ? `${k} (×${n})` : k)))),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Stay here'),
+      h('button', { class: 'btn ink', onclick: () => { m.close(); openDb(meta.id); } }, 'Open the copy'))]);
+}
+/** A SQL dump of the open remote database, built by remoteToSql (loads with psql or pgquire). */
+async function remoteDump() {
+  const d = currentDb(), r = d.remote || {};
+  const est = Object.values(S.counts || {}).reduce((a, b) => a + b, 0);
+  if (est > 500000 && !(await confirmDlg({ title: 'Download everything?', body: `About ${est.toLocaleString()} rows pass through this browser into one .sql file. That can take a while and use a lot of memory.`, ok: 'Download' }))) return;
+  const status = h('p', {}, 'starting…');
+  const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, `Dumping “${d.name}”`), status)]);
+  const parts = [`-- pgquire v${APP_VERSION} SQL dump of "${d.name}" (${r.user}@${r.host}/${r.database}) · ${new Date().toISOString()}\n-- Load with: psql -d yourdb -f thisfile.sql   (or pgquire → New database from file)\n\n`];
+  try {
+    await remoteToSql(d, {}, async st => { parts.push(st.sql + ';\n\n'); return true; }, t => { status.textContent = t; });
+    const blob = new Blob(parts, { type: 'application/sql' });
+    downloadBlob(blob, `${fileSafe(d.name)}.sql`);
+    toast(`SQL dump downloaded · ${fmtBytes(blob.size)}`);
+  } catch (e) { toast('Dump failed: ' + e.message, 'bad'); }
+  finally { m.close(); }
+}
+/* } @remote */
 
-/** What the switcher shows. */
+/** What the switcher shows: the database's own name for remote entries whose name we generated. */ // @remote
+// @pages: /** What the switcher shows. */
 function dbLabel(d) {
   if (!d) return '';
-  return d.name;
+  /* @remote { */
+  if (d.kind !== 'remote') return d.name;
+  const db = remoteDbOf(d);
+  return db && (d.name === d.profile || d.name === `${d.profile} / ${db}`) ? db : d.name;
+  /* } @remote */
+  // @pages: return d.name;
 }
-/** The header: where the database lives (small caps) and its name. */
+/* @remote { */
+/** The header: where the database lives (small caps), its name, a connection dot, and PROD / READ-ONLY chips. */
 function showDbKind() {
-  const d = currentDb();
+  const d = currentDb(), el = $('dbKind'), r = d?.remote || {};
   $('dbName').textContent = dbLabel(d) || '—';
-  $('dbWhere').textContent = d ? 'In this browser' : 'Database';
-  paintTx();
+  $('dbWhere').textContent = !d ? 'Database' : d.kind === 'remote' ? `${d.profile}${r.host ? ' · ' + r.host : ''}` : 'In this browser';
+  $('dbSwitch').title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''} — switch database` : 'Switch database';
+  paintConn();
+  el.textContent = d?.kind === 'remote' ? (r.tag === 'prod' ? 'prod' + (r.readOnly ? ' · ro' : '') : r.readOnly ? 'read-only' : '') : '';
+  el.classList.toggle('prod', r.tag === 'prod');
+  el.classList.toggle('warn', guardOnly());
+  el.title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''}${r.readOnly ? ' · read-only' : ''}`
+    + (guardOnly() ? `\nOnly a guard rail: ${roleWho()} can write, and SQL can switch read-only off. Create a read-only login from the database menu.` : '') : '';
+/* } @remote */
+// @pages: /** The header: where the database lives (small caps) and its name. */
+// @pages: function showDbKind() {
+// @pages:   const d = currentDb();
+// @pages:   $('dbName').textContent = dbLabel(d) || '—';
+// @pages:   $('dbWhere').textContent = d ? 'In this browser' : 'Database';
+// @pages:   paintTx();
+}
+/* @remote { */
+/* A connection marked read-only whose login can still write: pgquire's setting is only a guard rail.
+   The server reports what the login may do (superuser, write grants, CREATE) when a session opens. */
+const guardOnly = () => isRemote(S.id) && readOnlyConn() && !!S.db?.info?.role?.writable;
+const roleWho = (ri = S.db?.info?.role) => ri ? `${ri.user}${ri.superuser ? ' (a superuser)' : ''}` : 'this login';
+const isProd = () => { const d = currentDb(); return d?.kind === 'remote' && d.remote?.tag === 'prod'; };
+const readOnlyConn = () => { const d = currentDb(); return d?.kind === 'remote' && !!d.remote?.readOnly; };
+/** On a writable production connection, confirm anything that isn't a plain read. */
+async function prodWriteOk(sql) {
+  const d = currentDb();
+  if (d?.kind !== 'remote' || d.remote?.tag !== 'prod' || d.remote.readOnly || isReadish(sql)) return true;
+  return confirmDlg({ title: `Write to production “${d.name}”?`, body: sql.length > 400 ? sql.slice(0, 400) + '…' : sql, ok: 'Run on production', danger: true });
+}
+/** The switcher entry for a database on a profile's server, added if it isn't there yet.
+ *  p.database is the one in the connection string; entries for it are named after the profile. */
+const remoteDbOf = x => x.database ?? x.remote?.database;
+function remoteEntry(p, database = p.database) {
+  let d = loadDbs().find(x => x.kind === 'remote' && x.profile === p.name && remoteDbOf(x) === database);
+  if (!d) {
+    d = { id: uid(), name: database === p.database ? p.name : `${p.name} / ${database}`, created: Date.now(), hue: randomHue(loadDbs()),
+      kind: 'remote', profile: p.name, database, remote: { ...p, database } };
+    saveDbs([...loadDbs(), d]);
+  }
+  return d;
+}
+const openRemote = (p, database) => openDb(remoteEntry(p, database).id);
+
+/** Choose which of a server's databases appear in the switcher. Opens the first one added (or `open`). */
+async function pickDatabasesDialog(p, { intro, open } = {}) {
+  let list;
+  try { list = await api('GET', `/api/profiles/${encodeURIComponent(p.name)}/databases`); }
+  catch (e) { toast(`Couldn't list the databases: ${e.message}`, 'bad'); return open && openRemote(p); }
+  const def = list.default || p.database;
+  p = { ...p, database: def };
+  const have = new Set(loadDbs().filter(x => x.kind === 'remote' && x.profile === p.name).map(remoteDbOf));
+  const picks = list.databases.map(name => {
+    const i = h('input', { type: 'checkbox', checked: have.has(name) || (!!open && name === def), disabled: have.has(name) });
+    return { name, i, el: h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0' }, i,
+      h('span', { style: 'font-family:var(--mono)' }, name), name === def && h('span', { style: 'color:var(--ink3)' }, '— from the connection string'), have.has(name) && h('span', { style: 'color:var(--ink3)' }, '— added')) };
+  });
+  const go = h('button', { class: 'btn ink' }, 'Add');
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, `Databases on ${p.name}`), h('p', {}, intro || 'Tick the ones you want in the database switcher. Each opens its own connection; your login’s permissions still apply.')),
+    h('div', { class: 'modal-b' }, h('div', { class: 'remote-list', style: 'max-height:320px' }, picks.map(x => x.el))),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => { m.close(); if (open) openRemote(p); } }, open ? 'Just this one' : 'Cancel'), go)]);
+  go.onclick = () => {
+    const added = picks.filter(x => x.i.checked && !x.i.disabled).map(x => remoteEntry(p, x.name));
+    m.close();
+    const first = added.find(d => remoteDbOf(d) === def) || added[0] || (open && remoteEntry(p));
+    if (first) openDb(first.id);
+    else renderAll();
+    if (added.length > 1) toast(`Added ${plural(added.length, 'database')} to the switcher`);
+  };
 }
 
-/** Open database `id`: PGlite with the extensions it uses. */
+async function connectRemoteDialog() {
+  const srv = await pgquireServer();
+  if (!srv) return toast('Remote Postgres needs the pgquire server: run `pgquire` and open the link it prints.', 'bad');
+  if (!srv.authed) return toast('Not signed in to the pgquire server — open the link it printed when it started.', 'bad');
+  let profiles;
+  try { profiles = (await api('GET', '/api/profiles')).profiles; } catch (e) { return toast(e.message, 'bad'); }
+  const name = h('input', { class: 'field', placeholder: 'e.g. staging' });
+  const dsn = h('input', { class: 'field', placeholder: 'postgres://user:password@host:5432/dbname', spellcheck: false, autocomplete: 'off', style: 'font-family:var(--mono)' });
+  // …or the same thing as separate fields.
+  const fld = (ph, extra = {}) => h('input', { class: 'field', placeholder: ph, spellcheck: false, autocomplete: 'off', ...extra });
+  const f = { host: fld('db.example.com'), port: fld('5432', { value: '5432' }), database: fld('postgres'), user: fld('postgres'), password: fld('', { type: 'password', autocomplete: 'new-password' }),
+    ssl: h('select', { class: 'field' }, [['prefer', 'Use TLS if the server offers it'], ['require', 'Require TLS'], ['verify-full', 'Require TLS and verify the certificate'], ['disable', 'No TLS']].map(([v, l]) => h('option', { value: v }, l))) };
+  let mode = 'url';
+  const dsnOf = () => {
+    if (mode === 'url') return dsn.value.trim();
+    const host = f.host.value.trim();
+    if (!host) return '';
+    const user = f.user.value.trim(), pw = f.password.value;
+    return `postgres://${user ? encodeURIComponent(user) + (pw ? ':' + encodeURIComponent(pw) : '') + '@' : ''}${host.includes(':') && !host.startsWith('[') ? `[${host}]` : host}:${f.port.value.trim() || 5432}/${encodeURIComponent(f.database.value.trim() || 'postgres')}?sslmode=${f.ssl.value}`;
+  };
+  const fromUrl = () => {             // best effort, so switching to fields keeps what was typed
+    try {
+      const u = new URL(dsn.value.trim());
+      f.host.value = u.hostname.replace(/^\[|\]$/g, ''); f.port.value = u.port || '5432'; f.database.value = decodeURIComponent(u.pathname.slice(1));
+      f.user.value = decodeURIComponent(u.username); f.password.value = decodeURIComponent(u.password);
+      const m = u.searchParams.get('sslmode'); if (m && [...f.ssl.options].some(o => o.value === m)) f.ssl.value = m;
+    } catch {}
+  };
+  const lab = (t, el, style) => h('label', { class: 'lab', style }, t, el);
+  const urlBox = lab('Connection string', dsn);
+  const fieldsBox = h('div', { style: 'display:none;grid-template-columns:1fr 100px;gap:8px 10px' },
+    lab('Host', f.host), lab('Port', f.port), lab('Database', f.database, 'grid-column:1/3'), lab('User', f.user), lab('Password', f.password, 'grid-column:1/3'), lab('Encryption', f.ssl, 'grid-column:1/3'));
+  const segBtn = (m, t) => h('button', { class: 'btn sm' + (m === mode ? ' ink' : ' ghost'), onclick: () => {
+    if (m === mode) return;
+    if (m === 'fields') fromUrl(); else if (f.host.value.trim()) dsn.value = dsnOf();
+    mode = m; urlBox.style.display = m === 'url' ? '' : 'none'; fieldsBox.style.display = m === 'url' ? 'none' : 'grid';
+    seg.querySelectorAll('button').forEach(b => b.className = 'btn sm ' + (b.dataset.m === mode ? 'ink' : 'ghost'));
+  }, 'data-m': m }, t);
+  const seg = h('div', { style: 'display:flex;gap:4px' }, segBtn('url', 'Connection string'), segBtn('fields', 'Fields'));
+  const testBtn = h('button', { class: 'btn ghost' }, 'Test');
+  testBtn.onclick = async () => {
+    if (!dsnOf()) { status.textContent = 'Fill in the connection first.'; return; }
+    testBtn.disabled = true; status.style.color = ''; status.textContent = 'Testing…';
+    try {
+      const r = await api('POST', '/api/profiles/test', { dsn: dsnOf() });
+      status.textContent = `✓ PostgreSQL ${r.serverVersion} · ${r.database} as ${r.user} · ${r.tls ? 'encrypted (TLS)' : 'not encrypted'}`
+        + (ro.checked && r.role?.writable ? ` · ${roleWho(r.role)} can write, so read-only will only be a guard rail — you can create a read-only login once connected` : '');
+      status.style.color = r.tls ? 'var(--ink2)' : 'var(--red)';
+      if (!r.tls) status.title = 'Passwords and data travel in the clear. Fine on localhost; use sslmode=require elsewhere.';
+    } catch (e) { status.textContent = e.message; status.style.color = 'var(--red)'; }
+    testBtn.disabled = false;
+  };
+  const box = (checked, label, hint) => {
+    const i = h('input', { type: 'checkbox', checked });
+    return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, i, h('span', {}, label, hint && h('span', { style: 'color:var(--ink3)' }, ' — ', hint)))];
+  };
+  const [prod, prodL] = box(false, 'Production', 'red marker, read-only unless you untick below');
+  const [ro, roL] = box(false, 'Read-only', 'writes are refused (a guard rail; for a hard guarantee use a read-only role)');
+  const [save, saveL] = box(true, 'Remember on this computer', 'in the pgquire server\'s connections file, readable only by you');
+  let roTouched = false;
+  ro.onchange = () => { roTouched = true; };
+  prod.onchange = () => { if (!roTouched) ro.checked = prod.checked; };
+  const status = h('span', { style: 'font-size:12px;color:var(--ink3)' });
+  const go = h('button', { class: 'btn ink' }, 'Connect');
+  const saved = profiles.length > 0 && h('div', {},
+    h('div', { class: 'smallcaps', style: 'margin-bottom:4px' }, 'On this server'),
+    h('div', { class: 'remote-list' }, profiles.map(p => {
+      const row = h('div', { class: 'remote-row' },
+        h('b', {}, p.name), p.tag && h('span', { class: 'db-kind' + (p.tag === 'prod' ? ' prod' : '') }, p.tag),
+        h('span', { class: 'who', title: `${p.user}@${p.host}:${p.port}/${p.database}` }, `${p.user}@${p.host}/${p.database}`),
+        h('button', { class: 'btn sm', onclick: () => { m.close(); openRemote(p); } }, 'Open'),
+        h('button', { class: 'btn sm ghost', title: 'Other databases on this server', onclick: () => { m.close(); pickDatabasesDialog(p); } }, 'Databases…'),
+        h('button', { class: 'btn sm ghost', title: 'Forget this connection on the server', onclick: async () => { if (await forgetConnection(p)) row.remove(); } }, ic('trash')));
+      return row;
+    })));
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Connect remote Postgres'), h('p', {}, 'The pgquire server connects for you; the password stays with it and never reaches this page. The database shows up in the switcher next to your local ones.')),
+    h('div', { class: 'modal-b' }, saved,
+      h('label', { class: 'lab' }, 'Name', name),
+      seg, urlBox, fieldsBox,
+      prodL, roL, saveL),
+    h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), testBtn, go)], { wide: true });
+  go.onclick = async () => {
+    if (!name.value.trim() || !dsnOf()) { status.textContent = mode === 'url' ? 'A name and a connection string are both needed.' : 'A name and a host are both needed.'; return; }
+    go.disabled = true; status.textContent = 'Connecting…';
+    try {
+      const r = await api('POST', '/api/profiles', { name: name.value.trim(), dsn: dsnOf(), tag: prod.checked ? 'prod' : '', readOnly: ro.checked, save: save.checked });
+      m.close();
+      toast(`Connected · PostgreSQL ${r.serverVersion} · ${r.tls ? 'encrypted' : 'not encrypted'}`);
+      const dbsOn = await api('GET', `/api/profiles/${encodeURIComponent(r.profile.name)}/databases`).catch(() => null);
+      if (dbsOn?.databases?.length > 1) pickDatabasesDialog(r.profile, { open: true, intro: `Connected. This server has ${dbsOn.databases.length} databases you can open — which should appear in the switcher?` });
+      else openRemote(r.profile);
+    } catch (e) { status.textContent = e.message; go.disabled = false; }
+  };
+  name.focus();
+}
+/* } @remote */
+
+/* @remote { */
+/* A database is local (PGlite in this browser — the default) or remote (a real Postgres reached through
+   the pgquire server). Both expose the same surface the app uses: query(sql, params, { rowMode }),
+   exec(sql, { rowMode }), transaction(fn), close(). Anything beyond that is gated by dbCaps(). */
+const isRemote = id => loadDbs().find(d => d.id === id)?.kind === 'remote';
+const LOCAL_CAPS = { dataDir: true, wasmExt: true, dump: true, share: true };
+const REMOTE_CAPS = { dataDir: false, wasmExt: false, dump: false, share: false };
+const dbCaps = (id = S.id) => isRemote(id) ? REMOTE_CAPS : LOCAL_CAPS;
+/* } @remote */
+/** Open a connection to database `id`, local or remote. */ // @remote
+// @pages: /** Open database `id`: PGlite with the extensions it uses. */
 async function connectDb(id, opts = {}) {
+  /* @remote { */
+  if (isRemote(id)) {
+    const srv = await pgquireServer();
+    if (!srv) throw new Error('remote databases open only through the pgquire server — run `pgquire` and use the link it prints');
+    if (!srv.authed) throw new Error('not signed in to the pgquire server — open the link it printed when it started');
+    const d = loadDbs().find(x => x.id === id);
+    bootMsg(`connecting to ${d.name}…`, true);
+    const db = await new RemoteDb(d.profile, d.database).open();
+    conn.down = null; clearInterval(conn.retry);
+    if (d.remote?.readOnly && db.info.role?.writable && !(S.roleWarned ??= new Set()).has(id)) {
+      S.roleWarned.add(id);
+      setTimeout(() => toast(`“${d.name}” is read-only in pgquire, but it logs in as ${roleWho(db.info.role)}, which can write — so read-only is only a guard rail here.`, 'bad', { label: 'Fix…', run: readOnlyLoginDialog }), 600);
+    }
+    saveDbs(loadDbs().map(x => x.id === id ? { ...x, remote: { ...db.info.profile, database: db.info.database } } : x));   // keep host/tag/read-only current
+    showDbKind();
+    return db;
+  }
+  /* } @remote */
   if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
   if (dbExtensions(id).length) bootMsg(`loading ${dbExtensions(id).join(', ')}…`, true);
   return syncExtensions(id, await openInstance(id, opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}));
@@ -3604,6 +4459,7 @@ async function runExtSql(sql, src) {
 }
 /** Enable and/or remove extensions on the open database. Drops happen first (while still loaded). */
 async function applyExtensionChanges(add, remove, { src = 'you' } = {}) {
+  if (!dbCaps().wasmExt) throw new Error('this is a remote database: run CREATE EXTENSION (or DROP EXTENSION) in a query instead'); // @remote
   const installed = new Set((await installedExtensions(S.db)).map(r => r.extname));
   const removed = [];
   for (const id of remove) {
@@ -3663,6 +4519,7 @@ function extensionFixButton(err, retry) {
 
 /* ---------- the Extensions dialog ---------- */
 function extensionsDialog(focusId) {
+  if (!dbCaps().wasmExt) return remoteExtensionsDialog(); // @remote
   const installed = new Map((S.exts || []).map(x => [x.extname, x.extversion]));
   const isOn = id => installed.has(extSql(EXT_BY[id]));
   const was = new Set(EXT.filter(e => isOn(e.id)).map(e => e.id));
@@ -3797,6 +4654,7 @@ async function buildSharePayload(sql, { saved, chats, curId }) {   // saved / ch
 }
 const shareBase = () => location.href.replace(/#.*$/, '');
 function shareDialog() {
+  if (!dbCaps().share) return toast('A link carries the data itself, so it needs a database in this browser — use Copy to a local database first.'); // @remote
   let sql = null, link = '', building = 0;
   const MAX_CHATS = 5;
   const convList = [...C.convs].filter(c => c.items.length).sort((a, b) => b.updated - a.updated);
@@ -3928,7 +4786,7 @@ const COMMANDS = [
   { label: 'Overview', k: 'home overview dashboard', run: () => activate(null) },
   { label: 'Toggle the journal', k: 'journal log history', run: toggleJournal },
   { label: 'Toggle day / night', k: 'theme dark light night day', run: toggleTheme },
-  { label: 'Load the sample bookstore', k: 'sample demo example data', run: loadSample },
+  { label: 'Load the sample bookstore', k: 'sample demo example data', run: loadSample/*remote:*/, when: () => !isRemote(S.id)/*:remote*/ },
   { label: 'Extensions…', k: 'extensions extension plugins pg_trgm vector pgvector postgis uuid pgcrypto hstore fuzzy', run: () => extensionsDialog() },
   { label: 'Share as link', k: 'share link url send copy', run: shareDialog },
   { label: 'Export session (.pgquire)', k: 'export session pgquire save file backup all databases chats', run: exportSessionDialog },
@@ -3943,10 +4801,10 @@ function buildOmni() {
   const items = [];
   const looksSql = SQL_START.test(text);
   if (looksSql) items.push({ kind: 'sql', label: h('span', {}, 'Run ', h('code', { style: 'font:12px var(--mono)' }, text.trim().slice(0, 70))), hint: 'in a new query tab', run: () => openQuery(text.trim(), { run: true, title: 'quick query' }) });
-  // Databases: by name. "db:" narrows to databases only.
+  // Databases: by name/*remote:*/, server or host/*:remote*/. "db:" narrows to databases only.
   const dbOnly = t.startsWith('db:'), dq = dbOnly ? t.slice(3).trim() : t;
-  const dbHits = (dbOnly || (t && !looksSql)) ? loadDbs().filter(d => d.id !== S.id && (!dq || (`${dbLabel(d)} ${d.name}`).toLowerCase().includes(dq))).slice(0, dbOnly ? 12 : 4) : [];
-  const dbItems = dbHits.length ? [{ sep: 'Databases' }, ...dbHits.map(d => ({ kind: 'db', label: h('em', {}, dbLabel(d)), hint: 'in this browser', run: () => openDb(d.id) }))] : [];
+  const dbHits = (dbOnly || (t && !looksSql)) ? loadDbs().filter(d => d.id !== S.id && (!dq || (`${dbLabel(d)} ${d.name}`/*remote:*/ + ` ${d.profile || ''} ${d.remote?.host || ''}`/*:remote*/).toLowerCase().includes(dq))).slice(0, dbOnly ? 12 : 4) : [];
+  const dbItems = dbHits.length ? [{ sep: 'Databases' }, ...dbHits.map(d => ({ kind: 'db', label: h('em', {}, dbLabel(d)), hint: /*remote:*/d.kind === 'remote' ? `${d.profile}${d.remote?.host ? ' · ' + d.remote.host : ''}` : /*:remote*/'in this browser', run: () => openDb(d.id) }))] : [];
   if (dbOnly) {
     items.push(...dbItems);
     if (!dbHits.length) items.push({ sep: 'No other databases match' });
@@ -4367,7 +5225,10 @@ function renderClerk() {
     h('div', { class: 'compose-chips', id: 'clerkChips' }, h('div', { class: 'ctx-chip', id: 'clerkCtx' })),
     h('div', { class: 'compose-box' }, ta, send),
     h('div', { class: 'clerk-opts' },
-      h('label', { title: 'Queries that change data or schema wait for your stamp' }, h('input', { type: 'checkbox', checked: store.get('confirm', true), onchange: e => { store.set('confirm', e.target.checked); if (e.target.checked) C.allowAll = false; } }), 'Ask before changes'),
+      /* @remote { */
+      h('label', { title: isProd() ? 'Always on for a production database' : 'Queries that change data or schema wait for your stamp' }, h('input', { type: 'checkbox', checked: isProd() || store.get('confirm', true), disabled: isProd(), onchange: e => { store.set('confirm', e.target.checked); if (e.target.checked) C.allowAll = false; } }), isProd() ? 'Ask before changes (production)' : 'Ask before changes'),
+      /* } @remote */
+      // @pages: h('label', { title: 'Queries that change data or schema wait for your stamp' }, h('input', { type: 'checkbox', checked: store.get('confirm', true), onchange: e => { store.set('confirm', e.target.checked); if (e.target.checked) C.allowAll = false; } }), 'Ask before changes'),
       C.allowAll && h('span', { style: 'color:var(--red)' }, '· approving all this session'),
       (() => { const c = curConv(), full = c?.ctxMode === 'full';
         return h('button', { class: 'ctx-mode' + (full ? ' full' : ''),
@@ -4622,10 +5483,18 @@ function schemaTables() {
 }
 const PROMPT_VARS = {
   engine: () => {
-    return 'The database is PGlite — real PostgreSQL 18 compiled to WebAssembly, running in the user\'s browser and persisted in IndexedDB. Single user; built-in features work (plpgsql, JSONB, CTEs, window functions, full-text search, generated columns).';
+    /*remote:*/if (!S.db?.remote) /*:remote*/return 'The database is PGlite — real PostgreSQL 18 compiled to WebAssembly, running in the user\'s browser and persisted in IndexedDB. Single user; built-in features work (plpgsql, JSONB, CTEs, window functions, full-text search, generated columns).';
+    const r = currentDb()?.remote || {}; // @remote
+    return `The database is a real PostgreSQL ${S.db.info?.serverVersion || ''} server (${r.host || 'remote'}${r.tag === 'prod' ? ', PRODUCTION' : ''}${r.readOnly ? ', read-only connection' : ''}), reached through the pgquire server. Other people and applications may depend on it: prefer reads, keep writes small and deliberate, and never drop or truncate unless asked.`; // @remote
   },
   database: () => currentDb()?.name || '',
   extensions: () => {
+    /* @remote { */
+    if (S.db?.remote) {
+      const on = (S.exts || []).map(x => `${x.extname} ${x.extversion}`);
+      return `${on.length ? on.join(', ') : 'none'}. This is a remote server: enable_extension doesn't work here; if an extension is needed, tell the user to run CREATE EXTENSION.`;
+    }
+    /* } @remote */
     const on = (S.exts || []).map(x => `${x.extname} ${x.extversion}`);
     const avail = EXT.filter(e => !extEnabled(e.id)).map(e => extSql(e));
     return `${on.length ? on.join(', ') : 'none'}. Available to enable with enable_extension: ${avail.join(', ')}.`;
@@ -4828,6 +5697,7 @@ async function execRO(sql) {
   return out;
 }
 async function execRW(sql) {
+  if (!(await prodWriteOk(sql))) return { error: 'The user declined to run this on the production database.', ms: 0 }; // @remote
   const t0 = performance.now();
   try { return { results: (await S.db.exec(sql, { rowMode: 'array' })).map(shapeResult), ms: Math.round(performance.now() - t0) }; }
   catch (e) { return { error: e.message, ms: Math.round(performance.now() - t0) }; }
@@ -4836,7 +5706,10 @@ async function execRW(sql) {
 async function clerkRunSql(sql) {
   if (!sql) return 'ERROR: empty sql';
   const it = { k: 'sql', sql, status: 'pending', ts: Date.now() };
-  const gate = store.get('confirm', true) && !C.allowAll;
+  /* @remote { */
+  const gate = isProd() || (store.get('confirm', true) && !C.allowAll);   // production: always ask, every time
+  /* } @remote */
+  // @pages: const gate = store.get('confirm', true) && !C.allowAll;
   let r;
   if (gate) {
     r = leavesReadOnly(sql) ? { needsWrite: true } : await execRO(sql);
@@ -4879,7 +5752,7 @@ function approve(it) {
     const bar = h('div', { class: 'r-ask' },
       h('div', { class: 'q' }, 'This will change the database. Stamp it?'),
       h('button', { class: 'btn sm ink', onclick: () => done(true) }, 'Approve'),
-      h('button', { class: 'btn sm', onclick: () => { C.allowAll = true; done(true); } }, 'Approve all this session'),
+      /*remote:*/!isProd() && /*:remote*/h('button', { class: 'btn sm', onclick: () => { C.allowAll = true; done(true); } }, 'Approve all this session'),
       h('button', { class: 'btn sm red', onclick: () => done(false) }, 'Decline'));
     card.append(bar);
     C.approve = done;
@@ -4921,7 +5794,12 @@ const dbHue = d => d?.hue != null ? d.hue
   : d?.color != null ? OLD_HUES[d.color % OLD_HUES.length]
   : ([...(d?.id || '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % HUE_STEPS) * HUE_STEP;
 const hueColor = (hue, theme = document.documentElement.dataset.theme) => theme === 'night' ? oklchHex(0.78, 0.13, hue) : oklchHex(0.53, 0.15, hue);
-const dbColor = (d, theme) => d ? hueColor(dbHue(d), theme) : null;
+const PROD_HUE = 27;          // production is always red, whatever colour it was given // @remote
+const isProdDb = d => d?.kind === 'remote' && d.remote?.tag === 'prod'; // @remote
+/* @remote { */
+const dbColor = (d, theme) => d ? hueColor(isProdDb(d) ? PROD_HUE : dbHue(d), theme) : null;
+/* } @remote */
+// @pages: const dbColor = (d, theme) => d ? hueColor(dbHue(d), theme) : null;
 function applyDbColor() {
   const c = dbColor(currentDb());
   c ? app.style.setProperty('--db', c) : app.style.removeProperty('--db');

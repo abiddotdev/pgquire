@@ -19,12 +19,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/abiddotdev/pgquire/internal/pages"
 )
 
 type client struct {
 	t    *testing.T
 	base string
 	hc   *http.Client
+	last http.Header // the last response's headers
 }
 
 // newTestServer starts pgquire on a loopback port. Pass signIn=false to get an anonymous client.
@@ -64,6 +67,7 @@ func (c *client) do(method, path string, body any, out any) int {
 		c.t.Fatal(err)
 	}
 	defer resp.Body.Close()
+	c.last = resp.Header
 	b, _ := io.ReadAll(resp.Body)
 	if out != nil {
 		if err := json.Unmarshal(b, out); err != nil {
@@ -304,11 +308,20 @@ func TestRemoteTransactionSpansRequests(t *testing.T) {
 	c.do("POST", sp+"/exec", map[string]any{"sql": "create temp table u(a int primary key)"}, nil)
 	c.do("POST", sp+"/exec", map[string]any{"sql": "begin"}, nil)
 	c.do("POST", sp+"/query", map[string]any{"sql": "insert into u values ($1)", "params": []any{"1"}}, nil)
+	if tx := c.last.Get("X-Pgquire-Tx"); tx != "T" {
+		t.Fatalf("status inside BEGIN: %q, want T", tx)
+	}
 	var e apiErr
 	if code := c.do("POST", sp+"/query", map[string]any{"sql": "insert into u values ($1)", "params": []any{"1"}}, &e); code != 400 || e.Error["code"] != "23505" {
 		t.Fatalf("duplicate: %d %v", code, e.Error)
 	}
+	if tx := c.last.Get("X-Pgquire-Tx"); tx != "E" {
+		t.Fatalf("status after a failed statement in BEGIN: %q, want E", tx)
+	}
 	c.do("POST", sp+"/exec", map[string]any{"sql": "rollback"}, nil)
+	if tx := c.last.Get("X-Pgquire-Tx"); tx != "I" {
+		t.Fatalf("status after rollback: %q, want I", tx)
+	}
 	var r apiResult
 	c.do("POST", sp+"/query", map[string]any{"sql": "select count(*) from u"}, &r)
 	if *r.Rows[0][0] != "0" {
@@ -350,6 +363,25 @@ func TestRemoteCancelKeepsSession(t *testing.T) {
 	}
 }
 
+func TestRemoteCancelOnlyHitsItsRequest(t *testing.T) {
+	c, sp := remote(t, 100, false)
+	done := make(chan apiErr, 1)
+	go func() {
+		var e apiErr
+		c.do("POST", sp+"/query", map[string]any{"sql": "select pg_sleep(1)", "req": 7}, &e)
+		done <- e
+	}()
+	time.Sleep(300 * time.Millisecond)
+	var cr struct{ Cancelled bool }
+	c.do("POST", sp+"/cancel?req=6", nil, &cr) // a Stop meant for an earlier request
+	if cr.Cancelled {
+		t.Fatal("cancel for request 6 stopped request 7")
+	}
+	if e := <-done; e.Error != nil {
+		t.Fatalf("request 7: %v", e.Error)
+	}
+}
+
 func TestRemoteReadOnly(t *testing.T) {
 	c, sp := remote(t, 100, true)
 	var e apiErr
@@ -370,10 +402,25 @@ func TestRemoteClosedSessionIsGone(t *testing.T) {
 func TestVersionMatchesPage(t *testing.T) {
 	m := regexp.MustCompile(`const APP_VERSION = '([^']+)'`).FindSubmatch(indexHTML)
 	if m == nil {
-		t.Fatal("APP_VERSION not found in index.html")
+		t.Fatal("APP_VERSION not found in index-remote.html")
 	}
 	if string(m[1]) != Version {
-		t.Fatalf("index.html APP_VERSION %q, server Version %q: bump both", m[1], Version)
+		t.Fatalf("index-remote.html APP_VERSION %q, server Version %q: bump both", m[1], Version)
+	}
+}
+
+// index.html (GitHub Pages) is generated from index-remote.html; a stale copy fails here and in CI.
+func TestPagesCopyUpToDate(t *testing.T) {
+	gen, err := os.ReadFile("index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := pages.Same(indexHTML, gen)
+	if err != nil {
+		t.Fatalf("index-remote.html: %v", err)
+	}
+	if !same {
+		t.Fatal("index.html is out of date with index-remote.html: run `go generate`")
 	}
 }
 

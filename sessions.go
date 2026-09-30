@@ -53,12 +53,16 @@ type session struct {
 
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc // cancels the request in flight, if any
+	req      uint64             // the page's number for that request (0 = none given)
+
+	txStatus atomic.Int32 // after the last request: 'I' idle, 'T' in a transaction, 'E' in a failed one
 }
 
 var errSessionLost = errors.New("session lost")
 
 // run executes fn on the session's connection, serialised with other requests and cancellable.
-func (s *session) run(ctx context.Context, fn func(context.Context, *pgconn.PgConn) error) error {
+// req is the page's number for the request, so a Stop meant for it can't land on a later one.
+func (s *session) run(ctx context.Context, req uint64, fn func(context.Context, *pgconn.PgConn) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.conn.IsClosed() {
@@ -66,28 +70,40 @@ func (s *session) run(ctx context.Context, fn func(context.Context, *pgconn.PgCo
 	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s.setCancel(cancel)
-	defer s.setCancel(nil)
+	s.setCancel(cancel, req)
+	defer s.setCancel(nil, 0)
 	s.lastUsed.Store(time.Now().UnixNano())
 	defer s.lastUsed.Store(time.Now().UnixNano())
-	return fn(ctx, s.conn.PgConn())
+	pc := s.conn.PgConn()
+	defer func() { s.txStatus.Store(int32(pc.TxStatus())) }()
+	return fn(ctx, pc)
 }
 
-func (s *session) setCancel(c context.CancelFunc) {
+func (s *session) setCancel(c context.CancelFunc, req uint64) {
 	s.cancelMu.Lock()
-	s.cancel = c
+	s.cancel, s.req = c, req
 	s.cancelMu.Unlock()
 }
 
 // interrupt cancels the running statement (Postgres cancel request); the connection stays usable.
-func (s *session) interrupt() bool {
+// With req != 0 it only cancels that request: by the time a Stop arrives, the statement it was
+// aimed at may have finished and the page moved on (to a ROLLBACK, say).
+func (s *session) interrupt(req uint64) bool {
 	s.cancelMu.Lock()
 	defer s.cancelMu.Unlock()
-	if s.cancel == nil {
+	if s.cancel == nil || (req != 0 && req != s.req) {
 		return false
 	}
 	s.cancel()
 	return true
+}
+
+// tx is the transaction status after the last request, as the page sees it: I, T or E.
+func (s *session) tx() string {
+	if st := s.txStatus.Load(); st != 0 {
+		return string(rune(st))
+	}
+	return "I"
 }
 
 type sessionManager struct {
@@ -186,7 +202,7 @@ func (m *sessionManager) close(id string) bool {
 	if s == nil {
 		return false
 	}
-	s.interrupt()
+	s.interrupt(0)
 	go func() { // wait for any running request to wind down, then close
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -337,6 +353,7 @@ func queryParams(ctx context.Context, c *pgconn.PgConn, sql string, params [][]b
 type stmt struct {
 	SQL    string            `json:"sql"`
 	Params []json.RawMessage `json:"params"`
+	Req    uint64            `json:"req"` // the page's number for this request (see interrupt)
 }
 
 // encodeParams turns JSON values into Postgres text parameters. The page sends strings (it already

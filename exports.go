@@ -66,7 +66,7 @@ func (s *server) prepareExport(w http.ResponseWriter, r *http.Request, sess *ses
 		writeErr(w, http.StatusBadRequest, "nothing to export")
 		return
 	}
-	err := sess.run(r.Context(), func(ctx context.Context, c pgConn) error {
+	err := sess.run(r.Context(), 0, func(ctx context.Context, c pgConn) error {
 		_, e := c.Exec(ctx, "explain "+query).ReadAll()
 		return e
 	})
