@@ -312,6 +312,8 @@ select.field { padding-right: 4px; }
 .grid tr.draft td input:focus { background: var(--sheet); box-shadow: inset 0 0 0 2px var(--ink); }
 .grid tr.draft td input::placeholder { color: var(--ink3); font-style: italic; font-family: var(--serif); font-size: 13px; }
 .grid tr.draft .rn { background: var(--hl-soft); }
+.grid-foot .pagecount { cursor: default; user-select: none; }
+.grid-foot .pagesize { font: inherit; font-size: 12px; color: inherit; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius); padding: 2px 4px; }
 .grid-foot { display: flex; align-items: center; gap: 10px; padding: 7px 14px; border-top: 1px solid var(--rule); background: var(--paper); font-size: 12px; color: var(--ink2); flex-shrink: 0; }
 .grid-empty { padding: 60px 20px; text-align: center; color: var(--ink3); font: italic 17px var(--serif); }
 .pane-error { margin: 14px; border: 1px solid var(--red); border-left-width: 4px; background: var(--red-soft); color: var(--red); padding: 10px 14px; border-radius: var(--radius); font: 12.5px/1.5 var(--mono); white-space: pre-wrap; display: flex; gap: 12px; align-items: flex-start; }
@@ -1122,6 +1124,8 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
 .rp-fields dd.n { font: 12px/18px var(--mono); }
 .rp-fields dd.null { color: var(--ink4); }
 .rp-fields dd.on { background: var(--acc-soft); color: var(--blue); }
+.rp-fields dd.editing { display: block; padding: 0; margin: 0 0 0 -6px; background: none; cursor: auto; }
+.rp-fields dd.editing textarea { display: block; width: 100%; resize: vertical; min-height: 24px; padding: 2px 6px; border: 0; border-radius: 6px; outline: 2px solid var(--blue); background: var(--sheet); color: var(--ink); font: 12.5px/18px var(--mono); }
 .rp-rel { display: flex; flex-direction: column; gap: 16px; }
 .rp-sec h5 { margin: 0 0 8px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font: 600 11px var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink3); }
 .rp-sec h5 small { font: 10.5px var(--mono); color: var(--blue); text-transform: none; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -1269,7 +1273,8 @@ const PGLITE_URL = 'https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.5.8/dist
 const PGDUMP_URL = 'https://cdn.jsdelivr.net/npm/@electric-sql/pglite-tools@0.4.8/dist/pg_dump.js';   // pg_dump built for PGlite 0.5.8
 const DEFAULT_BASE = 'https://openrouter.ai/api/v1';
 const DEFAULT_MODEL = 'xiaomi/mimo-v2.5';
-const PAGE = 100;
+const PAGE_SIZES = [25, 50, 100, 250, 500, 1000, 2000];
+const pageSize = () => store.get('pageSize', 100);   // rows per page in a table's Rows view; double-click the footer count to change it
 const REMOTE_COUNT_CAP = 100000;   // filtered counts on remote tables stop here // @remote
 const MAX_STEPS = 16;
 
@@ -2143,8 +2148,8 @@ async function loadRows(tab) {
       const cnt = await q(`select count(*)::int as n from ${qt(t)} _t${where}`);
       tab.total = cnt.rows[0].n; tab.approx = false;
     }
-    if (tab.page * PAGE >= tab.total && tab.page > 0) tab.page = Math.max(0, Math.ceil(tab.total / PAGE) - 1);
-    const res = await q(`select ${sel} from ${qt(t)} _t${where}${order} limit ${PAGE} offset ${tab.page * PAGE}`, [], true);
+    if (tab.page * pageSize() >= tab.total && tab.page > 0) tab.page = Math.max(0, Math.ceil(tab.total / pageSize()) - 1);
+    const res = await q(`select ${sel} from ${qt(t)} _t${where}${order} limit ${pageSize()} offset ${tab.page * pageSize()}`, [], true);
     tab.rows = res.rows; tab.error = null;
   } catch (e) { tab.error = e.message; tab.rows = []; tab.total = 0; }
   tab.dirty = false;
@@ -2209,9 +2214,10 @@ function renderTableTab(tab, pane) {
       wrap.append(buildGrid(tab, t));
       if (!tab.rows.length && !tab.draft) wrap.append(h('div', { class: 'grid-empty' }, tab.filter ? 'No rows match this filter.' : isView ? 'This view returns no rows.' : 'No entries yet — add a row, import a CSV, or ask the Clerk to fill it.'));
     }
-    const from = tab.total ? tab.page * PAGE + 1 : 0, to = tab.approx ? tab.page * PAGE + tab.rows.length : Math.min(tab.total, (tab.page + 1) * PAGE);
+    const from = tab.total ? tab.page * pageSize() + 1 : 0, to = tab.approx ? tab.page * pageSize() + tab.rows.length : Math.min(tab.total, (tab.page + 1) * pageSize());
     foot.replaceChildren(...[
-      h('span', { class: 'num' }, tab.total ? `${from.toLocaleString()}–${to.toLocaleString()} of ${tab.approx ? '~' : ''}${tab.total.toLocaleString()}` : '0 rows'),
+      h('span', { class: 'num pagecount', title: `${pageSize().toLocaleString()} rows per page · double-click to change`, ondblclick: e => editPageSize(e.currentTarget) },
+        tab.total ? `${from.toLocaleString()}–${to.toLocaleString()} of ${tab.approx ? '~' : ''}${tab.total.toLocaleString()}` : '0 rows'),
       tab.filter && h('span', { style: 'color:var(--red)' }, 'filtered'),
       tab.sort && h('span', {}, `sorted by ${tab.sort.col} ${tab.sort.dir}`),
       h('div', { class: 'spacer' }),
@@ -2221,7 +2227,7 @@ function renderTableTab(tab, pane) {
       /* } @remote */
       // @pages: t.editable && h('span', { style: 'color:var(--ink3)' }, 'Double-click or Enter to edit · right-click for more'),
       h('button', { class: 'btn sm ghost', disabled: tab.page === 0, onclick: () => { tab.page--; tab.dirty = true; renderPane(); } }, '‹ Prev'),
-      h('button', { class: 'btn sm ghost', disabled: tab.approx ? tab.rows.length < PAGE : to >= tab.total, onclick: () => { tab.page++; tab.dirty = true; renderPane(); } }, 'Next ›')].filter(Boolean));
+      h('button', { class: 'btn sm ghost', disabled: tab.approx ? tab.rows.length < pageSize() : to >= tab.total, onclick: () => { tab.page++; tab.dirty = true; renderPane(); } }, 'Next ›')].filter(Boolean));
     if (tab.markRow != null) {
       const tr = wrap.querySelector(`tr[data-r="${tab.markRow}"]`);
       if (tr) { tr.classList.add('marked'); tr.scrollIntoView({ block: 'nearest' }); }
@@ -2235,6 +2241,27 @@ function renderTableTab(tab, pane) {
   wrap.addEventListener('keydown', e => gridKeys(e, tab, t, wrap));
   if (tab.dirty) { wrap.append(h('div', { class: 'grid-empty' }, 'Reading…')); loadRows(tab).then(() => { if (activeTab() !== tab) return; draw(); const on = filterBox.querySelector('.fstate.on'); if (on) on.textContent = tab.error ? 'Error' : `Applied · ${tab.total.toLocaleString()}`; }); }
   else draw();
+}
+
+/** The footer's row count becomes a rows-per-page picker; the new size applies to every table tab,
+ *  each keeping its first visible row on screen. */
+function editPageSize(span) {
+  const old = pageSize();
+  const sel = h('select', { class: 'pagesize', title: 'Rows per page' }, PAGE_SIZES.map(n => h('option', { value: n, selected: n === old }, `${n.toLocaleString()} per page`)));
+  span.replaceWith(sel);
+  sel.focus();
+  sel.showPicker?.();
+  let done = false;
+  const finish = n => {
+    if (done) return; done = true;
+    if (!n || n === old) { sel.replaceWith(span); return; }
+    store.set('pageSize', n);
+    for (const tab of S.tabs) if (tab.type === 'table') { tab.page = Math.floor(tab.page * old / n); tab.sel.clear(); tab.dirty = true; }
+    renderPane();
+  };
+  sel.onchange = () => finish(+sel.value);
+  sel.onblur = () => finish(+sel.value);
+  sel.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); finish(null); } };
 }
 
 function cellClass(col, v) {
@@ -2258,11 +2285,11 @@ function buildGrid(tab, t) {
         h('div', { class: 'ct' }, c.pk && h('b', {}, 'PK'), c.fks?.length > 0 && h('b', { class: 'fk', title: fkTitle(c) }, fkMark(c)), c.type),
         colProfile(c, tab.rows.map(r => r[ci + 1])));
     })));
-  const tbody = h('tbody');
+  const tbody = h('tbody'), first = tab.page * pageSize();
   if (tab.draft) tbody.append(draftRow(tab, t));
   tab.rows.forEach((row, r) => {
     const tr = h('tr', { 'data-r': r, class: tab.sel.has(r) ? 'sel' : '' },
-      h('td', { class: 'rn num', onclick: e => { if (!ro) toggleSel(tab, r, e.shiftKey); } }, (tab.page * PAGE + r + 1).toLocaleString()),
+      h('td', { class: 'rn num', onclick: e => { if (!ro) toggleSel(tab, r, e.shiftKey); } }, (first + r + 1).toLocaleString()),
       t.cols.map((c, ci) => {
         const v = row[ci + 1];
         const td = h('td', { class: cellClass(c, v), 'data-r': r, 'data-c': ci, title: v != null && v.length > 40 ? v.slice(0, 600) : '' }, v == null || c.cat === 'B' ? '' : v);
@@ -2325,7 +2352,7 @@ function renderRowPanel(tab) {
   const panel = tab._panel;
   if (!panel || panel.hidden || !panel.isConnected) return;
   const t = S.byKey[tab.key], r = tab.focus?.r, row = r != null ? tab.rows[r] : null;
-  const markField = () => panel.querySelectorAll('.rp-fields dd').forEach(dd => dd.classList.toggle('on', +dd.dataset.c === tab.focus?.c));
+  const markField = () => markFocusField(tab);
   if (row && panel._row === row) return markField();          // same row, another cell
   panel._row = row;
   const token = panel._token = {};
@@ -2342,11 +2369,10 @@ function renderRowPanel(tab) {
   const rel = h('div', { class: 'rp-rel' });
   const status = h('div', { class: 'rp-note' }, 'Looking up related rows…');
   panel.replaceChildren(
-    head(sum.title, `${t.key} · row ${(tab.page * PAGE + r + 1).toLocaleString()}`),
+    head(sum.title, `${t.key} · row ${(tab.page * pageSize() + r + 1).toLocaleString()}`),
     h('dl', { class: 'rp-fields' }, t.cols.flatMap((c, i) => [
       h('dt', { title: `${c.name} · ${c.type}` }, c.name),
-      h('dd', { class: (vals[i] == null ? 'null' : '') + (c.cat === 'N' ? ' n' : ''), 'data-c': i, title: vals[i] != null && vals[i].length > 120 ? vals[i].slice(0, 600) : '',
-        onclick: () => setFocus(tab, tab._wrap, r, i) }, vals[i] == null ? 'null' : String(vals[i]).slice(0, 400))])),
+      fieldDd(tab, t, r, i, vals[i])])),
     rel,
     h('div', { class: 'rp-acts' },
       h('button', { class: 'btn sm', onclick: () => { navigator.clipboard?.writeText(JSON.stringify(Object.fromEntries(t.cols.map((c, i) => [c.name, vals[i]])), null, 2)); toast('Copied as JSON'); } }, ic('copy'), 'Copy JSON'),
@@ -2410,6 +2436,48 @@ function renderRowPanel(tab) {
     if (!rel.children.length) rel.append(h('div', { class: 'rp-note' }, 'No foreign keys lead to or from this table.'));
   })();
 }
+
+/** A field of the focused row: click focuses its cell and copies the value; double-click edits it in place.
+ *  The copy waits out the double-click window, and is skipped when you've dragged to select some of the text. */
+function fieldDd(tab, t, r, i, v) {
+  const c = t.cols[i], canEdit = t.editable && c.gen !== 's';
+  const dd = h('dd', { class: (v == null ? 'null' : '') + (c.cat === 'N' ? ' n' : ''), 'data-c': i,
+    title: (v != null && v.length > 120 ? v.slice(0, 600) + '\n\n' : '') + (canEdit ? 'Click to copy · double-click to edit' : 'Click to copy') }, v == null ? 'null' : String(v).slice(0, 400));
+  let timer;
+  dd.onclick = e => {
+    if (dd.classList.contains('editing') || e.detail > 1) return;
+    setFocus(tab, tab._wrap, r, i);
+    if (String(getSelection() || '')) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => { navigator.clipboard?.writeText(v ?? ''); toast(v == null ? 'Copied (null, as empty)' : `Copied ${c.name}`); }, 260);
+  };
+  dd.ondblclick = e => {
+    clearTimeout(timer);
+    getSelection()?.removeAllRanges();
+    if (!canEdit) { if (t.editable) toast('Generated columns are computed — they can\'t be edited.', 'bad'); return; }
+    if (dd.classList.contains('editing')) return;
+    const input = h('textarea', { value: v ?? '', placeholder: v == null ? 'null' : '', spellcheck: false, rows: Math.min(8, Math.max(1, Math.ceil((v?.length || 0) / 32), (v?.split('\n').length || 1))) });
+    const keep = [...dd.childNodes], cls = dd.className;
+    dd.className = 'editing'; dd.replaceChildren(input);
+    input.focus(); input.select();
+    let done = false;
+    const finish = async save => {
+      if (done) return; done = true;
+      const val = input.value;
+      if (save && !(v == null && val === '') && val !== v) await updateCell(tab, t, r, i, val);
+      if (dd.isConnected) { dd.className = cls; dd.replaceChildren(...keep); markFocusField(tab); }   // cancelled, or the update failed
+    };
+    input.onclick = input.ondblclick = e => e.stopPropagation();
+    input.onkeydown = e => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    };
+    input.onblur = () => finish(true);
+  };
+  return dd;
+}
+const markFocusField = tab => tab._panel?.querySelectorAll('.rp-fields dd[data-c]').forEach(dd => dd.classList.toggle('on', +dd.dataset.c === tab.focus?.c));
 
 function gridKeys(e, tab, t, wrap) {
   if (e.target.tagName === 'INPUT') return;
@@ -3821,6 +3889,7 @@ $('dbSwitch').onclick = e => {
     S.server ? { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog }
       : { label: 'Connect remote Postgres…', icon: 'plus', hint: 'needs the pgquire app', run: needsAppDialog },
     /* } @remote */
+    // @pages: { label: 'Connect remote Postgres…', icon: 'plus', hint: 'needs the pgquire app', run: needsAppDialog },
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
     isRemote(S.id) && S.db?.info?.role?.writable && { label: 'Create a read-only login…', icon: 'pen', hint: guardOnly() ? 'recommended' : '', run: readOnlyLoginDialog }, // @remote
     { label: 'Share as link…', icon: 'share', run: shareDialog/*remote:*/, disabled: !dbCaps().share, hint: dbCaps().share ? '' : 'in-browser only', why: 'A link carries the data itself, so it needs a database in this browser. Use Copy to a local database first.'/*:remote*/ },
@@ -3921,6 +3990,7 @@ function forgetConnection(p) {
     };
   });
 }
+/* } @remote */
 /** On the website (no pgquire server): explain how remote Postgres works instead of hiding it. */
 function needsAppDialog() {
   const m = modal([
@@ -3929,13 +3999,12 @@ function needsAppDialog() {
     h('div', { class: 'modal-b' },
       h('ol', { style: 'margin:0;padding-left:20px;line-height:1.7;font-size:13.5px' },
         h('li', {}, 'Download pgquire for your system from the releases page.'),
-        h('li', {}, 'Run it. It opens pgquire at 127.0.0.1:8432 with a sign-in link.'),
+        h('li', {}, 'Run it. It opens pgquire on localhost with a sign-in link.'),
         h('li', {}, 'In the database switcher, choose Connect remote Postgres…')),
       h('p', { style: 'margin:0;font-size:12.5px;color:var(--ink3)' }, 'Databases made here stay in this site\'s storage. To take them along, use Move data → Export session.')),
     h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'),
       h('a', { class: 'btn ink', href: 'https://github.com/abiddotdev/pgquire/releases', target: '_blank', rel: 'noopener', onclick: () => m.close() }, 'Download pgquire'))]);
 }
-/* } @remote */
 /** Every way data leaves or enters, in one place, with the direction stated. */
 function moveDataDialog() {
   const d = currentDb()/*remote:*/, remote = isRemote(S.id)/*:remote*/, name = dbLabel(d);
@@ -5077,13 +5146,14 @@ async function connectRemoteDialog() {
     } catch (e) { status.fail(e.message); }
     testBtn.disabled = false;
   };
-  const box = (checked, label, hint) => {
+  const box = (checked, label, hint, title) => {
     const i = h('input', { type: 'checkbox', checked });
-    return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, i, h('span', {}, label, hint && h('span', { style: 'color:var(--ink3)' }, ' — ', hint)))];
+    return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px', title }, i, h('span', {}, label, hint && h('span', { style: 'color:var(--ink3)' }, ' — ', hint)))];
   };
   const [prod, prodL] = box(false, 'Production', 'red marker, read-only unless you untick below');
   const [ro, roL] = box(false, 'Read-only', 'writes are refused (a guard rail; for a hard guarantee use a read-only role)');
-  const [save, saveL] = box(false, 'Remember on this computer', 'in the pgquire server\'s connections file, readable only by you; otherwise forgotten when pgquire stops');
+  const [save, saveL] = box(false, 'Remember on the server', 'else forgotten when it stops',
+    'Saved in the pgquire server\'s connections file (~/.config/pgquire/connections.json), readable only by the account running it. Nothing is stored in this browser.');
   let roTouched = false;
   ro.onchange = () => { roTouched = true; };
   prod.onchange = () => { if (!roTouched) ro.checked = prod.checked; };
