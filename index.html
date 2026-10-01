@@ -823,6 +823,16 @@ select.field { padding-right: 4px; }
   .dbswitch { max-width: 118px; }
   .top-actions .iconbtn { width: 28px; }
   .omni-box { padding: 0 6px 0 8px; gap: 6px; }
+  /* search folds to its icon; tapping it opens the box across the top bar */
+  .omni { flex: none; margin: 0 0 0 auto; }
+  .omni:not(.open):not(:focus-within) .omni-box { width: 34px; padding: 0; justify-content: center; cursor: pointer; }
+  .omni:not(.open):not(:focus-within) .omni-box input { flex: none; width: 0; padding: 0; }
+  .omni.open, .omni:focus-within { position: absolute; left: 8px; right: 8px; top: 50%; transform: translateY(-50%); max-width: none; z-index: 5; }
+  /* schema chip: just the name, cut to ~5 letters; Reload hides unless there's an update */
+  .top-schema { padding: 5px 6px; }
+  .top-schema .sc-lbl { display: none; }
+  .top-schema .sc-name { display: inline-block; max-width: 6ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  .upd-btn:not(.has-update) { display: none; }
 }
 
 /* ============================================================
@@ -1573,16 +1583,15 @@ async function readSearchPath() {
   try { S.schema = (await q(`select current_schema() as cur, current_setting('search_path') as path, (select reset_val from pg_settings where name = 'search_path') as def`)).rows[0]; }
   catch { S.schema = null; }                // e.g. inside a failed transaction: hide rather than guess
   document.querySelectorAll('.schema-chip').forEach(paintSchemaChip);
-  $('topSchema').hidden = !S.schema || S.schema.cur === 'public';   // beside the database only when it isn't the usual public
+  $('topSchema').hidden = !S.schema;
 }
 function paintSchemaChip(el) {
   const sp = S.schema;
-  el.textContent = sp ? `schema: ${sp.cur ?? 'none'}` : '';
+  el.replaceChildren(...(sp ? [h('span', { class: 'sc-lbl' }, 'schema: '), h('span', { class: 'sc-name' }, sp.cur ?? 'none')] : []));
   el.classList.toggle('custom', !!sp && sp.path.replace(/\s+/g, '') !== sp.def?.replace(/\s+/g, ''));
   el.title = sp ? `search_path = ${sp.path}${sp.cur ? '' : ' — none of these schemas exist'}\nUnqualified table names resolve here. Click to change.` : '';
 }
 $('topSchema').onclick = schemaMenu;
-const schemaChip = () => { const el = h('button', { class: 'schema-chip', onclick: schemaMenu }); paintSchemaChip(el); return el; };
 function schemaMenu(e) {
   const r = e.currentTarget.getBoundingClientRect();
   const schemas = [...new Set(['public', ...S.tables.map(t => t.schema)])].sort();
@@ -1743,6 +1752,8 @@ function tabMenu(t, x, y) {
     ...(t.type === 'query' ? [
       { label: 'Rename…', icon: 'pen', run: () => { activate(t.id); renameTabInline(t, $('tabs').querySelector(`[data-tab="${t.id}"] .tt`)); } },
       { label: 'Duplicate', icon: 'copy', run: () => openQuery(t.sql, { title: `${t.title} copy` }) },
+      t._fh && { label: `Save to ${t._fh.name}`, icon: 'download', hint: 'Ctrl Shift S', run: () => saveQueryFile(t) },
+      { label: 'Save as .sql file…', icon: 'download', hint: t._fh ? '' : 'Ctrl Shift S', run: () => saveQueryFile(t, { as: true }) },
       { label: savedOf(t) ? 'Save changes' : 'Save query', icon: 'save', hint: 'Ctrl+S', run: () => saveQueryTab(t) }] : []),
     ...(tbl ? [
       { label: 'Open in a query', icon: 'query', run: () => openQuery(`select * from ${qt(tbl)} limit 100`, { title: tbl.name }) },
@@ -2097,14 +2108,14 @@ function readmeSections() {
     { t: 'Query', items: [
       ['SQL editor', 'Highlighting and line numbers; Ctrl+Enter runs everything or just the selection. Every statement\'s result is kept and you can flip between them.'],
       ['Results', 'Download as CSV or copy for a spreadsheet.'],
-      ['Big scripts', 'Past 100 KB — or with pg_dump\'s COPY … FROM stdin — a script runs in chunks with progress and Stop, as one transaction unless it manages its own; an error names the statement and line. Run file runs a .sql straight from disk.'],
+      ['Big scripts', 'Past 100 KB — or with pg_dump\'s COPY … FROM stdin — a script runs in chunks with progress and Stop, as one transaction unless it manages its own; an error names the statement and line. SQL file… in the database menu opens one in the editor or runs it straight from disk.'],
       ['Transactions', 'BEGIN in the editor stays open across runs. A banner says so, with Commit and Roll back; edits in the grid meanwhile become part of it.'],
       ['Saved queries and journal', 'Save a tab with Ctrl+S. The journal (Ctrl+Shift+J) lists every statement run — yours, the grid\'s and the Clerk\'s — with timings.'],
     ] },
     { t: 'Design the schema', items: [
       ['New table', 'Define columns visually, in the schema you pick, and see the SQL it writes.'],
       ['Import a CSV', 'Column types are inferred; adjust them before loading.'],
-      ['Schemas', 'Each query tab shows the current schema; click it to switch or reset the search path.'],
+      ['Schemas', 'The top bar shows the current schema; click it to switch or reset the search path.'],
       ['ERD', 'Every table and how they reference each other, filtered by schema. Export as SVG or PNG, or copy as Mermaid, DBML or text.'],
       ['Extensions', `${EXT.length} extensions load into the browser on demand — fuzzy search, UUIDs, crypto, vectors, PostGIS and more.`],
     ] },
@@ -2124,7 +2135,7 @@ function readmeSections() {
   ];
 }
 function renderReadme(pane) {
-  const keys = [['Ctrl K', 'jump to a table, database or command — or type SQL'], ['Ctrl+Enter', 'run the editor (or the selection)'], ['Ctrl+Alt+N', 'new query tab'], ['Ctrl+S', 'save the query'],
+  const keys = [['Ctrl K', 'jump to a table, database or command — or type SQL'], ['Ctrl+Enter', 'run the editor (or the selection)'], ['Ctrl+Alt+N', 'new query tab'], ['Ctrl+S', 'save the query'], ['Ctrl+Shift+S', 'save it as a .sql file'],
     ['Ctrl+Alt+R', 'insert a row'], ['Ctrl+Z', 'undo the last grid change'], ['Ctrl+J', 'the Clerk'], ['Ctrl+Shift+J', 'the journal']];
   pane.append(h('div', { class: 'home readme' },
     h('div', { class: 'home-hero' },
@@ -2136,6 +2147,7 @@ function renderReadme(pane) {
     h('section', {}, h('h2', {}, 'Keys', h('small', {}, 'Cmd instead of Ctrl on a Mac')),
       h('div', { class: 'keys' }, keys.flatMap(([k, what]) => [h('span', {}, k.split(/(?<=[^+ ])[+ ](?=\S)/).flatMap((x, i) => [i ? '+' : null, h('kbd', {}, x)]).filter(Boolean), ' '), h('span', {}, what)]))),
     h('div', { class: 'foot' }, 'Source code, and releases of the pgquire server (for connecting to real Postgres): ', h('a', { href: 'https://github.com/abiddotdev/pgquire', target: '_blank', rel: 'noopener' }, 'github.com/abiddotdev/pgquire'), '.')));
+  pgVersion().then(v => { const el = pane.querySelector('.pg-ver'); if (el && v) el.textContent = ` (Postgres ${v} via PGlite ${PGLITE_VER})`; });
 }
 
 /* ==========================================================================
@@ -2374,6 +2386,21 @@ function relFig(t, tab) {
       const key = hit.map(x => x.closest?.('.bx')).find(Boolean)?.dataset.key;
       if (key && key !== t.key) openTable(key, { rel: true });
     };
+  };
+  el.oncontextmenu = e => {                                 // a box: the table's menu; elsewhere: the diagram's
+    e.preventDefault();
+    const key = e.target.closest?.('.bx')?.dataset.key;
+    if (key && S.byKey[key]) return tableMenu(S.byKey[key], e.clientX, e.clientY);
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Fit', icon: 'fit', run: () => { vb = { ...d.full }; apply(); } },
+      '-',
+      { label: 'Copy as Mermaid', icon: 'copy', run: () => copyErdText('mermaid', tables(), `around ${t.key}`) },
+      { label: 'Copy as DBML', icon: 'copy', run: () => copyErdText('dbml', tables(), `around ${t.key}`) },
+      { label: 'Copy as plain text', icon: 'copy', run: () => copyErdText('text', tables(), `around ${t.key}`) },
+      { label: 'Export SVG', icon: 'download', run: () => exportSvg('svg', relSheet(t), file) },
+      { label: 'Export PNG', icon: 'download', run: () => exportSvg('png', relSheet(t), file) },
+      '-',
+      { label: 'Open the ERD', icon: 'map', run: () => openMap() }]);
   };
   el.onwheel = e => {
     e.preventDefault();
@@ -3246,15 +3273,52 @@ async function runQueryTab(tab, sql, file) {
   paintTx();
   if (activeTab() === tab) renderPane();
 }
-/** Run a .sql file straight from disk — for dumps and scripts too big to want in the editor. */
-function runFile(tab) {
-  const f = h('input', { type: 'file', accept: '.sql,text/plain,application/sql' });
-  f.onchange = async () => {
-    const file = f.files[0]; if (!file) return;
-    if (!(await confirmDlg({ title: `Run ${file.name}?`, body: `${fmtBytes(file.size)} of SQL on “${dbLabel(currentDb())}”. Big scripts run as one transaction unless they manage their own, so an error leaves nothing half-done.`, ok: 'Run' }))) return;
-    runQueryTab(tab, await file.text(), file.name);
+
+/* .sql files to and from query tabs. Where the browser can (Chrome, Edge), a tab keeps the file it came from or was
+   saved to, and later saves write back to it until the page reloads; elsewhere saving downloads and opening uploads. */
+const FS_API = 'showSaveFilePicker' in window;
+const SQL_TYPES = [{ description: 'SQL', accept: { 'application/sql': ['.sql'] } }];
+const sqlFileName = t => { const b = (t.title || '').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'query'; return /\.sql$/i.test(b) ? b : b + '.sql'; };
+async function saveQueryFile(tab, { as } = {}) {
+  if (tab._ed) tab.sql = tab._ed.ta.value;
+  if (!FS_API) { downloadBlob(new Blob([tab.sql], { type: 'application/sql' }), sqlFileName(tab)); return toast(`Downloaded ${sqlFileName(tab)}`); }
+  try {
+    if (as || !tab._fh) tab._fh = await showSaveFilePicker({ suggestedName: tab._fh?.name || sqlFileName(tab), types: SQL_TYPES });
+    const w = await tab._fh.createWritable(); await w.write(tab.sql); await w.close();
+    toast(`Saved to ${tab._fh.name}`);
+    if (activeTab() === tab) renderPane();
+  } catch (e) { if (e.name !== 'AbortError') toast(e.message, 'bad'); }
+}
+/** A .sql file: an ordinary one opens in a new query tab's editor; a big one (dumps, long scripts) asks whether to open it
+ *  or run it now on the open database. Either way it lands in a new tab named after the file. */
+async function sqlFile() {
+  let file, fh;
+  if ('showOpenFilePicker' in window) {
+    try { [fh] = await showOpenFilePicker({ types: SQL_TYPES }); file = await fh.getFile(); }
+    catch (e) { if (e.name !== 'AbortError') toast(e.message, 'bad'); return; }
+  } else {
+    file = await new Promise(res => { const f = h('input', { type: 'file', accept: '.sql,text/plain,application/sql' }); f.onchange = () => res(f.files[0]); f.click(); });
+    if (!file) return;
+  }
+  const huge = file.size > 10 * 1024 * 1024, db = dbLabel(currentDb());
+  let m;
+  /* A new tab named after the file, showing its text — or, past 10 MB, a note (the tab keeps its SQL and saves it on every edit). */
+  const tabFor = async (text, run) => {
+    m?.close();
+    const shown = !(run && huge), tab = openQuery(shown ? text : `-- ${file.name} (${fmtBytes(file.size)}) ran straight from disk — too big to show here.\n`, { title: file.name.replace(/\.sql$/i, '') });
+    if (fh && shown) { tab._fh = fh; renderPane(); }   // the toolbar's Save then writes back to it
+    if (run) runQueryTab(tab, text, file.name);
   };
-  f.click();
+  if (file.size <= BIG_EDIT) return tabFor(await file.text());   // an ordinary script goes straight into the editor
+  const openBtn = h('button', { class: 'btn ghost', onclick: async () => tabFor(await file.text()) }, ic('query'), 'Open in editor');
+  const runBtn = h('button', { class: 'btn ink', onclick: async () => tabFor(await file.text(), true) }, ic('play'), `Run on “${db}”`);
+  m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, file.name), h('p', {}, `${fmtBytes(file.size)} of SQL — a big script or a dump.`)),
+    h('div', { class: 'modal-b', style: 'font-size:13px;display:grid;gap:8px' },
+      h('div', {}, h('b', {}, 'Open in editor'), ' — read and change it first, then run it yourself.', huge ? h('span', { style: 'color:var(--red)' }, ' This is a lot for the editor.') : ''),
+      h('div', {}, h('b', {}, 'Run'), ` — now, on “${db}”${huge ? ' (too big to show in the tab)' : ', showing it in the tab'}. Big scripts run in chunks with progress and Stop, as one transaction unless they manage their own, so an error leaves nothing half-done.`)),
+    h('div', { class: 'modal-f' }, h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), h('span', { class: 'spacer' }), openBtn, runBtn)]);
+  runBtn.focus();
 }
 
 /** The editor of a query tab: textarea over a highlighted copy, with line numbers. Kept on the tab across redraws. */
@@ -3282,8 +3346,28 @@ function queryEditor(tab) {
   ta.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
     else if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); toggleLineComments(ta); }
+    else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); tab.sql = ta.value; saveQueryFile(tab); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); tab.sql = ta.value; tab.caret = [ta.selectionStart, ta.selectionEnd, ta.scrollTop]; saveQueryTab(tab); }
     else if (e.key === 'Tab') { e.preventDefault(); ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); }
+  });
+  /* Its own right-click menu. Edits go through insertText so Ctrl+Z still undoes them. */
+  ta.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const a = ta.selectionStart, b = ta.selectionEnd, sel = ta.value.slice(a, b);
+    const put = text => { ta.focus(); ta.setSelectionRange(a, b); if (!document.execCommand('insertText', false, text)) ta.setRangeText(text, a, b, 'end'); ta.dispatchEvent(new Event('input')); };
+    showMenu(e.clientX, e.clientY, [
+      { label: sel ? 'Run selection' : 'Run', icon: 'play', hint: 'Ctrl ⏎', disabled: tab.running || !(sel || ta.value).trim(), run },
+      '-',
+      { label: 'Cut', hint: 'Ctrl X', disabled: !sel, run: () => { navigator.clipboard?.writeText(sel); put(''); } },
+      { label: 'Copy', icon: 'copy', hint: 'Ctrl C', disabled: !sel, run: () => navigator.clipboard?.writeText(sel) },
+      { label: 'Paste', hint: 'Ctrl V', run: async () => { try { put(await navigator.clipboard.readText()); } catch { ta.focus(); toast('The browser kept the clipboard to itself — press Ctrl+V'); } } },
+      { label: 'Select all', hint: 'Ctrl A', run: () => { ta.focus(); ta.select(); } },
+      '-',
+      { label: 'Toggle comment', hint: 'Ctrl /', run: () => toggleLineComments(ta) },
+      { label: sel ? 'Explain the selection' : 'Explain this query', icon: 'quill', disabled: !(sel || ta.value).trim(), run: () => clerkAsk(`Explain this query step by step, and suggest improvements if any:\n\n${sel || ta.value}`) },
+      '-',
+      { label: savedOf(tab) ? 'Save changes' : 'Save query', icon: 'save', hint: 'Ctrl S', run: () => { tab.sql = ta.value; saveQueryTab(tab); } },
+      { label: tab._fh ? `Save to ${tab._fh.name}` : 'Save as .sql file…', icon: 'download', hint: 'Ctrl Shift S', run: () => saveQueryFile(tab) }]);
   });
   paint();
   return { edWrap, ta, paint, run };
@@ -3298,11 +3382,10 @@ function renderQueryTab(tab, pane, keep) {
   const bar = h('div', { class: 'toolbar' },
     h('h1', { title: 'Double-click to rename', ondblclick: async () => { const n = await promptDlg({ title: 'Rename query', label: 'Title', value: tab.title }); if (n) setQueryTitle(tab, n); } }, tab.title),
     h('button', { class: 'btn ink', onclick: run, disabled: tab.running, title: 'Run (Ctrl+Enter). Runs the selection if any.' }, ic('play'), tab.running ? 'Running…' : 'Run', h('kbd', { style: 'margin-left:4px;background:transparent;color:inherit;border-color:rgba(255,255,255,.3)' }, 'Ctrl ⏎')),
-    h('button', { class: 'btn ghost', disabled: tab.running, title: 'Run a .sql file without opening it here — for dumps and big scripts', onclick: () => runFile(tab) }, ic('upload'), 'Run file…'),
     hist.length > 0 && h('button', { class: 'btn ghost', onclick: e => showMenu(e.clientX, e.clientY + 10, [{ label: 'Recent queries', header: true }, ...hist.slice(0, 15).map(j => ({ label: j.sql.replace(/\s+/g, ' ').slice(0, 70), run: () => { tab.sql = j.sql; renderPane(); } }))]) }, 'History'),
-    schemaChip(),
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn ghost', title: 'Attach this query (and its latest result) to your next Clerk message', onclick: () => { C.attachQ.add(tab.id); openClerk(); $('clerkText')?.focus(); toast(`Attached “${tab.title}” to your next message`); } }, ic('plus'), 'Attach'),
+    h('button', { class: 'btn ghost', title: tab._fh ? `Save to ${tab._fh.name} (Ctrl+Shift+S) — right-click the tab for Save as` : 'Save as a .sql file (Ctrl+Shift+S)', onclick: () => saveQueryFile(tab) }, ic('download'), tab._fh ? 'Save file' : 'Save as…'),
     h('button', { class: 'btn ghost', title: 'Copy the whole query', onclick: () => { if (!tab.sql.trim()) return toast('Nothing to copy yet'); navigator.clipboard?.writeText(tab.sql); toast(`Copied ${plural(tab.sql.split('\n').length, 'line')}`); } }, ic('copy'), 'Copy'),
     h('button', { class: 'btn blue', onclick: () => tab.sql.trim() ? clerkAsk(`Explain this query step by step, and suggest improvements if any:\n\n${tab.sql}`) : toast('Write a query first') }, ic('quill'), 'Explain'),
     h('button', { class: 'btn blue', onclick: () => { openClerk(); S.clerk.ctxOn = true; renderClerkCtx(); const t = $('clerkText'); if (t) { t.value = 'Write a query that '; t.focus(); } } }, ic('quill'), 'Draft with Clerk'));
@@ -3353,11 +3436,25 @@ function renderQueryTab(tab, pane, keep) {
 function readGrid(r) {
   const cols = r.fields;
   const shown = r.rows.slice(0, 2000);
-  return h('table', { class: 'grid ro' },
+  return h('table', { class: 'grid ro', oncontextmenu: e => { const td = e.target.closest('td[data-c]'); if (!td) return; e.preventDefault(); resultCellMenu(r, +td.dataset.r, +td.dataset.c, e.clientX, e.clientY); } },
     h('thead', {}, h('tr', {}, h('th', { class: 'rn' }), cols.map(c => h('th', { style: 'cursor:default' }, h('div', { class: 'cn' }, c.name))))),
     h('tbody', {}, shown.map((row, i) => h('tr', {}, h('td', { class: 'rn num' }, i + 1),
-      row.map((v, ci) => h('td', { class: cellClass(cols[ci], v), title: v != null && v.length > 40 ? v.slice(0, 600) : '' }, v == null || cols[ci].cat === 'B' ? '' : v)))),
+      row.map((v, ci) => h('td', { 'data-r': i, 'data-c': ci, class: cellClass(cols[ci], v), title: v != null && v.length > 40 ? v.slice(0, 600) : '' }, v == null || cols[ci].cat === 'B' ? '' : v)))),
       r.rows.length > shown.length && h('tr', {}, h('td', { colspan: cols.length + 1, class: 'grid-empty', style: 'padding:14px' }, `Showing 2,000 of ${(r.truncated || r.rows.length).toLocaleString()} rows — ${'export CSV for all'}.`))));
+}
+
+/** Right-click on a query result cell: the copy side of a table cell's menu (results aren't tied to one table). */
+function resultCellMenu(r, ri, ci, x, y) {
+  const col = r.fields[ci], row = r.rows[ri], v = row[ci];
+  const obj = () => Object.fromEntries(r.fields.map((f, i) => [f.name, row[i]]));
+  const copy = (text, what) => { navigator.clipboard?.writeText(text); toast(`Copied ${what}`); };
+  showMenu(x, y, [
+    { label: 'Copy value', icon: 'copy', disabled: col.cat === 'B', run: () => copy(v ?? '', 'value') },
+    { label: 'Copy row as JSON', icon: 'copy', run: () => copy(JSON.stringify(obj(), null, 2), 'row as JSON') },
+    { label: 'Copy row as TSV', icon: 'copy', hint: 'spreadsheets', run: () => copy(toCsv(r.fields.map(f => f.name), [row], '\t'), 'row as TSV') },
+    { label: `Copy column “${col.name.slice(0, 24)}”`, icon: 'copy', run: () => copy(r.rows.map(x => x[ci] ?? '').join('\n'), plural(r.rows.length, 'value')) },
+    '-',
+    { label: 'Ask the Clerk about this row', icon: 'quill', run: () => clerkAsk(`About this row from my query: ${JSON.stringify(obj())} — `, { draft: true }) }]);
 }
 
 /* ---------- CSV ---------- */
@@ -3421,6 +3518,36 @@ function modal(content, { wide } = {}) {
   bg.addEventListener('mousedown', e => { if (e.target === bg) { close(); bg.dispatchEvent(new Event('cancel')); } });
   document.body.append(bg);
   return { bg, box, close };
+}
+/** The open database's Postgres version (server_version), asked once per database. */
+async function pgVersion() {
+  if (!S.db) return null;
+  if (S.pgVer?.id === S.id) return S.pgVer.v;
+  const id = S.id;
+  try { const v = (await q(`show server_version`)).rows[0]?.server_version?.split(' ')[0] || null; if (S.id === id) S.pgVer = { id, v }; return v; }
+  catch { return null; }
+}
+const PGLITE_VER = PGLITE_URL.match(/@([\d.]+)/)?.[1];
+/** About: the version, where it's running, the open database's Postgres, and where the source lives. */
+function aboutDialog() {
+  const pg = h('span', {}, S.db ? '…' : '—');
+  const where = HOSTED ? 'the browser, from the web' : 'the browser, from a local file';
+  const link = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text);
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'pgquire ', h('small', { style: 'font-weight:400;color:var(--ink3)' }, `v${APP_VERSION}`)), h('p', {}, 'Inquire into your Postgres — tables, queries, diagrams and the Clerk, in one page.')),
+    h('div', { class: 'modal-b', style: 'display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px' },
+      h('span', { class: 'smallcaps' }, 'Running in'), h('span', {}, where),
+      h('span', { class: 'smallcaps' }, 'Database'), h('span', {}, S.db ? dbLabel(currentDb()) : 'none open'),
+      h('span', { class: 'smallcaps' }, 'Connected to'), pg,
+      h('span', { class: 'smallcaps' }, 'Source'), h('span', {}, link('https://github.com/abiddotdev/pgquire', 'github.com/abiddotdev/pgquire')),
+      h('span', { class: 'smallcaps' }, 'Releases'), h('span', {}, link('https://github.com/abiddotdev/pgquire/releases', 'Download the app'))),
+    h('div', { class: 'modal-f' },
+      h('button', { class: 'btn ghost', onclick: () => { m.close(); openReadme(); } }, 'Help'),
+      h('span', { class: 'spacer' }), h('button', { class: 'btn ink', onclick: () => m.close() }, 'Close'))]);
+  if (S.db) pgVersion().then(v => {
+    const ver = v ? `Postgres ${v}` : 'Postgres';
+    pg.textContent = `PGlite ${PGLITE_VER} · ${ver} · in this browser`;
+  });
 }
 /** A dialog's status line, for its footer: what's happening, a thin bar, and under it the counts
  *  ("table 2 of 3 · 32,000 of ~85,000 rows"). While working (a bar is showing) the counts line keeps
@@ -3695,6 +3822,7 @@ function renderMap(tab, pane) {
     const card = h('div', { class: 'mcard' + (t.kind === 'v' ? ' view' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `left:${pos[t.key].x}px;top:${pos[t.key].y}px` },
       h('header', { ondblclick: () => openTable(t.key, { rel: true }), title: 'Drag to move · double-click to open' }, ic(t.kind === 'v' ? 'view' : 'table'), h('b', {}, t.key), h('small', {}, t.kind === 'v' ? 'view' : (S.counts[t.key] ?? 0).toLocaleString())),
       t.cols.map(c => h('div', { class: 'mr', title: [`${c.name} · ${c.type}`, c.pk && 'primary key', fkTitle(c)].filter(Boolean).join('\n') }, h('span', { class: 'k' + (c.fks?.length && !c.pk ? ' fk' : '') }, c.pk ? 'PK' : c.fks?.length ? fkMark(c) : ''), h('span', {}, c.name), h('span', { class: 't' }, c.type))));
+    card.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); tableMenu(t, e.clientX, e.clientY); };
     cards[t.key] = card;
     world.append(card);
     const head = card.querySelector('header');
@@ -3723,6 +3851,22 @@ function renderMap(tab, pane) {
     view.k = Math.max(.3, Math.min(1.2, Math.min((map.clientWidth - 80) / w, (map.clientHeight - 80) / hgt)));
     view.x = 40 - Math.min(...xs) * view.k + ((map.clientWidth - 80) - w * view.k) / 2;
     view.y = 40 - Math.min(...ys) * view.k; apply();
+  };
+  map.oncontextmenu = e => {
+    e.preventDefault();
+    if (e.target.closest('.map-tools, .map-schema')) return;
+    const r = map.getBoundingClientRect();
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Fit', icon: 'fit', run: () => fit() },
+      { label: 'Zoom in', icon: 'plus', run: () => zoom(1.2, e.clientX - r.left, e.clientY - r.top) },
+      { label: 'Zoom out', run: () => zoom(1 / 1.2, e.clientX - r.left, e.clientY - r.top) },
+      { label: 'Re-arrange', icon: 'refresh', run: () => { store.set(`map:${S.id}`, {}); renderPane(); } },
+      '-',
+      { label: 'Copy as Mermaid', icon: 'copy', run: () => copyErdText('mermaid') },
+      { label: 'Copy as DBML', icon: 'copy', run: () => copyErdText('dbml') },
+      { label: 'Copy as plain text', icon: 'copy', run: () => copyErdText('text') },
+      { label: 'Export SVG', icon: 'download', run: () => exportChart('svg') },
+      { label: 'Export PNG', icon: 'download', run: () => exportChart('png') }]);
   };
   map.onwheel = e => { e.preventDefault(); const r = map.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top); };
   map.onpointerdown = e => {
@@ -3954,6 +4098,13 @@ function renderJournal() {
         h('button', { title: 'Open in a query tab', onclick: ev => { ev.stopPropagation(); openQuery(sql, { title: `journal ${hms(e.ts)}` }); } }, ic('query', 'width:13px;height:13px'))));
     row.onclick = () => { J.open.has(key) ? J.open.delete(key) : J.open.add(key); row.classList.toggle('open'); };
     row.ondblclick = () => openQuery(sql, { title: `journal ${hms(e.ts)}` });
+    row.oncontextmenu = ev => { ev.preventDefault(); const sel = getSelection()?.toString() || ''; showMenu(ev.clientX, ev.clientY, [
+      sel.trim() && { label: 'Copy selection', icon: 'copy', hint: 'Ctrl C', run: () => { navigator.clipboard?.writeText(sel); toast('Copied'); } },
+      { label: 'Copy SQL', icon: 'copy', run: () => { navigator.clipboard?.writeText(sql); toast('SQL copied'); } },
+      e.error && { label: 'Copy error', icon: 'copy', run: () => { navigator.clipboard?.writeText(e.error); toast('Error copied'); } },
+      { label: 'Open in editor', icon: 'query', run: () => openQuery(sql, { title: `journal ${hms(e.ts)}` }) },
+      '-',
+      { label: e.error ? 'Fix with the Clerk' : 'Explain with the Clerk', icon: 'quill', run: () => clerkAsk(e.error ? `This statement failed with: ${e.error}\n\n${sql}\n\nFix it and put the corrected SQL in my editor.` : `Explain this statement step by step:\n\n${sql}`) }]); };
     list.append(row);
   }
   if (!rows.length) list.append(h('div', { class: 'placeholder', style: 'padding:30px' }, S.journal.length ? 'Nothing matches.' : 'Every statement that runs — by you, the grid, or the Clerk — is written here.'));
@@ -4023,6 +4174,7 @@ $('dbSwitch').onclick = e => {
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
     { label: 'Share as link…', icon: 'share', run: shareDialog },
     '-',
+    { label: 'SQL file…', icon: 'upload', hint: 'open or run', disabled: !S.db, run: sqlFile },
     { label: 'Move data…', icon: 'download', hint: 'dump · export · import', run: moveDataDialog },
     '-',
     { label: 'Delete this database…', icon: 'trash', danger: true, run: deleteDb },
@@ -4056,7 +4208,9 @@ function moveDataDialog() {
       row('download', 'Export session (.pgquire)', 'In-browser databases with their tabs, saved queries and chats — to move to another browser or address.', exportSessionDialog),
       h('div', { class: 'smallcaps', style: 'margin-top:14px' }, '→ Into this browser'),
       row('upload', 'New database from a file', 'A .sql dump, or a PGlite data folder (.tar.gz).', restoreDb),
-      row('upload', 'Open a session file (.pgquire)', 'Databases, tabs, saved queries and chats from an export.', pickSessionFile)),
+      row('upload', 'Open a session file (.pgquire)', 'Databases, tabs, saved queries and chats from an export.', pickSessionFile),
+      h('div', { class: 'smallcaps', style: 'margin-top:14px' }, `→ Into ${name}`),
+      row('upload', 'A .sql file — open or run', `Open it in the editor, or run it on “${name}” straight from disk — for scripts and dumps.`, sqlFile)),
     h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))]);
 }
 /* ---------- SQL dumps (pg_dump) and restores ---------- */
@@ -5004,6 +5158,7 @@ function buildOmni() {
   }));
 }
 function runOmni(i) { const it = omniItems[i]; if (!it) return; omniInput.value = ''; omni.classList.remove('open'); omniInput.blur(); it.run(); }
+omni.querySelector('.omni-box').onclick = () => omniInput.focus();   // the icon alone, when the box is folded on a phone
 omniInput.onfocus = () => { omniSel = 0; buildOmni(); omni.classList.add('open'); };
 omniInput.onblur = () => setTimeout(() => omni.classList.remove('open'), 120);
 omniInput.oninput = () => { omniSel = 0; buildOmni(); omni.classList.add('open'); };
@@ -5378,7 +5533,7 @@ function renderClerk() {
   const usageBar = u.calls > 0 && h('div', { class: 'clerk-usage', title: `This conversation: ${u.calls} model calls, ${u.in.toLocaleString()} input + ${u.out.toLocaleString()} output tokens, ${fmtMs(u.ms)} waiting.\nAll conversations in this database: ${all.calls} calls, ${fmtTok(all.in + all.out)} tokens, ${fmtCost(all)}.${u.costKnown ? '' : '\nSome calls had no price info, so cost is a lower bound.'}` },
     h('span', {}, h('b', {}, fmtTok(u.in)), ' in'), h('span', {}, h('b', {}, fmtTok(u.out)), ' out'), h('span', {}, h('b', {}, u.calls), ' calls'), h('span', {}, h('b', {}, fmtMs(u.ms))),
     h('span', { class: 'cost' }, fmtCost(u)));
-  const log = h('div', { class: 'clerk-log', id: 'clerkLog' });
+  const log = h('div', { class: 'clerk-log', id: 'clerkLog', oncontextmenu: clerkMenu });
   if (C.showConnect || (!clerkOn() && !store.get('clerkBrowse', false))) log.append(connectForm());
   else if (!C.items.length) log.append(suggestions());
   else for (const it of C.items) log.append(renderClerkItem(it));
@@ -5406,6 +5561,46 @@ function renderClerk() {
   renderClerkCtx();
   if (C.busy) log.append(h('div', { class: 'c-working', id: 'clerkWorking' }, h('span', { class: 'quill' }), 'writing…'));
   log.scrollTop = log.scrollHeight;
+}
+
+/** Right-click in the Clerk's log: what's under the pointer — selected text, a code block, a query card, a message — else
+ *  the conversation. The message box keeps the browser's menu (spellcheck, paste). */
+function clerkMenu(e) {
+  e.preventDefault();
+  const quote = text => { const ta = $('clerkText'); if (!ta) return; ta.value = `> ${text.trim().replace(/\n/g, '\n> ')}\n\n${ta.value}`; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.dispatchEvent(new Event('input')); };
+  const copy = (text, what = 'Copied') => { navigator.clipboard?.writeText(text); toast(what); };
+  const sqlItems = sql => [
+    { label: 'Copy SQL', icon: 'copy', run: () => copy(sql, 'SQL copied') },
+    { label: 'Open in editor', icon: 'query', run: () => openQuery(sql, { title: `Clerk ${hms(Date.now())}` }) }];
+  const sel = getSelection()?.toString() || '';
+  const at = sel.trim() ? [
+    { label: 'Copy', icon: 'copy', hint: 'Ctrl C', run: () => copy(sel) },
+    { label: 'Ask about this', icon: 'quill', run: () => quote(sel) }] : [];
+  const cb = e.target.closest('.codeblock'), card = e.target.closest('.receipt'), msg = e.target.closest('.c-ai, .c-user-wrap');
+  if (cb) {
+    const code = cb.querySelector('code')?.textContent || '';
+    if (!cb.dataset.lang || /sql/i.test(cb.dataset.lang)) at.push(at.length && '-', ...sqlItems(code));
+    else at.push(at.length && '-', { label: 'Copy code', icon: 'copy', run: () => copy(code) });
+  } else if (card?._sql) at.push(at.length && '-', ...sqlItems(card._sql));
+  else if (msg?._it) {
+    const it = msg._it, mine = it.k === 'user';
+    at.push(at.length && '-',
+      { label: mine ? 'Copy question' : 'Copy text', icon: 'copy', run: () => copy(mine ? it.text : msg.querySelector(':scope > div:last-child')?.innerText || it.text) },
+      !mine && { label: 'Copy as Markdown', icon: 'copy', run: () => copy(it.text) },
+      mine ? { label: 'Ask again, edited', icon: 'pen', run: () => { const ta = $('clerkText'); if (!ta) return; ta.value = it.text; ta.focus(); ta.dispatchEvent(new Event('input')); } }
+        : { label: 'Ask a follow-up', icon: 'quill', run: () => {
+            if (C.items.findLast(x => x.k === 'ai') === it) { const ta = $('clerkText'); ta?.focus(); return; }   // the latest reply needs no pointer
+            const plain = it.text.replace(/```[\s\S]*?```/g, ' ').replace(/[#*_`>|]/g, '').replace(/\s+/g, ' ').trim();
+            const first = plain.match(/^.*?[.!?](?=\s|$)/)?.[0] || plain;
+            quote(`Re: “${first.length > 120 ? first.slice(0, 120).trimEnd() + '…' : first}”`);
+          } });
+  }
+  if (!at.length || !(cb || card || msg)) at.push(at.length && '-',
+    { label: 'New conversation', icon: 'plus', run: startNewConv },
+    { label: 'Switch conversation…', disabled: C.convs.length < 2, run: () => convMenu({ currentTarget: document.querySelector('.conv-switch') }) },
+    { label: 'Connection', icon: 'key', run: () => { C.showConnect = true; renderClerk(); } },
+    { label: 'Close the Clerk', icon: 'x', hint: 'Ctrl J', run: toggleClerk });
+  showMenu(e.clientX, e.clientY, at);
 }
 
 function suggestions() {
@@ -5515,15 +5710,15 @@ async function loadModels(url, key) {
 
 /* ---------- clerk rendering ---------- */
 function renderClerkItem(it) {
-  if (it.k === 'user') return h('div', { class: 'c-user-wrap' },
+  if (it.k === 'user') return Object.assign(h('div', { class: 'c-user-wrap' },
     h('div', { class: 'c-user' }, it.text, (it.attached?.length || it.attachedQ?.length) > 0 && h('div', { class: 'att-list' },
       (it.attached || []).map(k => h('span', { class: 'att-tag' }, '⌗ ' + k)), (it.attachedQ || []).map(k => h('span', { class: 'att-tag q' }, '▸ ' + k)))),
-    it.ts && h('span', { class: 'c-ts' }, hms(it.ts)));
+    it.ts && h('span', { class: 'c-ts' }, hms(it.ts))), { _it: it });
   if (it.k === 'ai') {
     const shortModel = it.model ? it.model.split('/').pop() : null;
     const meta = [it.ts && hms(it.ts), shortModel, it.ms != null && fmtMs(it.ms), it.tin != null && `${fmtTok(it.tin)} → ${fmtTok(it.tout)} tok`, it.tin != null && fmtCost({ cost: it.cost || 0, costKnown: it.costKnown })].filter(Boolean);
     const d = h('div', { class: 'c-ai' }, h('span', { class: 'sig' }, h('span', {}, '— the Clerk'), meta.length > 0 && h('span', { class: 'm', title: `time · ${it.model ? 'model (' + it.model + ') · ' : ''}response latency · input → output tokens · cost of this call` }, meta.join(' · '))));
-    const b = h('div', { html: md(it.text) }); wireCode(b); d.append(b); return d;
+    const b = h('div', { html: md(it.text) }); wireCode(b); d.append(b); d._it = it; return d;
   }
   if (it.k === 'turn') return turnView(it);
   if (it.k === 'note') return h('div', { class: 'c-note' }, it.text, it.ts && h('span', { class: 't' }, hms(it.ts)),
@@ -5580,6 +5775,7 @@ function receipt(it, pending) {
   const card = h('div', { class: 'receipt' + (write ? ' write' : '') },
     h('div', { class: 'r-head' }, write ? 'Proposed change' : 'Query', h('span', { class: 'spacer' }), h('span', { class: 'r-meta' }, [it.ts && hms(it.ts), it.ms != null && `${it.ms} ms`].filter(Boolean).join(' · '))),
     sqlEl);
+  card._sql = it.sql;                          // for the Clerk's right-click menu
   if (it.status === 'applied') card.append(h('div', { class: 'stamp ok', style: it.fresh ? '' : 'animation:none' }, 'APPROVED'));
   if (it.status === 'rejected') card.append(h('div', { class: 'stamp no', style: it.fresh ? '' : 'animation:none' }, it.interrupted ? 'INTERRUPTED' : 'DECLINED'));
   it.fresh = false;
@@ -6108,6 +6304,25 @@ if (HOSTED) {
 $('indexToggle').onclick = () => app.classList.toggle('index-open');
 $('newQueryBtn').onclick = () => openQuery();
 $('mapBtn').onclick = openMap;
+/* Right-click anywhere the app hasn't a menu of its own: no browser menu, except where it's needed — text you
+   type into, and links. Selected text gets Copy; elsewhere a short app menu (nothing inside a dialog). */
+document.addEventListener('contextmenu', e => {
+  if (e.defaultPrevented || e.target.closest?.('input, textarea, select, [contenteditable=""], [contenteditable=true], a[href]')) return;
+  e.preventDefault();
+  const sel = getSelection()?.toString() || '';
+  if (sel.trim()) return showMenu(e.clientX, e.clientY, [{ label: 'Copy', icon: 'copy', hint: 'Ctrl C', run: () => { navigator.clipboard?.writeText(sel); toast('Copied'); } }]);
+  if (e.target.closest?.('.modal-bg, .menu')) return;
+  showMenu(e.clientX, e.clientY, [
+    { label: 'New query', icon: 'query', hint: 'Ctrl Alt N', disabled: !S.db, run: () => openQuery() },
+    { label: 'SQL file…', icon: 'upload', hint: 'open or run', disabled: !S.db, run: sqlFile },
+    { label: 'Search', icon: 'search', hint: 'Ctrl K', run: () => { omniInput.focus(); omniInput.select(); } },
+    { label: 'ERD', icon: 'map', disabled: !S.db, run: openMap },
+    { label: 'The Clerk', icon: 'quill', hint: 'Ctrl J', run: openClerk },
+    '-',
+    { label: 'Reload', icon: 'update', run: reloadApp },
+    { label: 'Help', icon: 'info', run: openReadme },
+    { label: 'About pgquire', run: aboutDialog }]);
+});
 $('newTableBtn').onclick = createTableDialog;
 $('importBtn').onclick = importCsvDialog;
 

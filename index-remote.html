@@ -4218,6 +4218,13 @@ function renderJournal() {
         h('button', { title: 'Open in a query tab', onclick: ev => { ev.stopPropagation(); openQuery(sql, { title: `journal ${hms(e.ts)}` }); } }, ic('query', 'width:13px;height:13px'))));
     row.onclick = () => { J.open.has(key) ? J.open.delete(key) : J.open.add(key); row.classList.toggle('open'); };
     row.ondblclick = () => openQuery(sql, { title: `journal ${hms(e.ts)}` });
+    row.oncontextmenu = ev => { ev.preventDefault(); const sel = getSelection()?.toString() || ''; showMenu(ev.clientX, ev.clientY, [
+      sel.trim() && { label: 'Copy selection', icon: 'copy', hint: 'Ctrl C', run: () => { navigator.clipboard?.writeText(sel); toast('Copied'); } },
+      { label: 'Copy SQL', icon: 'copy', run: () => { navigator.clipboard?.writeText(sql); toast('SQL copied'); } },
+      e.error && { label: 'Copy error', icon: 'copy', run: () => { navigator.clipboard?.writeText(e.error); toast('Error copied'); } },
+      { label: 'Open in editor', icon: 'query', run: () => openQuery(sql, { title: `journal ${hms(e.ts)}` }) },
+      '-',
+      { label: e.error ? 'Fix with the Clerk' : 'Explain with the Clerk', icon: 'quill', run: () => clerkAsk(e.error ? `This statement failed with: ${e.error}\n\n${sql}\n\nFix it and put the corrected SQL in my editor.` : `Explain this statement step by step:\n\n${sql}`) }]); };
     list.append(row);
   }
   if (!rows.length) list.append(h('div', { class: 'placeholder', style: 'padding:30px' }, S.journal.length ? 'Nothing matches.' : 'Every statement that runs — by you, the grid, or the Clerk — is written here.'));
@@ -6449,7 +6456,7 @@ function renderClerk() {
   const usageBar = u.calls > 0 && h('div', { class: 'clerk-usage', title: `This conversation: ${u.calls} model calls, ${u.in.toLocaleString()} input + ${u.out.toLocaleString()} output tokens, ${fmtMs(u.ms)} waiting.\nAll conversations in this database: ${all.calls} calls, ${fmtTok(all.in + all.out)} tokens, ${fmtCost(all)}.${u.costKnown ? '' : '\nSome calls had no price info, so cost is a lower bound.'}` },
     h('span', {}, h('b', {}, fmtTok(u.in)), ' in'), h('span', {}, h('b', {}, fmtTok(u.out)), ' out'), h('span', {}, h('b', {}, u.calls), ' calls'), h('span', {}, h('b', {}, fmtMs(u.ms))),
     h('span', { class: 'cost' }, fmtCost(u)));
-  const log = h('div', { class: 'clerk-log', id: 'clerkLog' });
+  const log = h('div', { class: 'clerk-log', id: 'clerkLog', oncontextmenu: clerkMenu });
   if (C.showConnect || (!clerkOn() && !store.get('clerkBrowse', false))) log.append(connectForm());
   else if (!C.items.length) log.append(suggestions());
   else for (const it of C.items) log.append(renderClerkItem(it));
@@ -6480,6 +6487,46 @@ function renderClerk() {
   renderClerkCtx();
   if (C.busy) log.append(h('div', { class: 'c-working', id: 'clerkWorking' }, h('span', { class: 'quill' }), 'writing…'));
   log.scrollTop = log.scrollHeight;
+}
+
+/** Right-click in the Clerk's log: what's under the pointer — selected text, a code block, a query card, a message — else
+ *  the conversation. The message box keeps the browser's menu (spellcheck, paste). */
+function clerkMenu(e) {
+  e.preventDefault();
+  const quote = text => { const ta = $('clerkText'); if (!ta) return; ta.value = `> ${text.trim().replace(/\n/g, '\n> ')}\n\n${ta.value}`; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.dispatchEvent(new Event('input')); };
+  const copy = (text, what = 'Copied') => { navigator.clipboard?.writeText(text); toast(what); };
+  const sqlItems = sql => [
+    { label: 'Copy SQL', icon: 'copy', run: () => copy(sql, 'SQL copied') },
+    { label: 'Open in editor', icon: 'query', run: () => openQuery(sql, { title: `Clerk ${hms(Date.now())}` }) }];
+  const sel = getSelection()?.toString() || '';
+  const at = sel.trim() ? [
+    { label: 'Copy', icon: 'copy', hint: 'Ctrl C', run: () => copy(sel) },
+    { label: 'Ask about this', icon: 'quill', run: () => quote(sel) }] : [];
+  const cb = e.target.closest('.codeblock'), card = e.target.closest('.receipt'), msg = e.target.closest('.c-ai, .c-user-wrap');
+  if (cb) {
+    const code = cb.querySelector('code')?.textContent || '';
+    if (!cb.dataset.lang || /sql/i.test(cb.dataset.lang)) at.push(at.length && '-', ...sqlItems(code));
+    else at.push(at.length && '-', { label: 'Copy code', icon: 'copy', run: () => copy(code) });
+  } else if (card?._sql) at.push(at.length && '-', ...sqlItems(card._sql));
+  else if (msg?._it) {
+    const it = msg._it, mine = it.k === 'user';
+    at.push(at.length && '-',
+      { label: mine ? 'Copy question' : 'Copy text', icon: 'copy', run: () => copy(mine ? it.text : msg.querySelector(':scope > div:last-child')?.innerText || it.text) },
+      !mine && { label: 'Copy as Markdown', icon: 'copy', run: () => copy(it.text) },
+      mine ? { label: 'Ask again, edited', icon: 'pen', run: () => { const ta = $('clerkText'); if (!ta) return; ta.value = it.text; ta.focus(); ta.dispatchEvent(new Event('input')); } }
+        : { label: 'Ask a follow-up', icon: 'quill', run: () => {
+            if (C.items.findLast(x => x.k === 'ai') === it) { const ta = $('clerkText'); ta?.focus(); return; }   // the latest reply needs no pointer
+            const plain = it.text.replace(/```[\s\S]*?```/g, ' ').replace(/[#*_`>|]/g, '').replace(/\s+/g, ' ').trim();
+            const first = plain.match(/^.*?[.!?](?=\s|$)/)?.[0] || plain;
+            quote(`Re: “${first.length > 120 ? first.slice(0, 120).trimEnd() + '…' : first}”`);
+          } });
+  }
+  if (!at.length || !(cb || card || msg)) at.push(at.length && '-',
+    { label: 'New conversation', icon: 'plus', run: startNewConv },
+    { label: 'Switch conversation…', disabled: C.convs.length < 2, run: () => convMenu({ currentTarget: document.querySelector('.conv-switch') }) },
+    { label: 'Connection', icon: 'key', run: () => { C.showConnect = true; renderClerk(); } },
+    { label: 'Close the Clerk', icon: 'x', hint: 'Ctrl J', run: toggleClerk });
+  showMenu(e.clientX, e.clientY, at);
 }
 
 function suggestions() {
@@ -6589,15 +6636,15 @@ async function loadModels(url, key) {
 
 /* ---------- clerk rendering ---------- */
 function renderClerkItem(it) {
-  if (it.k === 'user') return h('div', { class: 'c-user-wrap' },
+  if (it.k === 'user') return Object.assign(h('div', { class: 'c-user-wrap' },
     h('div', { class: 'c-user' }, it.text, (it.attached?.length || it.attachedQ?.length) > 0 && h('div', { class: 'att-list' },
       (it.attached || []).map(k => h('span', { class: 'att-tag' }, '⌗ ' + k)), (it.attachedQ || []).map(k => h('span', { class: 'att-tag q' }, '▸ ' + k)))),
-    it.ts && h('span', { class: 'c-ts' }, hms(it.ts)));
+    it.ts && h('span', { class: 'c-ts' }, hms(it.ts))), { _it: it });
   if (it.k === 'ai') {
     const shortModel = it.model ? it.model.split('/').pop() : null;
     const meta = [it.ts && hms(it.ts), shortModel, it.ms != null && fmtMs(it.ms), it.tin != null && `${fmtTok(it.tin)} → ${fmtTok(it.tout)} tok`, it.tin != null && fmtCost({ cost: it.cost || 0, costKnown: it.costKnown })].filter(Boolean);
     const d = h('div', { class: 'c-ai' }, h('span', { class: 'sig' }, h('span', {}, '— the Clerk'), meta.length > 0 && h('span', { class: 'm', title: `time · ${it.model ? 'model (' + it.model + ') · ' : ''}response latency · input → output tokens · cost of this call` }, meta.join(' · '))));
-    const b = h('div', { html: md(it.text) }); wireCode(b); d.append(b); return d;
+    const b = h('div', { html: md(it.text) }); wireCode(b); d.append(b); d._it = it; return d;
   }
   if (it.k === 'turn') return turnView(it);
   if (it.k === 'note') return h('div', { class: 'c-note' }, it.text, it.ts && h('span', { class: 't' }, hms(it.ts)),
@@ -6654,6 +6701,7 @@ function receipt(it, pending) {
   const card = h('div', { class: 'receipt' + (write ? ' write' : '') },
     h('div', { class: 'r-head' }, write ? 'Proposed change' : 'Query', h('span', { class: 'spacer' }), h('span', { class: 'r-meta' }, [it.ts && hms(it.ts), it.ms != null && `${it.ms} ms`].filter(Boolean).join(' · '))),
     sqlEl);
+  card._sql = it.sql;                          // for the Clerk's right-click menu
   if (it.status === 'applied') card.append(h('div', { class: 'stamp ok', style: it.fresh ? '' : 'animation:none' }, 'APPROVED'));
   if (it.status === 'rejected') card.append(h('div', { class: 'stamp no', style: it.fresh ? '' : 'animation:none' }, it.interrupted ? 'INTERRUPTED' : 'DECLINED'));
   it.fresh = false;
