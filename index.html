@@ -1109,6 +1109,9 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
 .rp-fields dd:hover { background: var(--rule2); }
 .rp-fields dd.n { font: 12px/18px var(--mono); }
 .rp-fields dd.null { color: var(--ink4); }
+.info-i { display: inline-flex; vertical-align: -2px; color: var(--ink3); cursor: help; }
+.info-i .ic { width: 14px; height: 14px; }
+.info-i:hover, .info-i:focus { color: var(--blue); outline: none; }
 .rp-fields dd.on { background: var(--acc-soft); color: var(--blue); }
 .rp-fields dd.editing { display: block; padding: 0; margin: 0 0 0 -6px; background: none; cursor: auto; }
 .rp-fields dd.editing textarea { display: block; width: 100%; resize: vertical; min-height: 24px; padding: 2px 6px; border: 0; border-radius: 6px; outline: 2px solid var(--blue); background: var(--sheet); color: var(--ink); font: 12.5px/18px var(--mono); }
@@ -1189,6 +1192,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
   <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24"><path d="M20.5 9A8.5 8.5 0 0 0 5 6.2L3.5 8"/><path d="M3.5 3.5V8H8"/><path d="M3.5 15A8.5 8.5 0 0 0 19 17.8l1.5-1.8"/><path d="M20.5 20.5V16H16"/></symbol>
   <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.4"/></symbol>
 </svg>
 
 <div class="boot" id="boot"><div><b>pgquire</b><em class="tagline">inquire into your Postgres</em><span id="bootMsg">opening the books…</span><div class="bar"></div></div></div>
@@ -3185,10 +3189,10 @@ function confirmDlg({ title, body, ok = 'OK', danger, typeToConfirm }) {
     else okBtn.focus();
   });
 }
-function promptDlg({ title, label, value = '' }) {
+function promptDlg({ title, label, value = '', note }) {
   return new Promise(res => {
     const input = h('input', { class: 'field', value });
-    const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, title)),
+    const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, title), note && h('p', {}, note)),
       h('div', { class: 'modal-b' }, h('label', { class: 'lab' }, label, input)),
       h('div', { class: 'modal-f' }, h('button', { class: 'btn ghost', onclick: () => { m.close(); res(null); } }, 'Cancel'), h('button', { class: 'btn ink', onclick: () => { m.close(); res(input.value.trim()); } }, 'Save'))]);
     m.bg.addEventListener('cancel', () => res(null));
@@ -3744,7 +3748,7 @@ $('dbSwitch').onclick = e => {
     { scroll: listed },
     '-',
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
-    { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
+    { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: dbLabel(d) }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
     { label: 'Connect remote Postgres…', icon: 'plus', hint: 'needs the pgquire app', run: needsAppDialog },
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
     { label: 'Share as link…', icon: 'share', run: shareDialog },

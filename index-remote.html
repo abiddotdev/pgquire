@@ -1123,6 +1123,9 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
 .rp-fields dd:hover { background: var(--rule2); }
 .rp-fields dd.n { font: 12px/18px var(--mono); }
 .rp-fields dd.null { color: var(--ink4); }
+.info-i { display: inline-flex; vertical-align: -2px; color: var(--ink3); cursor: help; }
+.info-i .ic { width: 14px; height: 14px; }
+.info-i:hover, .info-i:focus { color: var(--blue); outline: none; }
 .rp-fields dd.on { background: var(--acc-soft); color: var(--blue); }
 .rp-fields dd.editing { display: block; padding: 0; margin: 0 0 0 -6px; background: none; cursor: auto; }
 .rp-fields dd.editing textarea { display: block; width: 100%; resize: vertical; min-height: 24px; padding: 2px 6px; border: 0; border-radius: 6px; outline: 2px solid var(--blue); background: var(--sheet); color: var(--ink); font: 12.5px/18px var(--mono); }
@@ -1203,6 +1206,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
   <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24"><path d="M20.5 9A8.5 8.5 0 0 0 5 6.2L3.5 8"/><path d="M3.5 3.5V8H8"/><path d="M3.5 15A8.5 8.5 0 0 0 19 17.8l1.5-1.8"/><path d="M20.5 20.5V16H16"/></symbol>
   <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.4"/></symbol>
 </svg>
 
 <div class="boot" id="boot"><div><b>pgquire</b><em class="tagline">inquire into your Postgres</em><span id="bootMsg">opening the books…</span><div class="bar"></div></div></div>
@@ -3302,10 +3306,10 @@ function confirmDlg({ title, body, ok = 'OK', danger, typeToConfirm }) {
     else okBtn.focus();
   });
 }
-function promptDlg({ title, label, value = '' }) {
+function promptDlg({ title, label, value = '', note }) {
   return new Promise(res => {
     const input = h('input', { class: 'field', value });
-    const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, title)),
+    const m = modal([h('div', { class: 'modal-h' }, h('h2', {}, title), note && h('p', {}, note)),
       h('div', { class: 'modal-b' }, h('label', { class: 'lab' }, label, input)),
       h('div', { class: 'modal-f' }, h('button', { class: 'btn ghost', onclick: () => { m.close(); res(null); } }, 'Cancel'), h('button', { class: 'btn ink', onclick: () => { m.close(); res(input.value.trim()); } }, 'Save'))]);
     m.bg.addEventListener('cancel', () => res(null));
@@ -3859,7 +3863,8 @@ $('dbSwitch').onclick = e => {
     const remote = d.kind === 'remote';
     const br = h('span', { class: 'db-branch', role: 'button', title: remote ? 'Copy into a new database in this browser' : 'Clone into a new database in this browser' }, ic(remote ? 'copy' : 'branch'));
     br.onclick = async e => { e.stopPropagation(); closeMenu(); if (!remote) return cloneDbDialog(d); if (d.id !== S.id) await openDb(d.id); if (S.id === d.id) copyToLocalDialog(); };
-    return { label, cur: d.id === S.id, left: sw, right: br, hint: [kind, d.id === S.id ? 'open' : ''].filter(Boolean).join(' · '), run: () => d.id !== S.id && openDb(d.id) };
+    const real = remote && remoteDbOf(d), why = real && real !== label ? `${real} on ${d.remote?.host || 'the server'}` : null;   // a renamed entry still says what it points at
+    return { label, why, cur: d.id === S.id, left: sw, right: br, hint: [kind, d.id === S.id ? 'open' : ''].filter(Boolean).join(' · '), run: () => d.id !== S.id && openDb(d.id) };
     /* } @remote */
     // @pages: sw.onclick = e => { e.stopPropagation(); sw.style.setProperty('--c', recolorDb(d.id)); };
     // @pages: const br = h('span', { class: 'db-branch', role: 'button', title: 'Clone into a new database in this browser' }, ic('branch'));
@@ -3874,7 +3879,7 @@ $('dbSwitch').onclick = e => {
     { label: 'In this browser', header: true }, ...dbs.filter(d => d.kind !== 'remote').map(d => entry(d)),
     ...[...servers].flatMap(([prof, list]) => [
       { label: `${prof}${list[0].remote?.host ? ' — ' + list[0].remote.host : ''}`, header: true },
-      ...list.map(d => entry(d, remoteDbOf(d) || d.name)),        // the group names the server; entries name databases
+      ...list.map(d => entry(d, dbLabel(d))),        // the group names the server; entries name databases (or what you renamed them to)
       S.server?.authed && { label: 'Other databases on this server…', icon: 'plus', run: () => pickDatabasesDialog({ ...list[0].remote, name: prof, database: undefined }) }]),
   ];
   showMenu(r.left, r.bottom + 4, [
@@ -3884,7 +3889,7 @@ $('dbSwitch').onclick = e => {
     { scroll: listed },
     '-',
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
-    { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
+    { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: dbLabel(d)/*remote:*/, note: isRemote(S.id) ? renameRemoteNote(d) : null/*:remote*/ }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
     /* @remote { */
     S.server ? { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog }
       : { label: 'Connect remote Postgres…', icon: 'plus', hint: 'needs the pgquire app', run: needsAppDialog },
@@ -5008,6 +5013,14 @@ async function remoteDump() {
 }
 /* } @remote */
 
+/* @remote { */
+/** The rename dialog's note for a remote entry: only the label changes; the info mark says how to rename it for real. */
+function renameRemoteNote(d) {
+  const db = remoteDbOf(d) || d.remote?.database;
+  return [`Only pgquire's label changes. The database on ${d.remote?.host || 'the server'} is still “${db}”. `,
+    h('span', { class: 'info-i', tabindex: 0, title: `To rename it on the server, its owner runs\n  ALTER DATABASE ${qi(db)} RENAME TO new_name;\nwhen nothing is connected to it.` }, ic('info'))];
+}
+/* } @remote */
 /** What the switcher shows: the database's own name for remote entries whose name we generated. */ // @remote
 // @pages: /** What the switcher shows. */
 function dbLabel(d) {
