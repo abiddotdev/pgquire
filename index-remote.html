@@ -4552,7 +4552,7 @@ async function connectRemoteDialog() {
   };
   const [prod, prodL] = box(false, 'Production', 'red marker, read-only unless you untick below');
   const [ro, roL] = box(false, 'Read-only', 'writes are refused (a guard rail; for a hard guarantee use a read-only role)');
-  const [save, saveL] = box(true, 'Remember on this computer', 'in the pgquire server\'s connections file, readable only by you');
+  const [save, saveL] = box(false, 'Remember on this computer', 'in the pgquire server\'s connections file, readable only by you; otherwise forgotten when pgquire stops');
   let roTouched = false;
   ro.onchange = () => { roTouched = true; };
   prod.onchange = () => { if (!roTouched) ro.checked = prod.checked; };

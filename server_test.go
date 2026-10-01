@@ -129,6 +129,47 @@ func TestPastedTokenSignsIn(t *testing.T) {
 	}
 }
 
+func TestDomainAndSecureCookie(t *testing.T) {
+	c, srv := newTestServer(t, 100, false)
+	srv.cfg.domain = "pgquire.example.com"
+	c.hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	get := func(host, proto string) *http.Response {
+		req, _ := http.NewRequest("GET", c.base+"/?t=tok", nil)
+		req.Host = host
+		if proto != "" {
+			req.Header.Set("X-Forwarded-Proto", proto)
+		}
+		resp, err := c.hc.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+	if r := get("evil.example", ""); r.StatusCode != http.StatusMisdirectedRequest {
+		t.Fatalf("foreign Host with -domain: %d", r.StatusCode)
+	}
+	r := get("PGQUIRE.example.com", "https")
+	if r.StatusCode != http.StatusSeeOther {
+		t.Fatalf("domain Host: %d", r.StatusCode)
+	}
+	if ck := r.Cookies(); len(ck) != 1 || !ck[0].Secure {
+		t.Fatalf("cookie over https should be Secure: %v", ck)
+	}
+	if ck := get("pgquire.example.com:8443", "").Cookies(); len(ck) != 1 || ck[0].Secure {
+		t.Fatalf("cookie over http should not be Secure: %v", ck)
+	}
+	req, _ := http.NewRequest("POST", c.base+"/api/signin", strings.NewReader(`{"token":"tok"}`))
+	req.Host = "pgquire.example.com"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "https://pgquire.example.com")
+	resp, _ := c.hc.Do(req)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("https Origin behind a proxy: %d", resp.StatusCode)
+	}
+}
+
 func TestRejectsForeignHostAndOrigin(t *testing.T) {
 	c, _ := newTestServer(t, 100, true)
 	req, _ := http.NewRequest("GET", c.base+"/api/health", nil)

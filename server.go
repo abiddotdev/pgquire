@@ -28,7 +28,8 @@ type serverConfig struct {
 	idleTO    time.Duration
 	profiles  *profileStore
 	port      int
-	allowHost bool // listening beyond loopback: skip the Host check
+	domain    string // also accept requests for this host name (behind a proxy, say)
+	allowHost bool   // listening beyond loopback with no domain set: skip the Host check
 }
 
 type server struct {
@@ -63,19 +64,19 @@ func newServer(cfg serverConfig) *server {
 // ServeHTTP guards every request against DNS rebinding (Host) and cross-site calls (Origin), and
 // swaps a ?t=<token> link for a cookie so the token doesn't linger in the address bar.
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.allowHost && !s.loopbackHost(r.Host) {
+	if !s.cfg.allowHost && !s.loopbackHost(r.Host) && !s.domainHost(r.Host) {
 		http.Error(w, "unexpected Host header", http.StatusMisdirectedRequest)
 		return
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		if o := r.Header.Get("Origin"); o != "http://"+r.Host {
+		if o := r.Header.Get("Origin"); o != "http://"+r.Host && o != "https://"+r.Host {
 			writeErr(w, http.StatusForbidden, "cross-origin request refused")
 			return
 		}
 	}
 	if t := r.URL.Query().Get("t"); t != "" && r.Method == http.MethodGet {
 		if s.tokenOK(t) {
-			setTokenCookie(w, t)
+			setTokenCookie(w, r, t)
 		}
 		u := *r.URL
 		q := u.Query()
@@ -95,12 +96,28 @@ func (s *server) loopbackHost(host string) bool {
 	return h == "localhost" || net.ParseIP(h).IsLoopback()
 }
 
+// domainHost: the -domain name, on any port (a proxy usually sends it without one).
+func (s *server) domainHost(host string) bool {
+	if s.cfg.domain == "" {
+		return false
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return strings.EqualFold(host, s.cfg.domain)
+}
+
 func (s *server) tokenOK(t string) bool {
 	return subtle.ConstantTimeCompare([]byte(t), []byte(s.cfg.token)) == 1
 }
 
-func setTokenCookie(w http.ResponseWriter, t string) {
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+// setTokenCookie marks the cookie Secure when the page came over HTTPS, directly or through a proxy
+// that says so, so the browser never sends it over plain HTTP. A forged header only makes the
+// cookie stricter.
+func setTokenCookie(w http.ResponseWriter, r *http.Request, t string) {
+	proto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
+	secure := r.TLS != nil || strings.EqualFold(strings.TrimSpace(proto), "https")
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode})
 }
 
 // signIn is the pasted-token way in, for a page opened without the link (a bookmark, or a restart
@@ -116,7 +133,7 @@ func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "wrong token")
 		return
 	}
-	setTokenCookie(w, strings.TrimSpace(in.Token))
+	setTokenCookie(w, r, strings.TrimSpace(in.Token))
 	writeJSON(w, http.StatusOK, map[string]any{"authed": true})
 }
 
@@ -294,7 +311,7 @@ func (s *server) openSession(w http.ResponseWriter, r *http.Request) {
 	}
 	p := s.cfg.profiles.get(in.Profile)
 	if p == nil {
-		writeErr(w, http.StatusNotFound, fmt.Sprintf("no connection called %q on this pgquire server", in.Profile))
+		writeErr(w, http.StatusNotFound, fmt.Sprintf("no connection called %q on this pgquire server — if it wasn't remembered, it was forgotten when pgquire stopped; connect again", in.Profile))
 		return
 	}
 	sess, err := s.sessions.open(r.Context(), p, in.Database)

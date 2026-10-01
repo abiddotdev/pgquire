@@ -24,6 +24,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -44,6 +45,7 @@ func main() {
 		stmtTO   = flag.Duration("statement-timeout", 5*time.Minute, "statement_timeout for remote sessions (0 = server default)")
 		idleTO   = flag.Duration("idle-timeout", 30*time.Minute, "close remote sessions idle this long")
 		token    = flag.String("token", os.Getenv("PGQUIRE_TOKEN"), "access token (default: random each start; env PGQUIRE_TOKEN)")
+		domain   = flag.String("domain", os.Getenv("PGQUIRE_DOMAIN"), "host name pgquire is reached by, e.g. behind a proxy; requests for other names are refused (env PGQUIRE_DOMAIN)")
 		showVer  = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Parse()
@@ -66,6 +68,10 @@ func main() {
 	if *token == "" {
 		*token = randomHex(24)
 	}
+	*domain = strings.ToLower(strings.TrimSpace(*domain))
+	if strings.ContainsAny(*domain, ":/") {
+		log.Fatalf("-domain takes a host name only, like pgquire.example.com (got %q)", *domain)
+	}
 
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
@@ -74,6 +80,9 @@ func main() {
 	addr := ln.Addr().(*net.TCPAddr)
 	if !addr.IP.IsLoopback() {
 		log.Printf("warning: listening on %s, not loopback — anyone who can reach it and has the token can use your connections", addr)
+		if *domain == "" {
+			log.Printf("warning: no -domain set, so requests for any host name are accepted; set it to the name you reach pgquire by")
+		}
 	}
 
 	srv := newServer(serverConfig{
@@ -84,12 +93,17 @@ func main() {
 		idleTO:    *idleTO,
 		profiles:  profiles,
 		port:      addr.Port,
-		allowHost: !addr.IP.IsLoopback(),
+		domain:    *domain,
+		allowHost: !addr.IP.IsLoopback() && *domain == "",
 	})
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 
 	url := fmt.Sprintf("http://%s/?t=%s", browserHost(addr), *token)
-	fmt.Printf("pgquire %s\n  open: %s\n  connections: %s (%d saved)\n", Version, url, *cfgPath, profiles.count())
+	fmt.Printf("pgquire %s\n  open: %s\n", Version, url)
+	if *domain != "" {
+		fmt.Printf("    or: https://%s/?t=%s\n", *domain, *token)
+	}
+	fmt.Printf("  connections: %s (%d saved)\n", *cfgPath, profiles.count())
 	if !*noOpen {
 		openBrowser(url)
 	}
