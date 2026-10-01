@@ -156,7 +156,8 @@ select.field { padding-right: 4px; }
 .schema-chip { font: 500 11px/1 var(--mono); color: var(--ink3); padding: 5px 8px; border: 1px dashed var(--rule); border-radius: var(--radius); white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .schema-chip:hover { background: var(--rule2); }
 .schema-chip.custom { color: var(--ink); border: 1px solid var(--db, var(--ink2)); font-weight: 600; }
-.schema-chip:empty { display: none; }
+.schema-chip:empty, .schema-chip[hidden] { display: none; }
+.top-schema { flex: none; }
 .schema-head { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
 .schema-head:hover { color: var(--ink); }
 .schema-head .ic { transform: rotate(90deg); transition: transform .15s; }
@@ -836,6 +837,11 @@ select.field { padding-right: 4px; }
   .dbswitch { max-width: 118px; }
   .top-actions .iconbtn { width: 28px; }
   .omni-box { padding: 0 6px 0 8px; gap: 6px; }
+  /* schema chip: just the name, cut to ~5 letters; Reload hides unless there's an update */
+  .top-schema { padding: 5px 6px; }
+  .top-schema .sc-lbl { display: none; }
+  .top-schema .sc-name { display: inline-block; max-width: 6ch; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+  .upd-btn:not(.has-update) { display: none; }
 }
 
 /* ============================================================
@@ -1267,6 +1273,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
       <i class="conn-dot" id="dbDot"></i> <!-- @remote -->
       <span class="db-kind" id="dbKind"></span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
     </button>
+    <button class="schema-chip top-schema hide-sm" id="topSchema" hidden></button>
     <div class="omni" id="omni">
       <div class="omni-box">
         <svg class="ic" style="color:var(--ink3)"><use href="#i-search"/></svg>
@@ -1613,14 +1620,15 @@ async function readSearchPath() {
   try { S.schema = (await q(`select current_schema() as cur, current_setting('search_path') as path, (select reset_val from pg_settings where name = 'search_path') as def`)).rows[0]; }
   catch { S.schema = null; }                // e.g. inside a failed transaction: hide rather than guess
   document.querySelectorAll('.schema-chip').forEach(paintSchemaChip);
+  $('topSchema').hidden = !S.schema;
 }
 function paintSchemaChip(el) {
   const sp = S.schema;
-  el.textContent = sp ? `schema: ${sp.cur ?? 'none'}` : '';
+  el.replaceChildren(...(sp ? [h('span', { class: 'sc-lbl' }, 'schema: '), h('span', { class: 'sc-name' }, sp.cur ?? 'none')] : []));
   el.classList.toggle('custom', !!sp && sp.path.replace(/\s+/g, '') !== sp.def?.replace(/\s+/g, ''));
   el.title = sp ? `search_path = ${sp.path}${sp.cur ? '' : ' — none of these schemas exist'}\nUnqualified table names resolve here. Click to change.` : '';
 }
-const schemaChip = () => { const el = h('button', { class: 'schema-chip', onclick: schemaMenu }); paintSchemaChip(el); return el; };
+$('topSchema').onclick = schemaMenu;
 function schemaMenu(e) {
   const r = e.currentTarget.getBoundingClientRect();
   const schemas = [...new Set(['public', ...S.tables.map(t => t.schema)])].sort();
@@ -1756,6 +1764,57 @@ function renameTabInline(tab, span) {
   input.onclick = input.ondblclick = e => e.stopPropagation();
 }
 
+/** Close several tabs at once; asks only when a query tab among them has SQL that isn't saved. */
+async function closeTabs(ids) {
+  const set = new Set(ids), list = S.tabs.filter(t => set.has(t.id));
+  if (!list.length) return;
+  const unsaved = list.filter(t => t.type === 'query' && t.sql.trim() && savedOf(t)?.sql !== t.sql).length;
+  if (unsaved && !(await confirmDlg({ title: `Close ${plural(list.length, 'tab')}?`, body: `${plural(unsaved, 'query tab')} with unsaved SQL will be closed — anything you ran is still in the journal.`, ok: 'Close' }))) return;
+  const i = S.tabs.findIndex(t => t.id === S.active);
+  S.tabs = S.tabs.filter(t => !set.has(t.id));
+  if (set.has(S.active)) S.active = (S.tabs.find((t, j) => j >= i) || S.tabs.at(-1))?.id || null;   // the next tab that's left, else the last
+  persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx();
+}
+/** Reorder the tab strip (the active tab stays active). */
+function arrangeTabs(order) { S.tabs = order; persistTabs(); renderTabs(); }
+const tabLabel = t => t.type === 'table' ? S.byKey[t.key]?.name || t.key : t.type === 'query' ? t.title : t.type === 'readme' ? 'README' : 'ERD';
+/** Right-click on a tab: what you can do with it, closing in bulk, and arranging the strip. */
+function tabMenu(t, x, y) {
+  const i = S.tabs.indexOf(t), right = S.tabs.slice(i + 1), others = S.tabs.filter(o => o !== t);
+  const tables = S.tabs.filter(o => o.type === 'table'), queries = S.tabs.filter(o => o.type === 'query');
+  const kind = o => ({ table: 0, query: 1, map: 2, readme: 3 }[o.type] ?? 4);
+  const tbl = t.type === 'table' && S.byKey[t.key];
+  showMenu(x, y, [
+    { label: tabLabel(t), header: true },
+    ...(t.type === 'query' ? [
+      { label: 'Rename…', icon: 'pen', run: () => { activate(t.id); renameTabInline(t, $('tabs').querySelector(`[data-tab="${t.id}"] .tt`)); } },
+      { label: 'Duplicate', icon: 'copy', run: () => openQuery(t.sql, { title: `${t.title} copy` }) },
+      { label: savedOf(t) ? 'Save changes' : 'Save query', icon: 'save', hint: 'Ctrl+S', run: () => saveQueryTab(t) }] : []),
+    ...(tbl ? [
+      { label: 'Open in a query', icon: 'query', run: () => openQuery(`select * from ${qt(tbl)} limit 100`, { title: tbl.name }) },
+      { label: `${t.rel ? 'Hide' : 'Show'} relations diagram`, icon: 'map', run: () => { t.rel = !t.rel; persistTabs(); if (S.active === t.id) renderPane(); else activate(t.id); } }] : []),
+    (t.type === 'query' || tbl) && '-',
+    { label: 'Close', icon: 'x', hint: 'middle-click', run: () => closeTab(t.id) },
+    { label: 'Close others', disabled: !others.length, run: () => closeTabs(others.map(o => o.id)) },
+    { label: 'Close tabs to the right', disabled: !right.length, hint: right.length ? String(right.length) : '', run: () => closeTabs(right.map(o => o.id)) },
+    { label: 'Close all tables', disabled: !tables.length, hint: tables.length ? String(tables.length) : '', run: () => closeTabs(tables.map(o => o.id)) },
+    { label: 'Close all queries', disabled: !queries.length, hint: queries.length ? String(queries.length) : '', run: () => closeTabs(queries.map(o => o.id)) },
+    { label: 'Close all…', run: closeAllTabs },
+    '-',
+    { label: 'Arrange', header: true },
+    { label: 'Group by kind', hint: 'tables · queries · ERD', disabled: S.tabs.length < 2, run: () => arrangeTabs([...S.tabs].sort((a, b) => kind(a) - kind(b))) },
+    { label: 'Sort A–Z', hint: 'within each kind', disabled: S.tabs.length < 2, run: () => arrangeTabs([...S.tabs].sort((a, b) => kind(a) - kind(b) || tabLabel(a).localeCompare(tabLabel(b)))) },
+    { label: 'Move to start', disabled: i === 0, run: () => arrangeTabs([t, ...others]) },
+    { label: 'Move to end', disabled: i === S.tabs.length - 1, run: () => arrangeTabs([...others, t]) }].filter(Boolean));
+}
+/* The tab strip scrolls sideways under a plain mouse wheel (its scrollbar is hidden). */
+$('tabs').addEventListener('wheel', e => {
+  const el = e.currentTarget;
+  if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;   // nothing to scroll, or a trackpad already going sideways
+  e.preventDefault();
+  el.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 32 : 1);
+}, { passive: false });
+
 async function closeAllTabs() {
   if (!S.tabs.length) return;
   const q = S.tabs.filter(t => t.type === 'query' && t.sql.trim()).length;
@@ -1838,6 +1897,7 @@ function renderTabs() {
         if (S.active !== t.id) activate(t.id);
       };
       el.onauxclick = e => { if (e.button === 1) closeTab(t.id); };
+      el.oncontextmenu = e => { e.preventDefault(); tabMenu(t, e.clientX, e.clientY); };
       el.dataset.tab = t.id;
       if (t.type === 'query') el.title = `${label} — double-click to rename`;
       return el;
@@ -2122,7 +2182,7 @@ function readmeSections() {
     { t: 'Design the schema', items: [
       ['New table', 'Define columns visually, in the schema you pick, and see the SQL it writes.'],
       ['Import a CSV', 'Column types are inferred; adjust them before loading.'],
-      ['Schemas', 'Each query tab shows the current schema; click it to switch or reset the search path.'],
+      ['Schemas', 'The top bar shows the current schema; click it to switch or reset the search path.'],
       ['ERD', 'Every table and how they reference each other, filtered by schema. Export as SVG or PNG, or copy as Mermaid, DBML or text.'],
       ['Extensions', `${EXT.length} extensions load into the browser on demand — fuzzy search, UUIDs, crypto, vectors, PostGIS and more.`],
       ['Extensions on a server', 'See what the server offers, and create or drop them through the usual production checks.'], // @remote
@@ -3347,7 +3407,6 @@ function renderQueryTab(tab, pane, keep) {
     h('button', { class: 'btn ink', onclick: run, disabled: tab.running, title: 'Run (Ctrl+Enter). Runs the selection if any.' }, ic('play'), tab.running ? 'Running…' : 'Run', h('kbd', { style: 'margin-left:4px;background:transparent;color:inherit;border-color:rgba(255,255,255,.3)' }, 'Ctrl ⏎')),
     h('button', { class: 'btn ghost', disabled: tab.running, title: 'Run a .sql file without opening it here — for dumps and big scripts', onclick: () => runFile(tab) }, ic('upload'), 'Run file…'),
     hist.length > 0 && h('button', { class: 'btn ghost', onclick: e => showMenu(e.clientX, e.clientY + 10, [{ label: 'Recent queries', header: true }, ...hist.slice(0, 15).map(j => ({ label: j.sql.replace(/\s+/g, ' ').slice(0, 70), run: () => { tab.sql = j.sql; renderPane(); } }))]) }, 'History'),
-    schemaChip(),
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn ghost', title: 'Attach this query (and its latest result) to your next Clerk message', onclick: () => { C.attachQ.add(tab.id); openClerk(); $('clerkText')?.focus(); toast(`Attached “${tab.title}” to your next message`); } }, ic('plus'), 'Attach'),
     h('button', { class: 'btn ghost', title: 'Copy the whole query', onclick: () => { if (!tab.sql.trim()) return toast('Nothing to copy yet'); navigator.clipboard?.writeText(tab.sql); toast(`Copied ${plural(tab.sql.split('\n').length, 'line')}`); } }, ic('copy'), 'Copy'),

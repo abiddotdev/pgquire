@@ -157,7 +157,8 @@ select.field { padding-right: 4px; }
 .schema-chip { font: 500 11px/1 var(--mono); color: var(--ink3); padding: 5px 8px; border: 1px dashed var(--rule); border-radius: var(--radius); white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .schema-chip:hover { background: var(--rule2); }
 .schema-chip.custom { color: var(--ink); border: 1px solid var(--db, var(--ink2)); font-weight: 600; }
-.schema-chip:empty { display: none; }
+.schema-chip:empty, .schema-chip[hidden] { display: none; }
+.top-schema { flex: none; }
 .schema-head { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
 .schema-head:hover { color: var(--ink); }
 .schema-head .ic { transform: rotate(90deg); transition: transform .15s; }
@@ -1252,6 +1253,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
       <span class="name"><i class="db-spine" aria-hidden="true"></i><span id="dbName">—</span>
       <span class="db-kind" id="dbKind"></span><svg class="ic" style="width:12px;height:12px"><use href="#i-down"/></svg></span>
     </button>
+    <button class="schema-chip top-schema hide-sm" id="topSchema" hidden></button>
     <div class="omni" id="omni">
       <div class="omni-box">
         <svg class="ic" style="color:var(--ink3)"><use href="#i-search"/></svg>
@@ -1571,6 +1573,7 @@ async function readSearchPath() {
   try { S.schema = (await q(`select current_schema() as cur, current_setting('search_path') as path, (select reset_val from pg_settings where name = 'search_path') as def`)).rows[0]; }
   catch { S.schema = null; }                // e.g. inside a failed transaction: hide rather than guess
   document.querySelectorAll('.schema-chip').forEach(paintSchemaChip);
+  $('topSchema').hidden = !S.schema || S.schema.cur === 'public';   // beside the database only when it isn't the usual public
 }
 function paintSchemaChip(el) {
   const sp = S.schema;
@@ -1578,6 +1581,7 @@ function paintSchemaChip(el) {
   el.classList.toggle('custom', !!sp && sp.path.replace(/\s+/g, '') !== sp.def?.replace(/\s+/g, ''));
   el.title = sp ? `search_path = ${sp.path}${sp.cur ? '' : ' — none of these schemas exist'}\nUnqualified table names resolve here. Click to change.` : '';
 }
+$('topSchema').onclick = schemaMenu;
 const schemaChip = () => { const el = h('button', { class: 'schema-chip', onclick: schemaMenu }); paintSchemaChip(el); return el; };
 function schemaMenu(e) {
   const r = e.currentTarget.getBoundingClientRect();
@@ -1714,6 +1718,57 @@ function renameTabInline(tab, span) {
   input.onclick = input.ondblclick = e => e.stopPropagation();
 }
 
+/** Close several tabs at once; asks only when a query tab among them has SQL that isn't saved. */
+async function closeTabs(ids) {
+  const set = new Set(ids), list = S.tabs.filter(t => set.has(t.id));
+  if (!list.length) return;
+  const unsaved = list.filter(t => t.type === 'query' && t.sql.trim() && savedOf(t)?.sql !== t.sql).length;
+  if (unsaved && !(await confirmDlg({ title: `Close ${plural(list.length, 'tab')}?`, body: `${plural(unsaved, 'query tab')} with unsaved SQL will be closed — anything you ran is still in the journal.`, ok: 'Close' }))) return;
+  const i = S.tabs.findIndex(t => t.id === S.active);
+  S.tabs = S.tabs.filter(t => !set.has(t.id));
+  if (set.has(S.active)) S.active = (S.tabs.find((t, j) => j >= i) || S.tabs.at(-1))?.id || null;   // the next tab that's left, else the last
+  persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx();
+}
+/** Reorder the tab strip (the active tab stays active). */
+function arrangeTabs(order) { S.tabs = order; persistTabs(); renderTabs(); }
+const tabLabel = t => t.type === 'table' ? S.byKey[t.key]?.name || t.key : t.type === 'query' ? t.title : t.type === 'readme' ? 'README' : 'ERD';
+/** Right-click on a tab: what you can do with it, closing in bulk, and arranging the strip. */
+function tabMenu(t, x, y) {
+  const i = S.tabs.indexOf(t), right = S.tabs.slice(i + 1), others = S.tabs.filter(o => o !== t);
+  const tables = S.tabs.filter(o => o.type === 'table'), queries = S.tabs.filter(o => o.type === 'query');
+  const kind = o => ({ table: 0, query: 1, map: 2, readme: 3 }[o.type] ?? 4);
+  const tbl = t.type === 'table' && S.byKey[t.key];
+  showMenu(x, y, [
+    { label: tabLabel(t), header: true },
+    ...(t.type === 'query' ? [
+      { label: 'Rename…', icon: 'pen', run: () => { activate(t.id); renameTabInline(t, $('tabs').querySelector(`[data-tab="${t.id}"] .tt`)); } },
+      { label: 'Duplicate', icon: 'copy', run: () => openQuery(t.sql, { title: `${t.title} copy` }) },
+      { label: savedOf(t) ? 'Save changes' : 'Save query', icon: 'save', hint: 'Ctrl+S', run: () => saveQueryTab(t) }] : []),
+    ...(tbl ? [
+      { label: 'Open in a query', icon: 'query', run: () => openQuery(`select * from ${qt(tbl)} limit 100`, { title: tbl.name }) },
+      { label: `${t.rel ? 'Hide' : 'Show'} relations diagram`, icon: 'map', run: () => { t.rel = !t.rel; persistTabs(); if (S.active === t.id) renderPane(); else activate(t.id); } }] : []),
+    (t.type === 'query' || tbl) && '-',
+    { label: 'Close', icon: 'x', hint: 'middle-click', run: () => closeTab(t.id) },
+    { label: 'Close others', disabled: !others.length, run: () => closeTabs(others.map(o => o.id)) },
+    { label: 'Close tabs to the right', disabled: !right.length, hint: right.length ? String(right.length) : '', run: () => closeTabs(right.map(o => o.id)) },
+    { label: 'Close all tables', disabled: !tables.length, hint: tables.length ? String(tables.length) : '', run: () => closeTabs(tables.map(o => o.id)) },
+    { label: 'Close all queries', disabled: !queries.length, hint: queries.length ? String(queries.length) : '', run: () => closeTabs(queries.map(o => o.id)) },
+    { label: 'Close all…', run: closeAllTabs },
+    '-',
+    { label: 'Arrange', header: true },
+    { label: 'Group by kind', hint: 'tables · queries · ERD', disabled: S.tabs.length < 2, run: () => arrangeTabs([...S.tabs].sort((a, b) => kind(a) - kind(b))) },
+    { label: 'Sort A–Z', hint: 'within each kind', disabled: S.tabs.length < 2, run: () => arrangeTabs([...S.tabs].sort((a, b) => kind(a) - kind(b) || tabLabel(a).localeCompare(tabLabel(b)))) },
+    { label: 'Move to start', disabled: i === 0, run: () => arrangeTabs([t, ...others]) },
+    { label: 'Move to end', disabled: i === S.tabs.length - 1, run: () => arrangeTabs([...others, t]) }].filter(Boolean));
+}
+/* The tab strip scrolls sideways under a plain mouse wheel (its scrollbar is hidden). */
+$('tabs').addEventListener('wheel', e => {
+  const el = e.currentTarget;
+  if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;   // nothing to scroll, or a trackpad already going sideways
+  e.preventDefault();
+  el.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 32 : 1);
+}, { passive: false });
+
 async function closeAllTabs() {
   if (!S.tabs.length) return;
   const q = S.tabs.filter(t => t.type === 'query' && t.sql.trim()).length;
@@ -1796,6 +1851,7 @@ function renderTabs() {
         if (S.active !== t.id) activate(t.id);
       };
       el.onauxclick = e => { if (e.button === 1) closeTab(t.id); };
+      el.oncontextmenu = e => { e.preventDefault(); tabMenu(t, e.clientX, e.clientY); };
       el.dataset.tab = t.id;
       if (t.type === 'query') el.title = `${label} — double-click to rename`;
       return el;
