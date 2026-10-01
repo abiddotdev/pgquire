@@ -1092,6 +1092,52 @@ select.field { padding-right: 4px; }
 /* Column profiles and table size bars are part of the Prism look. */
 html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { display: none; }
 
+/* ---------- relations diagram (both looks) ---------- */
+.relfig { flex: none; display: flex; flex-direction: column; padding: 8px 14px 4px; border-bottom: 1px solid var(--rule); background-color: var(--sheet); background-image: radial-gradient(var(--rule) 1px, transparent 1.2px); background-size: 22px 22px; }
+.relcap { display: flex; align-items: center; gap: 10px; }
+.relcap .smallcaps b { font: 600 12px var(--sans); letter-spacing: 0; text-transform: none; color: var(--ink); }
+.relcap small { color: var(--ink3); font-size: 11.5px; white-space: nowrap; }
+.relcap .hint { overflow: hidden; text-overflow: ellipsis; }
+.relcap .iconbtn { width: 26px; height: 26px; }
+.relcap .iconbtn .ic { width: 14px; height: 14px; }
+.fig-resize { position: relative; height: 8px; margin: 0 -16px -6px; cursor: row-resize; touch-action: none; }
+.fig-resize::after { content: ""; position: absolute; left: 0; right: 0; top: 3px; height: 2px; background: transparent; transition: background .15s; }
+.fig-resize:hover::after, .fig-resize.on::after { background: var(--blue); }
+.rel-svg.sizing { transition: none; }
+.rel-svg { display: block; width: 100%; height: 200px; cursor: grab; touch-action: none; user-select: none; transition: height .2s; }
+.rel-svg.panning { cursor: grabbing; }
+.rel-svg text { font-family: var(--sans); }
+.rel-svg .bx { cursor: pointer; }
+.rel-svg .bx.cur { cursor: inherit; }
+.rel-svg .bx .body { fill: var(--sheet); stroke: var(--ink3); stroke-width: 1; }
+.rel-svg .bx .hd { stroke: var(--ink); stroke-width: 1.5; }
+.rel-svg .bx.view .body { stroke-dasharray: 4 3; }
+.rel-svg .bx:not(.cur):hover .body { stroke: var(--blue); }
+.rel-svg .bx.cur .body { stroke: var(--ink); stroke-width: 1.8; fill: var(--paper); }
+.rel-svg .nm { font: 600 13px var(--serif); fill: var(--ink); }
+.rel-svg .bx:not(.cur):hover .nm { fill: var(--blue); }
+.rel-svg .ct { font: 9.5px var(--mono); fill: var(--ink3); text-anchor: end; }
+.rel-svg .f { font-size: 11px; fill: var(--ink2); }
+.rel-svg .f.link { fill: var(--ink); font-weight: 600; }
+.rel-svg .tg { font: 600 9px var(--mono); text-anchor: end; }
+.rel-svg .tg.pk { fill: var(--red); }
+.rel-svg .tg.fk { fill: var(--blue); }
+.rel-svg .ty { font: 9.5px var(--mono); fill: var(--ink3); text-anchor: end; }
+.rel-svg .wire path { fill: none; stroke: var(--blue); stroke-width: 1.3; opacity: .75; }
+.rel-svg .wire circle { fill: var(--blue); }
+.rel-svg .wire:hover path { stroke: var(--red); opacity: 1; }
+.rel-svg .more { cursor: pointer; }
+.rel-svg .more rect { fill: transparent; }
+.rel-svg .more text { font-size: 10.5px; fill: var(--ink3); }
+.rel-svg .more:hover rect { fill: var(--blue-soft); }
+.rel-svg .more:hover text { fill: var(--blue); }
+.rel-none { padding: 12px 0 14px; color: var(--ink3); font-size: 12.5px; }
+[data-look=prism] .relfig { background-image: none; background-color: var(--sheet-alt); }
+[data-look=prism] .rel-svg .bx .body { rx: 8px; stroke: var(--rule); }
+[data-look=prism] .rel-svg .bx .hd { stroke: var(--rule); stroke-width: 1; }
+[data-look=prism] .rel-svg .bx.cur .body { stroke: var(--blue); fill: var(--sheet); }
+[data-look=prism] .rel-svg .nm { font-weight: 700; }
+
 /* ---------- row panel (both looks) ---------- */
 .rows-body { flex: 1; min-height: 0; display: flex; }
 .rows-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -1586,7 +1632,7 @@ function persistTabs() {
   if (!S.id || !S.db) return;
   store.set(`tabs:${S.id}`, {
     activeIndex: S.tabs.findIndex(t => t.id === S.active),
-    tabs: S.tabs.map(t => t.type === 'table' ? { type: 'table', key: t.key, view: t.view } : t.type === 'query' ? { type: 'query', title: t.title, sql: t.sql, savedId: t.savedId || null } : t.type === 'map' ? { type: 'map', schemas: t.schemas || [] } : { type: t.type }),
+    tabs: S.tabs.map(t => t.type === 'table' ? { type: 'table', key: t.key, view: t.view, rel: t.rel || undefined } : t.type === 'query' ? { type: 'query', title: t.title, sql: t.sql, savedId: t.savedId || null } : t.type === 'map' ? { type: 'map', schemas: t.schemas || [] } : { type: t.type }),
   });
 }
 function restoreTabs() {
@@ -1595,7 +1641,7 @@ function restoreTabs() {
   if (!saved) return;
   let activeIdx = -1;
   saved.tabs.forEach((t, i) => {
-    const tab = t.type === 'table' ? (S.byKey[t.key] ? mkTableTab(t.key, t.view) : null)
+    const tab = t.type === 'table' ? (S.byKey[t.key] ? Object.assign(mkTableTab(t.key, t.view), { rel: !!t.rel }) : null)
       : t.type === 'query' ? Object.assign(mkQueryTab(t.sql, t.title), { savedId: t.savedId || null })
       : t.type === 'map' ? { id: uid(), type: 'map', schemas: t.schemas || (t.schema ? [t.schema] : []) }
       : t.type === 'readme' ? { id: uid(), type: 'readme' } : null;
@@ -1615,6 +1661,7 @@ function openTable(key, opts = {}) {
   let tab = S.tabs.find(t => t.type === 'table' && t.key === key);
   if (!tab) { tab = mkTableTab(key, opts.view); S.tabs.push(tab); }
   if (opts.view) tab.view = opts.view;
+  if (opts.rel) tab.rel = true;                               // from the ERD: show the relations diagram
   if (opts.filter != null) { tab.filter = opts.filter; tab.page = 0; tab.dirty = true; }
   activate(tab.id);
   return tab;
@@ -2104,10 +2151,12 @@ function renderTableTab(tab, pane) {
     h('div', { class: 'spacer' }),
     tab.view === 'rows' && selCount > 0 && h('button', { class: 'btn red', onclick: () => deleteSelected(tab) }, ic('trash'), `Delete ${selCount}`),
     tab.view === 'rows' && t.editable && h('button', { class: 'btn', onclick: () => startDraft(tab), title: 'Insert a row (Ctrl+Alt+R)' }, ic('plus'), 'Row'),
+    h('button', { class: 'btn ghost' + (relOn(tab) ? ' on' : ''), title: `${relOn(tab) ? 'Hide' : 'Show'} the relations diagram: this table, what it points to and what points at it`, onclick: () => { tab.rel = !relOn(tab); persistTabs(); renderPane(); } }, ic('map')),
     tab.view === 'rows' && h('button', { class: 'btn ghost' + (store.get('rowPanel', true) ? ' on' : ''), title: 'Row details: the selected row and its related rows', onclick: () => toggleRowPanel(!store.get('rowPanel', true)) }, ic('view')),
     h('button', { class: 'btn ghost', title: 'Refresh', onclick: async () => { tab.dirty = true; await refreshSchema({ initial: true }); renderIndex(); renderPane(); } }, ic('refresh')),
     tab.view === 'rows' && h('button', { class: 'btn ghost', title: 'Export CSV (current filter)', onclick: () => exportTableCsv(t, tab) }, ic('download')),
     h('button', { class: 'btn blue', title: 'Ask the Clerk about what you\'re viewing', onclick: () => { openClerk(); S.clerk.ctxOn = true; renderClerkCtx(); $('clerkText')?.focus(); } }, ic('quill'), 'Ask'));
+  if (relOn(tab)) pane.append(relFig(t, tab));
   pane.append(bar);
   if (tab.view === 'structure') return renderStructure(tab, t, pane);
 
@@ -2169,6 +2218,173 @@ function editPageSize(span) {
   sel.onchange = () => finish(+sel.value);
   sel.onblur = () => finish(+sel.value);
   sel.onkeydown = e => { if (e.key === 'Escape') { e.preventDefault(); finish(null); } };
+}
+
+/* ---------- relations diagram: a small ERD above a table ----------
+   The open table with what it points to (left), what points at it (right) and the other tables those
+   point to (far right). Boxes list link and key columns first; "+ N more" opens a box to every column.
+   Drag to pan, scroll to zoom, click a box to open its table. Copy and export always carry every column.
+   Drawn like the ERD tab (curved wires, a dot at the referenced end); the whole schema is the ERD tab. */
+/** Per tab, closed by default; tables opened from the ERD (or from this diagram) open with it showing. */
+const relOn = tab => !!tab?.rel;
+const REL = { W: 184, GAP: 96, HEAD: 24, ROW: 17, ROWS: 5, PER: 5, MAXH: 560 };
+const relOpen = new Set();                                   // boxes opened past REL.ROWS, by table key
+function relDraw(t, all) {
+  const nodes = new Map();
+  const add = (o, col) => { if (!nodes.has(o.key)) nodes.set(o.key, { t: o, col, links: new Set() }); return nodes.get(o.key); };
+  const edges = [];
+  add(t, 1);
+  const parents = [...new Set(t.fks.map(f => f.ref))].filter(k => k !== t.key && S.byKey[k]).slice(0, REL.PER);
+  for (const k of parents) add(S.byKey[k], 0);
+  const children = S.tables.filter(o => o !== t && o.fks.some(f => f.ref === t.key)).slice(0, REL.PER);
+  for (const o of children) add(o, 2);
+  for (const o of children) for (const f of o.fks) if (!nodes.has(f.ref) && S.byKey[f.ref] && [...nodes.values()].filter(n => n.col === 3).length < REL.PER) add(S.byKey[f.ref], 3);
+  for (const n of nodes.values()) for (const f of n.t.fks) {
+    const p = nodes.get(f.ref);
+    if (!p || p === n) continue;
+    if (n.t !== t && p.t !== t && !(n.col === 2 && p.col === 3)) continue;   // only the wires the diagram is about
+    n.links.add(f.cols[0]); p.links.add(f.refCols[0]);
+    edges.push({ child: n, parent: p, f });
+  }
+  const selfFk = t.fks.find(f => f.ref === t.key);
+  for (const n of nodes.values()) {
+    const o = n.t, first = o.cols.filter(c => n.links.has(c.name) || c.pk);
+    const ordered = [...first, ...o.cols.filter(c => !first.includes(c))];
+    const room = Math.max(REL.ROWS, first.length);
+    n.open = all || relOpen.has(o.key);
+    n.rows = n.open ? ordered : ordered.slice(0, room);
+    n.more = o.cols.length - n.rows.length;
+    n.fewer = !all && n.open && o.cols.length > room;
+    n.h = REL.HEAD + (n.rows.length + (n.more > 0 || n.fewer ? 1 : 0)) * REL.ROW + 4;
+  }
+  const cols = [0, 1, 2, 3].map(c => [...nodes.values()].filter(n => n.col === c)).filter(c => c.length);
+  const colH = c => c.reduce((a, n) => a + n.h, 0) + (c.length - 1) * 18;
+  const H = Math.max(...cols.map(colH));
+  cols.forEach((c, i) => { let y = (H - colH(c)) / 2; for (const n of c) { n.x = i * (REL.W + REL.GAP); n.y = y; y += n.h + 18; } });
+  const rowY = (n, name) => { const i = n.rows.findIndex(c => c.name === name); return n.y + REL.HEAD + Math.max(0, i) * REL.ROW + REL.ROW / 2 + 2; };
+  // A column that links is marked FK here, even when it's also part of its table's primary key.
+  const tag = (c, n) => c.fks?.length && n.links.has(c.name) ? fkMark(c) : c.pk ? 'PK' : c.fks?.length ? fkMark(c) : '';
+  const clip = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
+  let svg = '';
+  for (const { child: c, parent: p, f } of edges) {
+    const right = p.x < c.x, px = right ? p.x + REL.W : p.x, cx = right ? c.x : c.x + REL.W, dir = right ? 1 : -1;
+    const py = rowY(p, f.refCols[0]), cy = rowY(c, f.cols[0]), reach = Math.max(30, Math.abs(cx - px) / 2);
+    svg += `<g class="wire"><title>${esc(`${c.t.key} ${fkLabel(f)}`)}</title><path d="M${cx},${cy} C${cx - dir * reach},${cy} ${px + dir * reach},${py} ${px},${py}"/><circle cx="${px}" cy="${py}" r="3"/></g>`;
+  }
+  if (selfFk) { const n = nodes.get(t.key), y1 = rowY(n, selfFk.cols[0]), y2 = rowY(n, selfFk.refCols[0]), x = n.x + REL.W;
+    svg += `<g class="wire"><title>${esc(`${t.key} ${fkLabel(selfFk)}`)}</title><path d="M${x},${y1} C${x + 40},${y1} ${x + 40},${y2} ${x},${y2}"/><circle cx="${x}" cy="${y2}" r="3"/></g>`; }
+  for (const n of nodes.values()) {
+    const o = n.t, cur = o === t, view = o.kind === 'v' || o.kind === 'm', ly = n.y + REL.HEAD + n.rows.length * REL.ROW + 13;
+    svg += `<g class="bx${cur ? ' cur' : ''}${view ? ' view' : ''}" data-key="${esc(o.key)}"><title>${esc(cur ? o.key : `Open ${o.key}`)}</title>`
+      + `<rect class="body" x="${n.x}" y="${n.y}" width="${REL.W}" height="${n.h}" rx="3"/>`
+      + `<path class="hd" d="M${n.x},${n.y + REL.HEAD} H${n.x + REL.W}"/>`
+      + `<text class="nm" x="${n.x + 9}" y="${n.y + 16}">${esc(clip(o.key, 20))}</text>`
+      + `<text class="ct" x="${n.x + REL.W - 8}" y="${n.y + 16}">${view ? 'view' : compact.format(S.counts[o.key] ?? 0)}</text>`
+      + n.rows.map((c, i) => { const y = n.y + REL.HEAD + i * REL.ROW + 13, tg = tag(c, n);
+          return `<text class="f${n.links.has(c.name) ? ' link' : ''}" x="${n.x + 9}" y="${y}">${esc(clip(c.name, 18))}</text>`
+            + `<text class="${tg ? 'tg ' + (tg === 'PK' ? 'pk' : 'fk') : 'ty'}" x="${n.x + REL.W - 8}" y="${y}">${esc(tg || clip(c.type, 14))}</text>`; }).join('')
+      + (n.more > 0 ? `<g class="more" data-key="${esc(o.key)}"><title>Show all ${o.cols.length} columns</title><rect x="${n.x + 1}" y="${ly - 12}" width="${REL.W - 2}" height="${REL.ROW}"/><text x="${n.x + 9}" y="${ly}">+ ${n.more} more</text></g>` : '')
+      + (n.fewer ? `<g class="more" data-key="${esc(o.key)}"><title>Back to the key columns</title><rect x="${n.x + 1}" y="${ly - 12}" width="${REL.W - 2}" height="${REL.ROW}"/><text x="${n.x + 9}" y="${ly}">− show fewer</text></g>` : '')
+      + `</g>`;
+  }
+  const x1 = Math.max(...[...nodes.values()].map(n => n.x + REL.W)) + (selfFk ? 50 : 0);
+  return { svg, full: { x: -20, y: -16, w: x1 + 40, h: H + 32 }, nodes, refs: edges.length + (selfFk ? 1 : 0), parents, children, selfFk };
+}
+
+function relFig(t, tab) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  el.setAttribute('class', 'rel-svg');
+  el.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  let d, vb;
+  const apply = () => el.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+  // Opening a box makes the diagram taller rather than smaller: its height follows the drawing, within limits.
+  // Its height follows the drawing (opening a box makes it taller), unless you've dragged the bottom edge.
+  const autoH = () => Math.round(Math.min(REL.MAXH, Math.max(200, d.full.h)));
+  const draw = () => { d = relDraw(t); el.innerHTML = d.svg; vb = { ...d.full }; el.style.height = `${store.get('relFigH', null) ?? autoH()}px`; apply(); };
+  draw();
+  el.onpointerdown = e => {                                  // drag pans; a click opens a box, or opens / closes its columns
+    if (e.button !== 0) return;
+    const sx = e.clientX, sy = e.clientY, ox = vb.x, oy = vb.y, k = vb.w / el.clientWidth;
+    let moved = false;
+    el.setPointerCapture(e.pointerId);
+    el.onpointermove = ev => { if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 4) moved = true;
+      if (moved) { el.classList.add('panning'); vb.x = ox - (ev.clientX - sx) * k; vb.y = oy - (ev.clientY - sy) * k; apply(); } };
+    el.onpointerup = ev => {
+      el.onpointermove = null; el.classList.remove('panning');
+      if (moved) return;
+      const hit = document.elementsFromPoint(ev.clientX, ev.clientY);
+      const more = hit.map(x => x.closest?.('.more')).find(Boolean)?.dataset.key;
+      if (more) { relOpen.has(more) ? relOpen.delete(more) : relOpen.add(more); draw(); return; }
+      const key = hit.map(x => x.closest?.('.bx')).find(Boolean)?.dataset.key;
+      if (key && key !== t.key) openTable(key, { rel: true });
+    };
+  };
+  el.onwheel = e => {
+    e.preventDefault();
+    const r = el.getBoundingClientRect(), f = e.deltaY < 0 ? 1 / 1.12 : 1.12;
+    const w = Math.max(d.full.w / 4, Math.min(d.full.w * 3, vb.w * f)), hh = vb.h * (w / vb.w);
+    const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+    vb = { x: vb.x + (vb.w - w) * fx, y: vb.y + (vb.h - hh) * fy, w, h: hh }; apply();
+  };
+  /* The bottom edge drags the height, like the Clerk's left edge drags its width; double-click fits the drawing again.
+     The drawing keeps its scale while you drag — less height shows less of it, and you pan to the rest. */
+  const resizer = () => {
+    const bar = h('div', { class: 'fig-resize', title: 'Drag to resize · double-click to fit the drawing' });
+    bar.onpointerdown = e => {
+      if (e.button !== 0) return;
+      e.preventDefault(); bar.setPointerCapture(e.pointerId);
+      const r = el.getBoundingClientRect(), k = Math.min(r.width / vb.w, r.height / vb.h);
+      vb = { x: vb.x - (r.width / k - vb.w) / 2, y: vb.y - (r.height / k - vb.h) / 2, w: r.width / k, h: r.height / k }; apply();   // what's on screen, exactly
+      const y0 = e.clientY, h0 = r.height, max = Math.max(120, ($('pane')?.clientHeight || 600) - 160);
+      let hh = h0;
+      el.classList.add('sizing'); bar.classList.add('on');
+      bar.onpointermove = ev => { hh = Math.round(Math.max(80, Math.min(max, h0 + ev.clientY - y0))); el.style.height = `${hh}px`; vb.h = hh / k; apply(); };
+      bar.onpointerup = () => { bar.onpointermove = null; el.classList.remove('sizing'); bar.classList.remove('on'); store.set('relFigH', hh); };
+    };
+    bar.ondblclick = () => { store.del('relFigH'); draw(); };
+    return bar;
+  };
+  const n = d.parents.length, m = d.children.length;
+  const tables = () => [...relDraw(t, true).nodes.values()].map(x => x.t);
+  const menuAt = (e, items) => { const r = e.currentTarget.getBoundingClientRect(); showMenu(r.right - 190, r.bottom + 4, items); };
+  const file = `${currentDb()?.name || 'pgquire'}-${t.name}-relations`;
+  return h('section', { class: 'relfig' },
+    h('div', { class: 'relcap' },
+      h('span', { class: 'smallcaps' }, 'Relations around ', h('b', {}, t.key)),
+      h('small', {}, `points to ${n} · ${m} point${m === 1 ? 's' : ''} here`),
+      h('span', { class: 'spacer' }),
+      h('small', { class: 'hint' }, 'drag to pan · scroll to zoom · click a table to open it'),
+      h('button', { class: 'iconbtn', title: 'Fit', onclick: () => { vb = { ...d.full }; apply(); } }, ic('fit')),
+      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Copy as text (Mermaid, DBML, plain) — every column', onclick: e => menuAt(e, [
+        { label: 'Copy as text', header: true },
+        { label: 'Mermaid', hint: 'GitHub, Notion…', icon: 'copy', run: () => copyErdText('mermaid', tables(), `around ${t.key}`) },
+        { label: 'DBML', hint: 'dbdiagram.io', icon: 'copy', run: () => copyErdText('dbml', tables(), `around ${t.key}`) },
+        { label: 'Plain text', hint: 'chats, tickets', icon: 'copy', run: () => copyErdText('text', tables(), `around ${t.key}`) }]) }, ic('copy')),
+      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Export (SVG or PNG) — every column', onclick: e => menuAt(e, [
+        { label: 'Export diagram', header: true },
+        { label: 'SVG (vector)', icon: 'download', run: () => exportSvg('svg', relSheet(t), file) },
+        { label: 'PNG (2× resolution)', icon: 'download', run: () => exportSvg('png', relSheet(t), file) }]) }, ic('download')),
+      h('button', { class: 'iconbtn', title: 'The whole schema (ERD tab)', onclick: () => openMap() }, ic('map')),
+      h('button', { class: 'iconbtn', title: 'Hide the diagram (the map button in the toolbar brings it back)', onclick: () => { tab.rel = false; persistTabs(); renderPane(); } }, ic('x'))),
+    d.nodes.size > 1 ? el : h('div', { class: 'rel-none' }, d.selfFk ? `${t.key} only points at itself — ${fkLabel(d.selfFk)}.` : 'No foreign keys lead to or from this table.'),
+    d.nodes.size > 1 && resizer());
+}
+/** The diagram as a standalone SVG in the current look's colours and fonts — every column of every box. */
+function relSheet(t) {
+  const d = relDraw(t, true), f = d.full;
+  const cs = getComputedStyle(document.documentElement), v = n => cs.getPropertyValue(n).trim();
+  const css = `text{font-family:${v('--sans')}} .bx .body{fill:${v('--sheet')};stroke:${v('--ink3')};stroke-width:1} .bx .hd{stroke:${v('--ink')};stroke-width:1.5}
+.bx.view .body{stroke-dasharray:4 3} .bx.cur .body{stroke:${v('--ink')};stroke-width:1.8} .nm{font-family:${v('--serif')};font-size:13px;font-weight:600;fill:${v('--ink')}}
+.ct{font-family:${v('--mono')};font-size:9.5px;fill:${v('--ink3')};text-anchor:end} .f{font-size:11px;fill:${v('--ink2')}} .f.link{fill:${v('--ink')};font-weight:600}
+.tg{font-family:${v('--mono')};font-size:9px;font-weight:600;text-anchor:end} .tg.pk{fill:${v('--red')}} .tg.fk{fill:${v('--blue')}} .ty{font-family:${v('--mono')};font-size:9.5px;fill:${v('--ink3')};text-anchor:end}
+.wire path{fill:none;stroke:${v('--blue')};stroke-width:1.3;opacity:.8} .wire circle{fill:${v('--blue')}} .foot{font-family:${v('--serif')};font-size:12px;font-style:italic;fill:${v('--ink3')}}`;
+  const pad = 32, x0 = f.x - pad, y0 = f.y - pad, w = f.w + 2 * pad, hh = f.h + 2 * pad + 22;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hh}" viewBox="${x0} ${y0} ${w} ${hh}"><style>${css}</style>
+<defs><pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse" x="${x0}" y="${y0}"><circle cx="1" cy="1" r="1" fill="${v('--rule')}"/></pattern></defs>
+<rect x="${x0}" y="${y0}" width="${w}" height="${hh}" fill="${v('--sheet')}"/><rect x="${x0}" y="${y0}" width="${w}" height="${hh}" fill="url(#dots)"/>
+${d.svg}
+<text class="foot" x="${x0 + pad}" y="${y0 + hh - 16}">${esc(currentDb()?.name || '')} · relations around ${esc(t.key)} · ${plural(d.nodes.size, 'table')} · pgquire · ${new Date().toLocaleDateString()}</text></svg>`;
+  return { svg, w, h: hh };
 }
 
 function cellClass(col, v) {
@@ -3421,7 +3637,7 @@ function renderMap(tab, pane) {
     if (!pos[t.key]) { const y = colY[L] || 0; pos[t.key] = { x: L * 340, y }; colY[L] = y + 36 + t.cols.length * 22 + 36; }
     else colY[L] = Math.max(colY[L] || 0, pos[t.key].y + 36 + t.cols.length * 22 + 36);
     const card = h('div', { class: 'mcard' + (t.kind === 'v' ? ' view' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `left:${pos[t.key].x}px;top:${pos[t.key].y}px` },
-      h('header', { ondblclick: () => openTable(t.key), title: 'Drag to move · double-click to open' }, ic(t.kind === 'v' ? 'view' : 'table'), h('b', {}, t.key), h('small', {}, t.kind === 'v' ? 'view' : (S.counts[t.key] ?? 0).toLocaleString())),
+      h('header', { ondblclick: () => openTable(t.key, { rel: true }), title: 'Drag to move · double-click to open' }, ic(t.kind === 'v' ? 'view' : 'table'), h('b', {}, t.key), h('small', {}, t.kind === 'v' ? 'view' : (S.counts[t.key] ?? 0).toLocaleString())),
       t.cols.map(c => h('div', { class: 'mr', title: [`${c.name} · ${c.type}`, c.pk && 'primary key', fkTitle(c)].filter(Boolean).join('\n') }, h('span', { class: 'k' + (c.fks?.length && !c.pk ? ' fk' : '') }, c.pk ? 'PK' : c.fks?.length ? fkMark(c) : ''), h('span', {}, c.name), h('span', { class: 't' }, c.type))));
     cards[t.key] = card;
     world.append(card);
@@ -3565,8 +3781,7 @@ ${g.map(e => edgeSvg(e, { line: ` fill="none" stroke="${v('--blue')}" stroke-wid
   return { svg: out, w, h: hh };
 }
 /* ---------- ERD as text: Mermaid, DBML, plain ---------- */
-function erdText(kind) {
-  const tables = erdTables();
+function erdText(kind, tables = erdTables()) {
   const isUnique = (t, cols) => t.pk.length === cols.length && cols.every(c => t.pk.includes(c))
     || t.cons.some(k => k.type === 'u' && (() => { const m = /UNIQUE \(([^)]+)\)/.exec(k.def); return m && m[1].split(',').map(x => x.trim().replace(/"/g, '')).sort().join() === [...cols].sort().join(); })());
   const uniques = t => t.cons.filter(k => k.type === 'u').map(k => (/UNIQUE \(([^)]+)\)/.exec(k.def)?.[1] || '').split(',').map(x => x.trim().replace(/"/g, ''))).filter(x => x[0]);
@@ -3636,18 +3851,17 @@ function erdText(kind) {
   }
   return out.join('\n').trimEnd() + '\n';
 }
-async function copyErdText(kind) {
-  if (!erdTables().length) return toast('No tables to describe yet', 'bad');
-  const text = erdText(kind);
+async function copyErdText(kind, tables = erdTables(), scope = erdScope() ? `in ${erdScope()}` : '') {
+  if (!tables.length) return toast('No tables to describe yet', 'bad');
+  const text = erdText(kind, tables);
   try { await navigator.clipboard.writeText(text); }
   catch { const ta = h('textarea', { value: text, style: 'position:fixed;opacity:0' }); document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
-  toast(`Copied ${{ mermaid: 'Mermaid', dbml: 'DBML', text: 'plain-text' }[kind]} ERD · ${plural(erdTables().length, 'table')}${erdScope() ? ` in ${erdScope()}` : ''}`);
+  toast(`Copied ${{ mermaid: 'Mermaid', dbml: 'DBML', text: 'plain-text' }[kind]} ERD · ${plural(tables.length, 'table')}${scope ? ' ' + scope : ''}`);
 }
 
-function exportChart(kind) {
-  const c = chartSvg();
+function exportChart(kind) { exportSvg(kind, chartSvg(), `${currentDb()?.name || 'pgquire'}-erd`); }
+function exportSvg(kind, c, name) {
   if (!c) return toast('Nothing to export yet', 'bad');
-  const name = `${currentDb()?.name || 'pgquire'}-erd`;
   if (kind === 'svg') { downloadBlob(new Blob([c.svg], { type: 'image/svg+xml' }), `${name}.svg`); toast('ERD exported as SVG'); return; }
   const img = new Image();
   img.onload = () => {
