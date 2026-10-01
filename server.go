@@ -43,6 +43,7 @@ func newServer(cfg serverConfig) *server {
 	s.mux.HandleFunc("GET /{$}", s.page)
 	s.mux.HandleFunc("GET /index.html", s.page)
 	s.mux.HandleFunc("GET /api/health", s.health)
+	s.mux.HandleFunc("POST /api/signin", s.signIn)
 	s.mux.HandleFunc("GET /api/profiles", s.auth(s.listProfiles))
 	s.mux.HandleFunc("POST /api/profiles", s.auth(s.addProfile))
 	s.mux.HandleFunc("DELETE /api/profiles/{name}", s.auth(s.deleteProfile))
@@ -74,7 +75,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if t := r.URL.Query().Get("t"); t != "" && r.Method == http.MethodGet {
 		if s.tokenOK(t) {
-			http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			setTokenCookie(w, t)
 		}
 		u := *r.URL
 		q := u.Query()
@@ -98,6 +99,27 @@ func (s *server) tokenOK(t string) bool {
 	return subtle.ConstantTimeCompare([]byte(t), []byte(s.cfg.token)) == 1
 }
 
+func setTokenCookie(w http.ResponseWriter, t string) {
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+}
+
+// signIn is the pasted-token way in, for a page opened without the link (a bookmark, or a restart
+// that changed the token). Same cookie as the link.
+func (s *server) signIn(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Token string `json:"token"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	if t := strings.TrimSpace(in.Token); t == "" || !s.tokenOK(t) {
+		writeErr(w, http.StatusUnauthorized, "wrong token")
+		return
+	}
+	setTokenCookie(w, strings.TrimSpace(in.Token))
+	writeJSON(w, http.StatusOK, map[string]any{"authed": true})
+}
+
 func (s *server) authed(r *http.Request) bool {
 	c, err := r.Cookie(cookieName)
 	return err == nil && s.tokenOK(c.Value)
@@ -106,7 +128,7 @@ func (s *server) authed(r *http.Request) bool {
 func (s *server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.authed(r) {
-			writeErr(w, http.StatusUnauthorized, "not signed in — open the link pgquire printed when it started")
+			writeErr(w, http.StatusUnauthorized, "not signed in — open the link pgquire printed when it started, or paste its token")
 			return
 		}
 		next(w, r)

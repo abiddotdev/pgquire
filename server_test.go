@@ -113,6 +113,22 @@ func TestAPIRequiresToken(t *testing.T) {
 	}
 }
 
+func TestPastedTokenSignsIn(t *testing.T) {
+	c, _ := newTestServer(t, 100, false)
+	if code := c.do("POST", "/api/signin", map[string]string{"token": "nope"}, nil); code != http.StatusUnauthorized {
+		t.Fatalf("wrong token: %d", code)
+	}
+	if code := c.do("GET", "/api/profiles", nil, nil); code != http.StatusUnauthorized {
+		t.Fatalf("signed in after a wrong token: %d", code)
+	}
+	if code := c.do("POST", "/api/signin", map[string]string{"token": " tok\n"}, nil); code != http.StatusOK {
+		t.Fatalf("right token: %d", code)
+	}
+	if code := c.do("GET", "/api/profiles", nil, nil); code != http.StatusOK {
+		t.Fatalf("not signed in after the right token: %d", code)
+	}
+}
+
 func TestRejectsForeignHostAndOrigin(t *testing.T) {
 	c, _ := newTestServer(t, 100, true)
 	req, _ := http.NewRequest("GET", c.base+"/api/health", nil)

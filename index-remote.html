@@ -1063,7 +1063,8 @@ async function openDb(id, opts = {}) {
     console.error(e);
     /* @remote { */
     if (isRemote(id)) {                          // don't strand the user on the boot screen: go back to a local database
-      toast(`Couldn't connect to “${currentDb()?.name}”: ${e.message}`, 'bad');
+      toast(`Couldn't connect to “${currentDb()?.name}”: ${e.message}`, 'bad',
+        e.status === 401 && { label: 'Paste token', run: async () => { if (await signInDialog()) openDb(id); } });
       const local = loadDbs().find(d => !d.kind);
       return openDb((local || newDbMeta()).id);
     }
@@ -3916,6 +3917,39 @@ async function api(method, path, body, onResponse) {
   return j;
 }
 
+/** Sign in by pasting the server's token, or the whole link it printed. For a page opened from a
+ *  bookmark, or a server restarted with a new token. Resolves to the fresh health, or null if cancelled. */
+function signInDialog() {
+  return new Promise(res => {
+    const input = h('input', { class: 'field', type: 'password', placeholder: 'token, or the http://…/?t=… link', spellcheck: false, autocomplete: 'off', style: 'font-family:var(--mono)' });
+    const status = modalStatus();
+    const go = h('button', { class: 'btn ink' }, 'Sign in');
+    const m = modal([
+      h('div', { class: 'modal-h' }, h('h2', {}, 'Sign in to the pgquire server'),
+        h('p', {}, 'Paste the link pgquire printed when it started, or its token.')),
+      h('div', { class: 'modal-b' }, h('label', { class: 'lab' }, 'Token or link', input)),
+      h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }),
+        h('button', { class: 'btn ghost', onclick: () => { m.close(); res(null); } }, 'Cancel'), go)]);
+    m.bg.addEventListener('cancel', () => res(null));
+    const submit = async () => {
+      const v = input.value.trim();
+      if (!v) return input.focus();
+      let token = v;
+      try { token = new URL(v).searchParams.get('t') ?? v; } catch {}
+      go.disabled = true; status.set('Signing in…');
+      try {
+        await api('POST', '/api/signin', { token });
+        serverP = null;
+        S.server = await pgquireServer();
+        m.close(); toast('Signed in to the pgquire server'); res(S.server);
+      } catch (e) { go.disabled = false; status.fail(e.message); input.select(); }
+    };
+    go.onclick = submit;
+    input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
+    input.focus();
+  });
+}
+
 const pgDate = s => { const d = new Date(s); return isNaN(d) ? s : d; };   // infinity, BC dates: keep the text
 const PG_PARSE = {
   16: s => s === 't',
@@ -3995,7 +4029,8 @@ async function reconnectRemote(quiet) {
   if (!isRemote(S.id) || !S.db?.remote) return;
   serverP = null;
   const srv = await pgquireServer();
-  if (!srv || !srv.authed) { if (!quiet) toast(!srv ? 'Still can\'t reach the pgquire server.' : 'The pgquire server restarted — open the link it printed to sign in again.', 'bad'); return; }
+  if (!srv) { if (!quiet) toast('Still can\'t reach the pgquire server.', 'bad'); return; }
+  if (!srv.authed && (quiet || !await signInDialog())) return;
   try { await S.db.open(); }
   catch (e) { if (!quiet) toast(e.message, 'bad'); return; }
   clearInterval(conn.retry); conn.down = null; paintConn();
@@ -4035,7 +4070,7 @@ class RemoteDb {
       return out;
     } catch (e) {
       if (e instanceof TypeError) { connDown('Can\'t reach the pgquire server — is it still running?'); throw new Error('can\'t reach the pgquire server'); }
-      if (e.status === 401) { connDown('The pgquire server restarted — open the link it printed to sign in again.'); throw e; }
+      if (e.status === 401) { connDown('The pgquire server restarted — Reconnect to paste its new token, or open the link it printed.'); throw e; }
       if (e.code === 'session_closed' && retry && !openTx) { this.sid = null; return this.#call(op, body, false); }   // expired while idle; nothing ran
       if (e.code === 'session_closed' || e.code === 'session_lost') {                                                  // reconnect next time
         this.sid = null; this.txStatus = 'I';
@@ -4463,7 +4498,7 @@ async function pickDatabasesDialog(p, { intro, open } = {}) {
 async function connectRemoteDialog() {
   const srv = await pgquireServer();
   if (!srv) return toast('Remote Postgres needs the pgquire server: run `pgquire` and open the link it prints.', 'bad');
-  if (!srv.authed) return toast('Not signed in to the pgquire server — open the link it printed when it started.', 'bad');
+  if (!srv.authed && !await signInDialog()) return;
   let profiles;
   try { profiles = (await api('GET', '/api/profiles')).profiles; } catch (e) { return toast(e.message, 'bad'); }
   const name = h('input', { class: 'field', placeholder: 'e.g. staging' });
@@ -4573,7 +4608,7 @@ async function connectDb(id, opts = {}) {
   if (isRemote(id)) {
     const srv = await pgquireServer();
     if (!srv) throw new Error('remote databases open only through the pgquire server — run `pgquire` and use the link it prints');
-    if (!srv.authed) throw new Error('not signed in to the pgquire server — open the link it printed when it started');
+    if (!srv.authed) throw Object.assign(new Error('not signed in to the pgquire server'), { status: 401 });
     const d = loadDbs().find(x => x.id === id);
     bootMsg(`connecting to ${d.name}…`, true);
     const db = await new RemoteDb(d.profile, d.database).open();
