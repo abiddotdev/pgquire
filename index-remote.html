@@ -4204,33 +4204,30 @@ async function remoteToSql(d, { rows = null, views = true, code = true } = {}, e
         ok.set(t.oid, await emit({ kind: 'table', name: t.qn, sql }));
       }
 
-      // Rows to expect per table: the planner's estimate, capped like the copy. A table never analyzed has
-      // none (reltuples -1, or 0 before PostgreSQL 14): count it, stopping at the cap — then it's exact.
+      // Rows to expect, for the bar: the planner's estimate, capped like the copy. A table never analyzed
+      // has none (reltuples -1, or 0 before PostgreSQL 14): count it, stopping at the cap.
       const withData = tables.filter(t => ok.get(t.oid) && t.kind === 'r' && t.cols.some(c => !c.gen));   // partitioned parents: the partitions hold the rows
       const unknown = withData.filter(t => !(t.est > 0));
-      const COUNT_CAP = rows ?? 1000000;
       for (const [k, t] of unknown.entries()) {
         progress?.('Counting rows…', { lead: `table ${k + 1} of ${unknown.length}`, frac: k / unknown.length });
-        t.est = (await all(`select count(*)::float8 as n from (select 1 from ${t.qn} limit ${COUNT_CAP}) _c`))[0].n;
-        t.exact = rows != null || t.est < COUNT_CAP;
+        t.est = (await all(`select count(*)::float8 as n from (select 1 from ${t.qn} limit ${rows ?? 1000000}) _c`))[0].n;
       }
-      for (const t of withData) t.expect = Math.min(Math.round(t.est), rows ?? Infinity);
-      const totalRows = withData.reduce((a, t) => a + t.expect, 0);
-      // The counts follow the table being copied; the bar, the whole copy.
-      const tell = (t, k, n) => progress?.(`Copying ${t.qn}`, { lead: `table ${k + 1} of ${withData.length}`,
-        done: n, total: Math.max(t.expect, n), unit: 'row', approx: !t.exact, frac: totalRows ? copied / Math.max(totalRows, copied) : k / withData.length });
+      const totalRows = withData.reduce((a, t) => a + Math.min(Math.round(t.est), rows ?? Infinity), 0);
+      // The counts: rows copied so far, with no total (it's only an estimate); the bar carries the expectation.
+      const tell = (t, k) => progress?.(`Copying ${t.qn}`, { lead: `table ${k + 1} of ${withData.length}`,
+        done: copied, unit: 'row', frac: totalRows ? copied / Math.max(totalRows, copied) : k / withData.length });
       let copied = 0;
       for (const [k, t] of withData.entries()) {
         const dc = t.cols.filter(c => !c.gen);
-        tell(t, k, 0);
+        tell(t, k);
         // Postgres writes each row as a VALUES tuple itself, so every type round-trips as a literal.
         await tx.exec(`declare pgquire_rows no scroll cursor for select '(' || array_to_string(array[${dc.map(c => `quote_nullable(${qi(c.name)})`).join(', ')}], ', ') || ')' from ${t.qn}${rows != null ? ` limit ${rows}` : ''}`);
-        for (let n = 0; ;) {
+        for (;;) {
           const [r] = await tx.exec('fetch 1000 from pgquire_rows', { rowMode: 'array' });
           if (!r.rows.length) break;
           await emit({ kind: 'data', name: t.qn, sql: `insert into ${t.qn} (${dc.map(c => qi(c.name)).join(', ')}) overriding system value values\n${r.rows.map(x => x[0]).join(',\n')}` });
-          n += r.rows.length; copied += r.rows.length;
-          tell(t, k, n);
+          copied += r.rows.length;
+          tell(t, k);
         }
         await tx.exec('close pgquire_rows');
       }
