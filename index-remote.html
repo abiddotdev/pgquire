@@ -706,6 +706,10 @@ select.field { padding-right: 4px; }
 .menu button:hover .db-branch { opacity: 1; }
 .menu button .db-branch:hover { background: var(--rule2); color: var(--ink); }
 .menu button .db-branch .ic { width: 14px; height: 14px; }
+.menu.split { display: flex; flex-direction: column; }
+.menu.split > * { flex: none; }
+.menu.split > .mscroll { flex: 0 1 auto; min-height: 96px; overflow-y: auto; margin: -5px -5px 0; padding: 5px 5px 0; }
+.menu .mscroll > .mlabel { position: sticky; top: -5px; z-index: 1; background: var(--sheet); }   /* each group's heading stays while its rows scroll */
 .menu hr { border: 0; border-top: 1px solid var(--rule2); margin: 4px 2px; }
 .menu .mlabel { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); padding: 6px 10px 3px; font-weight: 600; }
 .modal-bg { position: fixed; inset: 0; background: rgba(20,18,12,.4); backdrop-filter: blur(2px); z-index: 300; display: grid; place-items: center; padding: 16px; animation: fade .15s; }
@@ -3219,13 +3223,17 @@ function toggleJournal() { app.classList.toggle('journal-open'); $('journalToggl
 let openMenuEl = null;
 function showMenu(x, y, items) {
   closeMenu();
-  const m = h('div', { class: 'menu' }, items instanceof Node ? items : items.filter(Boolean).map(it => it === '-' ? h('hr') : it.header ? h('div', { class: 'mlabel' }, it.label)
-    : h('button', { class: (it.danger ? 'danger ' : '') + (it.cur ? 'cur' : ''), disabled: !!it.disabled, title: it.why || null, onclick: () => { if (it.disabled) return; closeMenu(); it.run(); } }, it.left ? it.left : it.icon ? ic(it.icon) : it.dot ? h('span', { class: 'mdot', style: `--c:${it.dot}` }) : h('span', { style: 'width:15px' }), it.label, it.hint && h('span', { class: 'hint' }, it.hint), it.right || null)));
+  // { scroll: [items] } is a group that scrolls on its own, so the items around it stay in view.
+  const render = list => list.filter(Boolean).map(it => it === '-' ? h('hr') : it.header ? h('div', { class: 'mlabel' }, it.label)
+    : it.scroll ? h('div', { class: 'mscroll' }, render(it.scroll))
+    : h('button', { class: (it.danger ? 'danger ' : '') + (it.cur ? 'cur' : ''), disabled: !!it.disabled, title: it.why || null, onclick: () => { if (it.disabled) return; closeMenu(); it.run(); } }, it.left ? it.left : it.icon ? ic(it.icon) : it.dot ? h('span', { class: 'mdot', style: `--c:${it.dot}` }) : h('span', { style: 'width:15px' }), it.label, it.hint && h('span', { class: 'hint' }, it.hint), it.right || null));
+  const m = h('div', { class: 'menu' }, items instanceof Node ? items : render(items));
+  m.classList.toggle('split', !!m.querySelector(':scope > .mscroll'));
+  m.style.maxHeight = (innerHeight - 16) + 'px'; m.style.overflowY = 'auto';
   document.body.append(m);
   const r = m.getBoundingClientRect();
   m.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
   m.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
-  m.style.maxHeight = (innerHeight - 16) + 'px'; m.style.overflowY = 'auto';
   openMenuEl = m;
   setTimeout(() => document.addEventListener('mousedown', menuAway, true), 0);
 }
@@ -3274,7 +3282,7 @@ $('dbSwitch').onclick = e => {
   /* } @remote */
   // @pages: const listed = [{ label: 'Databases', header: true }, ...dbs.map(d => entry(d))];
   // @pages: showMenu(r.left, r.bottom + 4, [
-    ...listed,
+    { scroll: listed },
     '-',
     { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: d.name }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
