@@ -837,6 +837,11 @@ select.field { padding-right: 4px; }
   .dbswitch { max-width: 118px; }
   .top-actions .iconbtn { width: 28px; }
   .omni-box { padding: 0 6px 0 8px; gap: 6px; }
+  /* search folds to its icon; tapping it opens the box across the top bar */
+  .omni { flex: none; margin: 0 0 0 auto; }
+  .omni:not(.open):not(:focus-within) .omni-box { width: 34px; padding: 0; justify-content: center; cursor: pointer; }
+  .omni:not(.open):not(:focus-within) .omni-box input { flex: none; width: 0; padding: 0; }
+  .omni.open, .omni:focus-within { position: absolute; left: 8px; right: 8px; top: 50%; transform: translateY(-50%); max-width: none; z-index: 5; }
   /* schema chip: just the name, cut to ~5 letters; Reload hides unless there's an update */
   .top-schema { padding: 5px 6px; }
   .top-schema .sc-lbl { display: none; }
@@ -2476,6 +2481,21 @@ function relFig(t, tab) {
       if (key && key !== t.key) openTable(key, { rel: true });
     };
   };
+  el.oncontextmenu = e => {                                 // a box: the table's menu; elsewhere: the diagram's
+    e.preventDefault();
+    const key = e.target.closest?.('.bx')?.dataset.key;
+    if (key && S.byKey[key]) return tableMenu(S.byKey[key], e.clientX, e.clientY);
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Fit', icon: 'fit', run: () => { vb = { ...d.full }; apply(); } },
+      '-',
+      { label: 'Copy as Mermaid', icon: 'copy', run: () => copyErdText('mermaid', tables(), `around ${t.key}`) },
+      { label: 'Copy as DBML', icon: 'copy', run: () => copyErdText('dbml', tables(), `around ${t.key}`) },
+      { label: 'Copy as plain text', icon: 'copy', run: () => copyErdText('text', tables(), `around ${t.key}`) },
+      { label: 'Export SVG', icon: 'download', run: () => exportSvg('svg', relSheet(t), file) },
+      { label: 'Export PNG', icon: 'download', run: () => exportSvg('png', relSheet(t), file) },
+      '-',
+      { label: 'Open the ERD', icon: 'map', run: () => openMap() }]);
+  };
   el.onwheel = e => {
     e.preventDefault();
     const r = el.getBoundingClientRect(), f = e.deltaY < 0 ? 1 / 1.12 : 1.12;
@@ -3461,11 +3481,25 @@ function renderQueryTab(tab, pane, keep) {
 function readGrid(r) {
   const cols = r.fields;
   const shown = r.rows.slice(0, 2000);
-  return h('table', { class: 'grid ro' },
+  return h('table', { class: 'grid ro', oncontextmenu: e => { const td = e.target.closest('td[data-c]'); if (!td) return; e.preventDefault(); resultCellMenu(r, +td.dataset.r, +td.dataset.c, e.clientX, e.clientY); } },
     h('thead', {}, h('tr', {}, h('th', { class: 'rn' }), cols.map(c => h('th', { style: 'cursor:default' }, h('div', { class: 'cn' }, c.name))))),
     h('tbody', {}, shown.map((row, i) => h('tr', {}, h('td', { class: 'rn num' }, i + 1),
-      row.map((v, ci) => h('td', { class: cellClass(cols[ci], v), title: v != null && v.length > 40 ? v.slice(0, 600) : '' }, v == null || cols[ci].cat === 'B' ? '' : v)))),
+      row.map((v, ci) => h('td', { 'data-r': i, 'data-c': ci, class: cellClass(cols[ci], v), title: v != null && v.length > 40 ? v.slice(0, 600) : '' }, v == null || cols[ci].cat === 'B' ? '' : v)))),
       r.rows.length > shown.length && h('tr', {}, h('td', { colspan: cols.length + 1, class: 'grid-empty', style: 'padding:14px' }, `Showing 2,000 of ${(r.truncated || r.rows.length).toLocaleString()} rows — ${/*remote:*/r.truncated && S.db?.remote ? 'CSV (all) downloads every one' : /*:remote*/'export CSV for all'}.`))));
+}
+
+/** Right-click on a query result cell: the copy side of a table cell's menu (results aren't tied to one table). */
+function resultCellMenu(r, ri, ci, x, y) {
+  const col = r.fields[ci], row = r.rows[ri], v = row[ci];
+  const obj = () => Object.fromEntries(r.fields.map((f, i) => [f.name, row[i]]));
+  const copy = (text, what) => { navigator.clipboard?.writeText(text); toast(`Copied ${what}`); };
+  showMenu(x, y, [
+    { label: 'Copy value', icon: 'copy', disabled: col.cat === 'B', run: () => copy(v ?? '', 'value') },
+    { label: 'Copy row as JSON', icon: 'copy', run: () => copy(JSON.stringify(obj(), null, 2), 'row as JSON') },
+    { label: 'Copy row as TSV', icon: 'copy', hint: 'spreadsheets', run: () => copy(toCsv(r.fields.map(f => f.name), [row], '\t'), 'row as TSV') },
+    { label: `Copy column “${col.name.slice(0, 24)}”`, icon: 'copy', run: () => copy(r.rows.map(x => x[ci] ?? '').join('\n'), plural(r.rows.length, 'value')) },
+    '-',
+    { label: 'Ask the Clerk about this row', icon: 'quill', run: () => clerkAsk(`About this row from my query: ${JSON.stringify(obj())} — `, { draft: true }) }]);
 }
 
 /* ---------- CSV ---------- */
@@ -3817,6 +3851,7 @@ function renderMap(tab, pane) {
     const card = h('div', { class: 'mcard' + (t.kind === 'v' ? ' view' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `left:${pos[t.key].x}px;top:${pos[t.key].y}px` },
       h('header', { ondblclick: () => openTable(t.key, { rel: true }), title: 'Drag to move · double-click to open' }, ic(t.kind === 'v' ? 'view' : 'table'), h('b', {}, t.key), h('small', {}, t.kind === 'v' ? 'view' : (S.counts[t.key] ?? 0).toLocaleString())),
       t.cols.map(c => h('div', { class: 'mr', title: [`${c.name} · ${c.type}`, c.pk && 'primary key', fkTitle(c)].filter(Boolean).join('\n') }, h('span', { class: 'k' + (c.fks?.length && !c.pk ? ' fk' : '') }, c.pk ? 'PK' : c.fks?.length ? fkMark(c) : ''), h('span', {}, c.name), h('span', { class: 't' }, c.type))));
+    card.oncontextmenu = e => { e.preventDefault(); e.stopPropagation(); tableMenu(t, e.clientX, e.clientY); };
     cards[t.key] = card;
     world.append(card);
     const head = card.querySelector('header');
@@ -3845,6 +3880,22 @@ function renderMap(tab, pane) {
     view.k = Math.max(.3, Math.min(1.2, Math.min((map.clientWidth - 80) / w, (map.clientHeight - 80) / hgt)));
     view.x = 40 - Math.min(...xs) * view.k + ((map.clientWidth - 80) - w * view.k) / 2;
     view.y = 40 - Math.min(...ys) * view.k; apply();
+  };
+  map.oncontextmenu = e => {
+    e.preventDefault();
+    if (e.target.closest('.map-tools, .map-schema')) return;
+    const r = map.getBoundingClientRect();
+    showMenu(e.clientX, e.clientY, [
+      { label: 'Fit', icon: 'fit', run: () => fit() },
+      { label: 'Zoom in', icon: 'plus', run: () => zoom(1.2, e.clientX - r.left, e.clientY - r.top) },
+      { label: 'Zoom out', run: () => zoom(1 / 1.2, e.clientX - r.left, e.clientY - r.top) },
+      { label: 'Re-arrange', icon: 'refresh', run: () => { store.set(`map:${S.id}`, {}); renderPane(); } },
+      '-',
+      { label: 'Copy as Mermaid', icon: 'copy', run: () => copyErdText('mermaid') },
+      { label: 'Copy as DBML', icon: 'copy', run: () => copyErdText('dbml') },
+      { label: 'Copy as plain text', icon: 'copy', run: () => copyErdText('text') },
+      { label: 'Export SVG', icon: 'download', run: () => exportChart('svg') },
+      { label: 'Export PNG', icon: 'download', run: () => exportChart('png') }]);
   };
   map.onwheel = e => { e.preventDefault(); const r = map.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top); };
   map.onpointerdown = e => {
@@ -5929,6 +5980,7 @@ function buildOmni() {
   }));
 }
 function runOmni(i) { const it = omniItems[i]; if (!it) return; omniInput.value = ''; omni.classList.remove('open'); omniInput.blur(); it.run(); }
+omni.querySelector('.omni-box').onclick = () => omniInput.focus();   // the icon alone, when the box is folded on a phone
 omniInput.onfocus = () => { omniSel = 0; buildOmni(); omni.classList.add('open'); };
 omniInput.onblur = () => setTimeout(() => omni.classList.remove('open'), 120);
 omniInput.oninput = () => { omniSel = 0; buildOmni(); omni.classList.add('open'); };
