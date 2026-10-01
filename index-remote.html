@@ -1794,6 +1794,8 @@ function tabMenu(t, x, y) {
     ...(t.type === 'query' ? [
       { label: 'Rename…', icon: 'pen', run: () => { activate(t.id); renameTabInline(t, $('tabs').querySelector(`[data-tab="${t.id}"] .tt`)); } },
       { label: 'Duplicate', icon: 'copy', run: () => openQuery(t.sql, { title: `${t.title} copy` }) },
+      t._fh && { label: `Save to ${t._fh.name}`, icon: 'download', hint: 'Ctrl Shift S', run: () => saveQueryFile(t) },
+      { label: 'Save as .sql file…', icon: 'download', hint: t._fh ? '' : 'Ctrl Shift S', run: () => saveQueryFile(t, { as: true }) },
       { label: savedOf(t) ? 'Save changes' : 'Save query', icon: 'save', hint: 'Ctrl+S', run: () => saveQueryTab(t) }] : []),
     ...(tbl ? [
       { label: 'Open in a query', icon: 'query', run: () => openQuery(`select * from ${qt(tbl)} limit 100`, { title: tbl.name }) },
@@ -2180,7 +2182,7 @@ function readmeSections() {
       ['SQL editor', 'Highlighting and line numbers; Ctrl+Enter runs everything or just the selection. Every statement\'s result is kept and you can flip between them.'],
       ['Results', 'Download as CSV or copy for a spreadsheet.'],
       ['Full results from a server', 'Results past the display cap (50,000 rows by default) still download in full: the rows stream straight from the server into the CSV.'], // @remote
-      ['Big scripts', 'Past 100 KB — or with pg_dump\'s COPY … FROM stdin — a script runs in chunks with progress and Stop, as one transaction unless it manages its own; an error names the statement and line. Run file runs a .sql straight from disk.'],
+      ['Big scripts', 'Past 100 KB — or with pg_dump\'s COPY … FROM stdin — a script runs in chunks with progress and Stop, as one transaction unless it manages its own; an error names the statement and line. SQL file… in the database menu opens one in the editor or runs it straight from disk.'],
       ['Transactions', 'BEGIN in the editor stays open across runs. A banner says so, with Commit and Roll back; edits in the grid meanwhile become part of it.'],
       ['Saved queries and journal', 'Save a tab with Ctrl+S. The journal (Ctrl+Shift+J) lists every statement run — yours, the grid\'s and the Clerk\'s — with timings.'],
     ] },
@@ -2214,15 +2216,15 @@ function readmeSections() {
 }
 function renderReadme(pane) {
   const remote = isRemote(S.id), r = currentDb()?.remote || {}; // @remote
-  const keys = [['Ctrl K', 'jump to a table, database or command — or type SQL'], ['Ctrl+Enter', 'run the editor (or the selection)'], ['Ctrl+Alt+N', 'new query tab'], ['Ctrl+S', 'save the query'],
+  const keys = [['Ctrl K', 'jump to a table, database or command — or type SQL'], ['Ctrl+Enter', 'run the editor (or the selection)'], ['Ctrl+Alt+N', 'new query tab'], ['Ctrl+S', 'save the query'], ['Ctrl+Shift+S', 'save it as a .sql file'],
     ['Ctrl+Alt+R', 'insert a row'], ['Ctrl+Z', 'undo the last grid change'], ['Ctrl+J', 'the Clerk'], ['Ctrl+Shift+J', 'the journal']];
   pane.append(h('div', { class: 'home readme' },
     h('div', { class: 'home-hero' },
       h('div', { class: 'smallcaps' }, `pgquire ${APP_VERSION} · README`),
       h('h1', { html: 'Postgres in your browser,<br><em>and on your servers.</em>' }), // @remote
       h('p', {}, remote // @remote
-        ? `You're on “${dbLabel(currentDb())}”, a ${r.tag === 'prod' ? 'production ' : ''}database on ${r.host || 'a remote server'}${r.readOnly ? ' (read-only connection)' : ''}. Changes here affect the real server.` // @remote
-        : `You're on “${dbLabel(currentDb())}”, an in-browser database. Connect a Postgres server from the switcher to work on real databases too.`)), // @remote
+        ? [`You're on “${dbLabel(currentDb())}”, a ${r.tag === 'prod' ? 'production ' : ''}database on ${r.host || 'a remote server'}`, h('span', { class: 'pg-ver' }), `${r.readOnly ? ', over a read-only connection' : ''}. Changes here affect the real server.`] // @remote
+        : [`You're on “${dbLabel(currentDb())}”, an in-browser database`, h('span', { class: 'pg-ver' }), '. Connect a Postgres server from the switcher to work on real databases too.'])), // @remote
       // @pages: h('h1', { html: 'Postgres in your browser,<br><em>kept like a ledger.</em>' }),
       // @pages: h('p', {}, 'Everything here works on this in-browser database. Nothing to install, nothing sent anywhere unless you choose to.')),
     readmeSections().map(sec => h('section', {}, h('h2', {}, sec.t),
@@ -2230,6 +2232,7 @@ function renderReadme(pane) {
     h('section', {}, h('h2', {}, 'Keys', h('small', {}, 'Cmd instead of Ctrl on a Mac')),
       h('div', { class: 'keys' }, keys.flatMap(([k, what]) => [h('span', {}, k.split(/(?<=[^+ ])[+ ](?=\S)/).flatMap((x, i) => [i ? '+' : null, h('kbd', {}, x)]).filter(Boolean), ' '), h('span', {}, what)]))),
     h('div', { class: 'foot' }, 'Source code, and releases of the pgquire server (for connecting to real Postgres): ', h('a', { href: 'https://github.com/abiddotdev/pgquire', target: '_blank', rel: 'noopener' }, 'github.com/abiddotdev/pgquire'), '.')));
+  pgVersion().then(v => { const el = pane.querySelector('.pg-ver'); if (el && v) el.textContent = /*remote:*/remote ? ` (Postgres ${v})` : /*:remote*/` (Postgres ${v} via PGlite ${PGLITE_VER})`; });
 }
 
 /* ==========================================================================
@@ -3373,15 +3376,52 @@ async function runQueryTab(tab, sql, file) {
   paintTx();
   if (activeTab() === tab) renderPane();
 }
-/** Run a .sql file straight from disk — for dumps and scripts too big to want in the editor. */
-function runFile(tab) {
-  const f = h('input', { type: 'file', accept: '.sql,text/plain,application/sql' });
-  f.onchange = async () => {
-    const file = f.files[0]; if (!file) return;
-    if (!(await confirmDlg({ title: `Run ${file.name}?`, body: `${fmtBytes(file.size)} of SQL on “${dbLabel(currentDb())}”. Big scripts run as one transaction unless they manage their own, so an error leaves nothing half-done.`, ok: 'Run' }))) return;
-    runQueryTab(tab, await file.text(), file.name);
+
+/* .sql files to and from query tabs. Where the browser can (Chrome, Edge), a tab keeps the file it came from or was
+   saved to, and later saves write back to it until the page reloads; elsewhere saving downloads and opening uploads. */
+const FS_API = 'showSaveFilePicker' in window;
+const SQL_TYPES = [{ description: 'SQL', accept: { 'application/sql': ['.sql'] } }];
+const sqlFileName = t => { const b = (t.title || '').replace(/[\\/:*?"<>|]+/g, '-').trim() || 'query'; return /\.sql$/i.test(b) ? b : b + '.sql'; };
+async function saveQueryFile(tab, { as } = {}) {
+  if (tab._ed) tab.sql = tab._ed.ta.value;
+  if (!FS_API) { downloadBlob(new Blob([tab.sql], { type: 'application/sql' }), sqlFileName(tab)); return toast(`Downloaded ${sqlFileName(tab)}`); }
+  try {
+    if (as || !tab._fh) tab._fh = await showSaveFilePicker({ suggestedName: tab._fh?.name || sqlFileName(tab), types: SQL_TYPES });
+    const w = await tab._fh.createWritable(); await w.write(tab.sql); await w.close();
+    toast(`Saved to ${tab._fh.name}`);
+    if (activeTab() === tab) renderPane();
+  } catch (e) { if (e.name !== 'AbortError') toast(e.message, 'bad'); }
+}
+/** A .sql file: an ordinary one opens in a new query tab's editor; a big one (dumps, long scripts) asks whether to open it
+ *  or run it now on the open database. Either way it lands in a new tab named after the file. */
+async function sqlFile() {
+  let file, fh;
+  if ('showOpenFilePicker' in window) {
+    try { [fh] = await showOpenFilePicker({ types: SQL_TYPES }); file = await fh.getFile(); }
+    catch (e) { if (e.name !== 'AbortError') toast(e.message, 'bad'); return; }
+  } else {
+    file = await new Promise(res => { const f = h('input', { type: 'file', accept: '.sql,text/plain,application/sql' }); f.onchange = () => res(f.files[0]); f.click(); });
+    if (!file) return;
+  }
+  const huge = file.size > 10 * 1024 * 1024, db = dbLabel(currentDb());
+  let m;
+  /* A new tab named after the file, showing its text — or, past 10 MB, a note (the tab keeps its SQL and saves it on every edit). */
+  const tabFor = async (text, run) => {
+    m?.close();
+    const shown = !(run && huge), tab = openQuery(shown ? text : `-- ${file.name} (${fmtBytes(file.size)}) ran straight from disk — too big to show here.\n`, { title: file.name.replace(/\.sql$/i, '') });
+    if (fh && shown) { tab._fh = fh; renderPane(); }   // the toolbar's Save then writes back to it
+    if (run) runQueryTab(tab, text, file.name);
   };
-  f.click();
+  if (file.size <= BIG_EDIT) return tabFor(await file.text());   // an ordinary script goes straight into the editor
+  const openBtn = h('button', { class: 'btn ghost', onclick: async () => tabFor(await file.text()) }, ic('query'), 'Open in editor');
+  const runBtn = h('button', { class: 'btn ink', onclick: async () => tabFor(await file.text(), true) }, ic('play'), `Run on “${db}”`);
+  m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, file.name), h('p', {}, `${fmtBytes(file.size)} of SQL — a big script or a dump.`)),
+    h('div', { class: 'modal-b', style: 'font-size:13px;display:grid;gap:8px' },
+      h('div', {}, h('b', {}, 'Open in editor'), ' — read and change it first, then run it yourself.', huge ? h('span', { style: 'color:var(--red)' }, ' This is a lot for the editor.') : ''),
+      h('div', {}, h('b', {}, 'Run'), ` — now, on “${db}”${huge ? ' (too big to show in the tab)' : ', showing it in the tab'}. Big scripts run in chunks with progress and Stop, as one transaction unless they manage their own, so an error leaves nothing half-done.`)),
+    h('div', { class: 'modal-f' }, h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), h('span', { class: 'spacer' }), openBtn, runBtn)]);
+  runBtn.focus();
 }
 
 /** The editor of a query tab: textarea over a highlighted copy, with line numbers. Kept on the tab across redraws. */
@@ -3409,8 +3449,28 @@ function queryEditor(tab) {
   ta.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); run(); }
     else if ((e.ctrlKey || e.metaKey) && e.key === '/') { e.preventDefault(); toggleLineComments(ta); }
+    else if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); tab.sql = ta.value; saveQueryFile(tab); }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); tab.sql = ta.value; tab.caret = [ta.selectionStart, ta.selectionEnd, ta.scrollTop]; saveQueryTab(tab); }
     else if (e.key === 'Tab') { e.preventDefault(); ta.setRangeText('  ', ta.selectionStart, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); }
+  });
+  /* Its own right-click menu. Edits go through insertText so Ctrl+Z still undoes them. */
+  ta.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    const a = ta.selectionStart, b = ta.selectionEnd, sel = ta.value.slice(a, b);
+    const put = text => { ta.focus(); ta.setSelectionRange(a, b); if (!document.execCommand('insertText', false, text)) ta.setRangeText(text, a, b, 'end'); ta.dispatchEvent(new Event('input')); };
+    showMenu(e.clientX, e.clientY, [
+      { label: sel ? 'Run selection' : 'Run', icon: 'play', hint: 'Ctrl ⏎', disabled: tab.running || !(sel || ta.value).trim(), run },
+      '-',
+      { label: 'Cut', hint: 'Ctrl X', disabled: !sel, run: () => { navigator.clipboard?.writeText(sel); put(''); } },
+      { label: 'Copy', icon: 'copy', hint: 'Ctrl C', disabled: !sel, run: () => navigator.clipboard?.writeText(sel) },
+      { label: 'Paste', hint: 'Ctrl V', run: async () => { try { put(await navigator.clipboard.readText()); } catch { ta.focus(); toast('The browser kept the clipboard to itself — press Ctrl+V'); } } },
+      { label: 'Select all', hint: 'Ctrl A', run: () => { ta.focus(); ta.select(); } },
+      '-',
+      { label: 'Toggle comment', hint: 'Ctrl /', run: () => toggleLineComments(ta) },
+      { label: sel ? 'Explain the selection' : 'Explain this query', icon: 'quill', disabled: !(sel || ta.value).trim(), run: () => clerkAsk(`Explain this query step by step, and suggest improvements if any:\n\n${sel || ta.value}`) },
+      '-',
+      { label: savedOf(tab) ? 'Save changes' : 'Save query', icon: 'save', hint: 'Ctrl S', run: () => { tab.sql = ta.value; saveQueryTab(tab); } },
+      { label: tab._fh ? `Save to ${tab._fh.name}` : 'Save as .sql file…', icon: 'download', hint: 'Ctrl Shift S', run: () => saveQueryFile(tab) }]);
   });
   paint();
   return { edWrap, ta, paint, run };
@@ -3425,10 +3485,10 @@ function renderQueryTab(tab, pane, keep) {
   const bar = h('div', { class: 'toolbar' },
     h('h1', { title: 'Double-click to rename', ondblclick: async () => { const n = await promptDlg({ title: 'Rename query', label: 'Title', value: tab.title }); if (n) setQueryTitle(tab, n); } }, tab.title),
     h('button', { class: 'btn ink', onclick: run, disabled: tab.running, title: 'Run (Ctrl+Enter). Runs the selection if any.' }, ic('play'), tab.running ? 'Running…' : 'Run', h('kbd', { style: 'margin-left:4px;background:transparent;color:inherit;border-color:rgba(255,255,255,.3)' }, 'Ctrl ⏎')),
-    h('button', { class: 'btn ghost', disabled: tab.running, title: 'Run a .sql file without opening it here — for dumps and big scripts', onclick: () => runFile(tab) }, ic('upload'), 'Run file…'),
     hist.length > 0 && h('button', { class: 'btn ghost', onclick: e => showMenu(e.clientX, e.clientY + 10, [{ label: 'Recent queries', header: true }, ...hist.slice(0, 15).map(j => ({ label: j.sql.replace(/\s+/g, ' ').slice(0, 70), run: () => { tab.sql = j.sql; renderPane(); } }))]) }, 'History'),
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn ghost', title: 'Attach this query (and its latest result) to your next Clerk message', onclick: () => { C.attachQ.add(tab.id); openClerk(); $('clerkText')?.focus(); toast(`Attached “${tab.title}” to your next message`); } }, ic('plus'), 'Attach'),
+    h('button', { class: 'btn ghost', title: tab._fh ? `Save to ${tab._fh.name} (Ctrl+Shift+S) — right-click the tab for Save as` : 'Save as a .sql file (Ctrl+Shift+S)', onclick: () => saveQueryFile(tab) }, ic('download'), tab._fh ? 'Save file' : 'Save as…'),
     h('button', { class: 'btn ghost', title: 'Copy the whole query', onclick: () => { if (!tab.sql.trim()) return toast('Nothing to copy yet'); navigator.clipboard?.writeText(tab.sql); toast(`Copied ${plural(tab.sql.split('\n').length, 'line')}`); } }, ic('copy'), 'Copy'),
     h('button', { class: 'btn blue', onclick: () => tab.sql.trim() ? clerkAsk(`Explain this query step by step, and suggest improvements if any:\n\n${tab.sql}`) : toast('Write a query first') }, ic('quill'), 'Explain'),
     h('button', { class: 'btn blue', onclick: () => { openClerk(); S.clerk.ctxOn = true; renderClerkCtx(); const t = $('clerkText'); if (t) { t.value = 'Write a query that '; t.focus(); } } }, ic('quill'), 'Draft with Clerk'));
@@ -3575,6 +3635,37 @@ function modal(content, { wide } = {}) {
   bg.addEventListener('mousedown', e => { if (e.target === bg) { close(); bg.dispatchEvent(new Event('cancel')); } });
   document.body.append(bg);
   return { bg, box, close };
+}
+/** The open database's Postgres version (server_version), asked once per database. */
+async function pgVersion() {
+  if (!S.db) return null;
+  if (S.pgVer?.id === S.id) return S.pgVer.v;
+  const id = S.id;
+  try { const v = (await q(`show server_version`)).rows[0]?.server_version?.split(' ')[0] || null; if (S.id === id) S.pgVer = { id, v }; return v; }
+  catch { return null; }
+}
+const PGLITE_VER = PGLITE_URL.match(/@([\d.]+)/)?.[1];
+/** About: the version, where it's running, the open database's Postgres, and where the source lives. */
+function aboutDialog() {
+  const pg = h('span', {}, S.db ? '…' : '—');
+  const remote = isRemote(S.id), r = currentDb()?.remote || {}; // @remote
+  const where = /*remote:*/S.server ? 'the pgquire app, with its server for remote Postgres' : /*:remote*/HOSTED ? 'the browser, from the web' : 'the browser, from a local file';
+  const link = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text);
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'pgquire ', h('small', { style: 'font-weight:400;color:var(--ink3)' }, `v${APP_VERSION}`)), h('p', {}, 'Inquire into your Postgres — tables, queries, diagrams and the Clerk, in one page.')),
+    h('div', { class: 'modal-b', style: 'display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px' },
+      h('span', { class: 'smallcaps' }, 'Running in'), h('span', {}, where),
+      h('span', { class: 'smallcaps' }, 'Database'), h('span', {}, S.db ? dbLabel(currentDb()) : 'none open'),
+      h('span', { class: 'smallcaps' }, 'Connected to'), pg,
+      h('span', { class: 'smallcaps' }, 'Source'), h('span', {}, link('https://github.com/abiddotdev/pgquire', 'github.com/abiddotdev/pgquire')),
+      h('span', { class: 'smallcaps' }, 'Releases'), h('span', {}, link('https://github.com/abiddotdev/pgquire/releases', 'Download the app'))),
+    h('div', { class: 'modal-f' },
+      h('button', { class: 'btn ghost', onclick: () => { m.close(); openReadme(); } }, 'Help'),
+      h('span', { class: 'spacer' }), h('button', { class: 'btn ink', onclick: () => m.close() }, 'Close'))]);
+  if (S.db) pgVersion().then(v => {
+    const ver = v ? `Postgres ${v}` : 'Postgres';
+    pg.textContent = /*remote:*/remote ? [ver, r.host || 'a remote server', r.tag === 'prod' && 'production', r.readOnly && 'read-only'].filter(Boolean).join(' · ') : /*:remote*/`PGlite ${PGLITE_VER} · ${ver} · in this browser`;
+  });
 }
 /** A dialog's status line, for its footer: what's happening, a thin bar, and under it the counts
  *  ("table 2 of 3 · 32,000 of ~85,000 rows"). While working (a bar is showing) the counts line keeps
@@ -4223,6 +4314,7 @@ $('dbSwitch').onclick = e => {
     isRemote(S.id) && S.db?.info?.role?.writable && { label: 'Create a read-only login…', icon: 'pen', hint: guardOnly() ? 'recommended' : '', run: readOnlyLoginDialog }, // @remote
     { label: 'Share as link…', icon: 'share', run: shareDialog/*remote:*/, disabled: !dbCaps().share, hint: dbCaps().share ? '' : 'in-browser only', why: 'A link carries the data itself, so it needs a database in this browser. Use Copy to a local database first.'/*:remote*/ },
     '-',
+    { label: 'SQL file…', icon: 'upload', hint: 'open or run', disabled: !S.db, run: sqlFile },
     { label: 'Move data…', icon: 'download', hint: /*remote:*/isRemote(S.id) ? 'copy · dump · import' : /*:remote*/'dump · export · import', run: moveDataDialog },
     '-',
     /*remote:*/isRemote(S.id) ? { label: 'Remove this connection…', icon: 'trash', run: deleteDb } : /*:remote*/{ label: 'Delete this database…', icon: 'trash', danger: true, run: deleteDb },
@@ -4349,7 +4441,9 @@ function moveDataDialog() {
       /*remote:*/!remote && /*:remote*/row('download', 'Export session (.pgquire)', 'In-browser databases with their tabs, saved queries and chats — to move to another browser or address.', exportSessionDialog),
       h('div', { class: 'smallcaps', style: 'margin-top:14px' }, '→ Into this browser'),
       row('upload', 'New database from a file', 'A .sql dump, or a PGlite data folder (.tar.gz).', restoreDb),
-      row('upload', 'Open a session file (.pgquire)', 'Databases, tabs, saved queries and chats from an export.', pickSessionFile)),
+      row('upload', 'Open a session file (.pgquire)', 'Databases, tabs, saved queries and chats from an export.', pickSessionFile),
+      h('div', { class: 'smallcaps', style: 'margin-top:14px' }, `→ Into ${name}`),
+      row('upload', 'A .sql file — open or run', `Open it in the editor, or run it on “${name}” straight from disk — for scripts and dumps.`, sqlFile)),
     h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))]);
 }
 /* @remote { */
@@ -7105,6 +7199,25 @@ if (HOSTED) {
 $('indexToggle').onclick = () => app.classList.toggle('index-open');
 $('newQueryBtn').onclick = () => openQuery();
 $('mapBtn').onclick = openMap;
+/* Right-click anywhere the app hasn't a menu of its own: no browser menu, except where it's needed — text you
+   type into, and links. Selected text gets Copy; elsewhere a short app menu (nothing inside a dialog). */
+document.addEventListener('contextmenu', e => {
+  if (e.defaultPrevented || e.target.closest?.('input, textarea, select, [contenteditable=""], [contenteditable=true], a[href]')) return;
+  e.preventDefault();
+  const sel = getSelection()?.toString() || '';
+  if (sel.trim()) return showMenu(e.clientX, e.clientY, [{ label: 'Copy', icon: 'copy', hint: 'Ctrl C', run: () => { navigator.clipboard?.writeText(sel); toast('Copied'); } }]);
+  if (e.target.closest?.('.modal-bg, .menu')) return;
+  showMenu(e.clientX, e.clientY, [
+    { label: 'New query', icon: 'query', hint: 'Ctrl Alt N', disabled: !S.db, run: () => openQuery() },
+    { label: 'SQL file…', icon: 'upload', hint: 'open or run', disabled: !S.db, run: sqlFile },
+    { label: 'Search', icon: 'search', hint: 'Ctrl K', run: () => { omniInput.focus(); omniInput.select(); } },
+    { label: 'ERD', icon: 'map', disabled: !S.db, run: openMap },
+    { label: 'The Clerk', icon: 'quill', hint: 'Ctrl J', run: openClerk },
+    '-',
+    { label: 'Reload', icon: 'update', run: reloadApp },
+    { label: 'Help', icon: 'info', run: openReadme },
+    { label: 'About pgquire', run: aboutDialog }]);
+});
 $('newTableBtn').onclick = createTableDialog;
 $('importBtn').onclick = importCsvDialog;
 
