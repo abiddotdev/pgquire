@@ -8,6 +8,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+<script>
+/* Look (Ledger or Prism) before first paint, so the page doesn't flash the other one; Prism brings its own fonts. */
+var PRISM_FONTS = 'https://fonts.googleapis.com/css2?family=Figtree:ital,wght@0,400..800;1,400..500&family=Spline+Sans+Mono:wght@400;500;600&display=swap';
+try { if (JSON.parse(localStorage.getItem('ledger:look')) === 'prism') { document.documentElement.dataset.look = 'prism'; document.write('<link id="prismFonts" rel="stylesheet" href="' + PRISM_FONTS + '">'); } } catch (e) {}
+</script>
 <style>
 /* ============================================================
    LEDGER — theme
@@ -32,6 +37,7 @@
   --green: #2e7a4d; --hl: #ffe45c; --hl-soft: rgba(255,222,70,.42);
   --shadow: 0 1px 0 rgba(29,27,22,.04), 0 8px 24px -12px rgba(29,27,22,.25);
   --grain-opacity: .05;
+  --acc-soft: rgba(44,71,184,.07); --hue-l: .55; --hue-c: .14;
 }
 [data-theme=night] {
   --paper: #15140f; --panel: #1b1a14; --sheet: #1a1913; --sheet-alt: #1e1d17;
@@ -42,6 +48,44 @@
   --green: #6fcf97; --hl: #c9a91c; --hl-soft: rgba(215,180,40,.22);
   --shadow: 0 8px 28px -10px rgba(0,0,0,.7);
   --grain-opacity: .06;
+  --acc-soft: rgba(147,166,255,.1); --hue-l: .76; --hue-c: .12;
+}
+
+/* ============================================================
+   PRISM — the second look (Appearance menu, top right): data-look=prism on <html>
+   Crisp white, hairlines, one accent. Each column and table gets its
+   own hue, and every column profiles itself in the grid header.
+   The variable names are the Ledger ones so the shared CSS still works:
+   --red = danger, --blue = accent / the Clerk, --hl = selection.
+   ============================================================ */
+[data-look=prism] {
+  --serif: 'Figtree', 'Segoe UI', system-ui, sans-serif;
+  --sans: 'Figtree', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Spline Sans Mono', ui-monospace, Menlo, Consolas, monospace;
+  --radius: 8px;
+  --spectrum: linear-gradient(90deg, #ff5f6d, #ffc371 35%, #47e891 65%, #3b5bfd);
+}
+[data-look=prism][data-theme=day] {
+  --paper: #ffffff; --panel: #fbfbfc; --sheet: #ffffff; --sheet-alt: #fafafb;
+  --ink: #0d0e12; --ink2: #4b4e58; --ink3: #8a8d97; --ink4: #c3c5cc;
+  --rule: #e6e6eb; --rule2: #f1f1f4; --blue-rule: #f1f1f4;
+  --red: #ec5a78; --red-soft: rgba(236,90,120,.07);
+  --blue: #3b5bfd; --blue-soft: rgba(59,91,253,.08); --blue-paper: #fbfbfc;
+  --green: #3db574; --hl: #c7d2fe; --hl-soft: rgba(59,91,253,.10);
+  --acc-soft: #f1f3ff; --violet: #b07ce8; --orange: #e5874f; --hue-l: .72; --hue-c: .12;
+  --shadow: 0 1px 2px rgba(13,14,18,.05), 0 12px 32px -12px rgba(13,14,18,.2);
+  --grain-opacity: 0;
+}
+[data-look=prism][data-theme=night] {
+  --paper: #0e0f13; --panel: #111217; --sheet: #0e0f13; --sheet-alt: #15161c;
+  --ink: #ececf1; --ink2: #b4b6c0; --ink3: #7c7f8b; --ink4: #4a4c56;
+  --rule: #25262e; --rule2: #1b1c22; --blue-rule: #1b1c22;
+  --red: #fb7185; --red-soft: rgba(251,113,133,.1);
+  --blue: #7b93ff; --blue-soft: rgba(123,147,255,.1); --blue-paper: #111217;
+  --green: #4ade80; --hl: #3a4a9a; --hl-soft: rgba(123,147,255,.16);
+  --acc-soft: rgba(123,147,255,.12); --violet: #c084fc; --orange: #fb923c; --hue-l: .74; --hue-c: .13;
+  --shadow: 0 12px 32px -10px rgba(0,0,0,.75);
+  --grain-opacity: 0;
 }
 
 * { box-sizing: border-box; }
@@ -791,6 +835,328 @@ select.field { padding-right: 4px; }
   .top-actions .iconbtn { width: 28px; }
   .omni-box { padding: 0 6px 0 8px; gap: 6px; }
 }
+
+/* ============================================================
+   PRISM — overrides of the Ledger styles above, only when data-look=prism
+   ============================================================ */
+[data-look=prism] body { font-size: 13px; font-feature-settings: normal; }
+[data-look=prism] body::after { display: none; }
+/* No serif italics: Ledger set headings and asides in italic serif, Prism keeps them upright. */
+[data-look=prism] .index-head h2,
+[data-look=prism] .idx-col .t,
+[data-look=prism] .index-empty,
+[data-look=prism] .grid thead th .ct,
+[data-look=prism] .grid td.null::after,
+[data-look=prism] .grid-empty,
+[data-look=prism] .card h3,
+[data-look=prism] .cols-table td.ty,
+[data-look=prism] .placeholder,
+[data-look=prism] .home h2,
+[data-look=prism] .mcard .mr .t,
+[data-look=prism] .map-legend,
+[data-look=prism] .clerk-head h2,
+[data-look=prism] .c-ai .sig,
+[data-look=prism] .c-note,
+[data-look=prism] .r-ask .q,
+[data-look=prism] .c-working,
+[data-look=prism] .compose-box textarea::placeholder,
+[data-look=prism] .suggest,
+[data-look=prism] .connect h3,
+[data-look=prism] .step-t,
+[data-look=prism] .turn-pop .pop-h,
+[data-look=prism] .turn-pop .pop-f,
+[data-look=prism] .idx-hint,
+[data-look=prism] .ext-cat,
+[data-look=prism] .journal-head h2,
+[data-look=prism] .boot b,
+[data-look=prism] .boot .tagline,
+[data-look=prism] .boot span,
+[data-look=prism] .omni-item .label em,
+[data-look=prism] .grid tr.draft td input::placeholder { font-style: normal; }
+[data-look=prism] kbd { border-bottom-width: 1px; border-radius: 5px; font-family: var(--mono); background: var(--sheet-alt); }
+[data-look=prism] .smallcaps { font-size: 10.5px; letter-spacing: .06em; font-weight: 600; }
+[data-look=prism] .btn { height: 30px; font-weight: 600; }
+[data-look=prism] .btn.sm { height: 26px; }
+[data-look=prism] .btn.ink:hover { background: color-mix(in srgb, var(--ink) 82%, var(--paper)); }
+[data-look=prism] .iconbtn { border-radius: 8px; }
+[data-look=prism] .field { border-radius: 8px; }
+[data-look=prism] .field:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--hl-soft); }
+
+/* top bar */
+[data-look=prism] .top { border-bottom-color: var(--rule); }
+[data-look=prism] .top::before { height: 2px; }
+[data-look=prism] .wordmark { font: 700 17px/1 var(--sans); letter-spacing: -.03em; border-right: 0; padding-right: 6px; gap: 0; }
+[data-look=prism] .wordmark::before { content: ""; width: 22px; height: 22px; flex: none; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ff5f6d'/%3E%3Cstop offset='.35' stop-color='%23ffc371'/%3E%3Cstop offset='.65' stop-color='%2347e891'/%3E%3Cstop offset='1' stop-color='%233b5bfd'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M12 2.5 22 20H2z' fill='url(%23g)'/%3E%3Cpath d='M12 2.5V20' stroke='%23fff' stroke-opacity='.55' stroke-width='1.2'/%3E%3C/svg%3E") center / contain no-repeat; margin-right: 8px; }
+[data-look=prism] .wordmark .pg { font: inherit; color: inherit; margin: 0; }
+[data-look=prism] .wordmark b { font-weight: 700; }
+[data-look=prism] .wordmark .ver { color: var(--ink3); font-weight: 500; }
+[data-look=prism] .dbswitch { border-radius: 8px; }
+[data-look=prism] .dbswitch .name { font: 600 14px/1.2 var(--sans); letter-spacing: -.01em; }
+[data-look=prism] .db-spine { width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
+[data-look=prism] .schema-chip { border-style: solid; border-radius: 6px; }
+[data-look=prism] .omni-box { height: 36px; border-radius: 10px; background: var(--sheet-alt); }
+[data-look=prism] .omni-box:focus-within { border-color: var(--blue); box-shadow: 0 0 0 4px var(--hl-soft); background: var(--sheet); }
+[data-look=prism] .omni-list { border-radius: 12px; }
+[data-look=prism] .omni-item { border-radius: 8px; }
+[data-look=prism] .omni-item .kind { border-radius: 5px; }
+[data-look=prism] .clerk-toggle { height: 32px; border-radius: 10px; background: var(--ink); color: var(--paper); border-color: var(--ink); font-weight: 600; padding: 0 12px 0 10px; }
+[data-look=prism] .clerk-toggle:hover { border-color: var(--ink); background: color-mix(in srgb, var(--ink) 85%, var(--paper)); }
+[data-look=prism] .clerk-toggle .pip { width: 8px; height: 8px; background: color-mix(in srgb, var(--paper) 40%, transparent); }
+[data-look=prism] .clerk-toggle.live .pip { background: conic-gradient(#ff5f6d, #ffc371, #47e891, #3b5bfd, #b44dff, #ff5f6d); box-shadow: none; }
+
+/* index: tables with size bars */
+[data-look=prism] .index { border-right: 1px solid var(--rule); background: var(--panel); }
+[data-look=prism] .index-head h2 { font: 600 11.5px var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink3); }
+[data-look=prism] .index-head h2 small { font: 11px var(--mono); text-transform: none; letter-spacing: 0; }
+[data-look=prism] .index-search { border: 1px solid var(--rule); border-radius: 9px; padding: 0 9px; height: 32px; background: var(--sheet); }
+[data-look=prism] .index-search:focus-within { border-color: var(--blue); }
+[data-look=prism] .index-group { font-size: 10.5px; margin: 14px 8px 4px; }
+[data-look=prism] .idx { border-radius: 9px; margin-bottom: 1px; }
+[data-look=prism] .idx-row { padding: 5px 8px 3px 2px; border-radius: 9px 9px 0 0; }
+[data-look=prism] .idx:hover { background: var(--rule2); }
+[data-look=prism] .idx-row:hover { background: none; }
+[data-look=prism] .idx.active { background: var(--acc-soft); }
+[data-look=prism] .idx.active > .idx-row { background: none; box-shadow: none; }
+[data-look=prism] .idx.active .idx-name { color: var(--blue); font-weight: 700; }
+[data-look=prism] .idx-leader { border: 0; }
+[data-look=prism] .idx-count { font-size: 11px; color: var(--ink3); }
+[data-look=prism] .idx-bar { height: 3px; margin: 0 8px 7px 22px; border-radius: 99px; background: var(--rule2); overflow: hidden; }
+[data-look=prism] .idx.active .idx-bar { background: color-mix(in srgb, var(--blue) 12%, transparent); }
+[data-look=prism] .idx-bar, [data-look=prism] .grid thead th { --h: oklch(var(--hue-l) var(--hue-c) var(--hh, 0)); }
+[data-look=prism] .grid thead th:not([style*='--hh']) { --h: var(--ink4); }   /* query results: no column hues */
+[data-look=prism] .idx-bar i { display: block; height: 100%; border-radius: 99px; background: var(--h); }
+[data-look=prism] .idx-cols { padding-left: 24px; }
+[data-look=prism] .idx-col .t { font: 11px var(--mono); }
+[data-look=prism] .idx-col .k { color: var(--ink2); }
+[data-look=prism] .index-foot { padding: 10px; gap: 6px; }
+
+/* tabs: underlined, not folders */
+[data-look=prism] .tabs { background: var(--sheet); padding: 0 10px; align-items: stretch; min-height: 44px; gap: 0; }
+[data-look=prism] .tab { height: auto; border: 0; border-radius: 0; top: 0; padding: 0 8px 0 12px; color: var(--ink3); font-weight: 500; }
+[data-look=prism] .tab:hover { background: none; color: var(--ink); }
+[data-look=prism] .tab.active { background: none; color: var(--ink); font-weight: 600; }
+[data-look=prism] .tab.active::before { top: auto; bottom: 0; left: 8px; right: 8px; height: 2px; border-radius: 2px; background: var(--ink); }
+[data-look=prism] .tab.t-query.active::before { background: var(--violet); }
+[data-look=prism] .tab.t-map.active::before { background: #4cc4b6; }
+[data-look=prism] .tab .x, [data-look=prism] .tab .sv { border-radius: 5px; }
+[data-look=prism] .tab-new { align-self: center; border-radius: 8px; }
+[data-look=prism] .tab-closeall { align-self: center; margin-bottom: 0; border-radius: 8px; }
+
+/* toolbar */
+[data-look=prism] .toolbar { padding: 14px 16px 12px; gap: 8px; border-bottom-color: var(--rule); }
+[data-look=prism] .toolbar h1 { font: 700 22px/1.1 var(--sans); letter-spacing: -.03em; }
+[data-look=prism] .toolbar h1 small { font-size: 12.5px; letter-spacing: 0; }
+[data-look=prism] .seg { border-radius: 8px; height: 30px; }
+[data-look=prism] .seg button { font-weight: 500; }
+[data-look=prism] .seg button.on { font-weight: 600; }
+[data-look=prism] .filter { height: 32px; border-radius: 9px; }
+[data-look=prism] .filter:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px var(--hl-soft); }
+[data-look=prism] .filter span.w { color: var(--blue); }
+[data-look=prism] .filter.applied { background: var(--acc-soft); border-color: color-mix(in srgb, var(--blue) 45%, var(--rule)); }
+[data-look=prism] .filter.applied span.w { background: var(--blue); border-radius: 4px; }
+[data-look=prism] .filter.applied .fstate.on { color: var(--blue); }
+[data-look=prism] .filter .fstate { border-radius: 5px; }
+
+/* grid: hairlines, column hues, profiles in the header */
+[data-look=prism] .gridwrap { background: var(--sheet); }
+[data-look=prism] .grid th, [data-look=prism] .grid td { border-bottom-color: var(--rule2); border-right-color: var(--rule2); height: 36px; padding: 0 14px; }
+[data-look=prism] .grid thead th { background: var(--sheet); border-bottom: 1px solid var(--rule); vertical-align: top; padding: 10px 14px 10px; min-width: 110px; }
+[data-look=prism] .grid thead th.rn { min-width: 51px; }
+[data-look=prism] .grid thead th:hover { background: var(--sheet-alt); }
+[data-look=prism] .grid thead th .cn { font-size: 13px; }
+[data-look=prism] .grid thead th .cn::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--h, var(--ink4)); flex: none; }
+[data-look=prism] .grid thead th .ct { font: 10.5px var(--mono); color: var(--ink3); margin-top: 1px; }
+[data-look=prism] .grid thead th .ct b { font: 500 10.5px var(--mono); color: var(--h, var(--ink2)); }
+[data-look=prism] .grid thead th .ct b.fk { color: var(--blue); }
+[data-look=prism] .grid thead th .sort { color: var(--blue); }
+[data-look=prism] .prof { margin-top: 8px; min-width: 90px; }
+[data-look=prism] .prof svg { display: block; width: 100%; height: 24px; }
+[data-look=prism] .prof .stack { display: flex; gap: 2px; height: 8px; margin: 8px 0; border-radius: 99px; overflow: hidden; }
+[data-look=prism] .prof .stack i { display: block; min-width: 3px; background: var(--h); }
+[data-look=prism] .prof .stack i.rest { background: var(--rule); }
+[data-look=prism] .prof .pm { font: 10px var(--mono); color: var(--ink3); margin-top: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+[data-look=prism] .grid .rn { color: var(--ink4); font-size: 10.5px; }
+[data-look=prism] .grid tbody tr:hover td { background: var(--sheet-alt); }
+[data-look=prism] .grid tr.sel td, [data-look=prism] .grid tr.sel .rn { background: var(--acc-soft) !important; }
+[data-look=prism] .grid tr.sel .rn { box-shadow: inset 3px 0 0 var(--blue); color: var(--blue); }
+[data-look=prism] .grid td.n { font-size: 12.5px; }
+[data-look=prism] .grid td.null::after { font: 12px var(--sans); color: var(--ink4); }
+[data-look=prism] .grid td.b-t::after { content: "true"; font: 12px var(--mono); color: #4cc4b6; font-weight: 400; }
+[data-look=prism] .grid td.b-f::after { content: "false"; font: 12px var(--mono); color: var(--ink3); opacity: 1; }
+[data-look=prism] .grid td.b-t, [data-look=prism] .grid td.b-f { text-align: left; }
+[data-look=prism] .grid td.focus { box-shadow: inset 0 0 0 2px var(--blue); }
+[data-look=prism] .grid td.editing { box-shadow: inset 0 0 0 2px var(--blue); }
+[data-look=prism] .grid tr.draft td input:focus { box-shadow: inset 0 0 0 2px var(--blue); }
+[data-look=prism] .grid-foot { background: var(--sheet); border-top-color: var(--rule); padding: 9px 16px; }
+[data-look=prism] .grid-empty { font: 15px var(--sans); }
+[data-look=prism] .pane-error { border-radius: 10px; border-left-width: 3px; }
+
+/* structure */
+[data-look=prism] .card { border-radius: 12px; }
+[data-look=prism] .card h3 { font: 600 13.5px var(--sans); padding: 12px 14px; }
+[data-look=prism] .cols-table th { font-size: 10.5px; letter-spacing: .04em; }
+[data-look=prism] .cols-table td.ty { font: 12px var(--mono); }
+[data-look=prism] .badge { border-radius: 5px; }
+[data-look=prism] .badge.pk { color: var(--violet); }
+[data-look=prism] .addcol { background: var(--sheet-alt); }
+
+/* editor */
+[data-look=prism] .editor-wrap .gutter { border-right: 1px solid var(--rule); color: var(--ink4); opacity: 1; }
+[data-look=prism] .tok-k { color: var(--blue); }
+[data-look=prism] .tok-s { color: var(--orange); }
+[data-look=prism] .tok-n { color: var(--violet); }
+[data-look=prism] .tok-f { font-weight: 600; }
+[data-look=prism] .splitter { background: var(--sheet-alt); border-bottom-color: var(--rule); }
+[data-look=prism] .results-tabs { background: var(--sheet-alt); }
+[data-look=prism] .results-tabs .rt { border-radius: 6px; }
+[data-look=prism] .placeholder { font: 15px var(--sans); }
+
+/* home + readme */
+[data-look=prism] .home-hero .smallcaps { color: var(--blue); }
+[data-look=prism] .home-hero h1 { font: 700 clamp(30px, 3.8vw, 46px)/1.04 var(--sans); letter-spacing: -.04em; }
+[data-look=prism] .home-hero h1 em { font-style: normal; background: var(--spectrum); -webkit-background-clip: text; background-clip: text; color: transparent; }
+[data-look=prism] .home-hero p { font: 15.5px/1.6 var(--sans); }
+[data-look=prism] .act { border-radius: 14px; padding: 16px 16px 14px; }
+[data-look=prism] .act:hover { border-color: var(--rule); }
+[data-look=prism] .act .glyph { border-radius: 10px; }
+[data-look=prism] .act b { font: 600 14.5px var(--sans); }
+[data-look=prism] .home h2 { font: 600 15px var(--sans); letter-spacing: -.01em; }
+[data-look=prism] .folio { border-radius: 12px; }
+[data-look=prism] .folio::before { display: none; }
+[data-look=prism] .folio .fn, [data-look=prism] .folio .fm, [data-look=prism] .folio .fc { padding-left: 0; }
+[data-look=prism] .folio .fn { font: 600 14.5px var(--sans); }
+[data-look=prism] .folio .fc { background: none; }
+
+/* ER map */
+[data-look=prism] .map svg.wires path:not(.hit) { stroke: var(--ink4); opacity: 1; }   /* not .hit: that's the wide, invisible hover target */
+[data-look=prism] .map svg.wires circle { fill: var(--ink3); }
+[data-look=prism] .map svg.wires g.edge:hover path.line, [data-look=prism] .map svg.wires g.edge:hover path.br { stroke: var(--blue); }
+[data-look=prism] .map svg.wires g.edge:hover circle { fill: var(--blue); }
+[data-look=prism] .mcard { border-color: var(--rule); border-radius: 12px; }
+[data-look=prism] .mcard header { border-bottom: 1px solid var(--rule); border-radius: 12px 12px 0 0; background: var(--sheet-alt); }
+[data-look=prism] .mcard header b { font: 600 13.5px var(--sans); }
+[data-look=prism] .mcard .mr .t { font: 10.5px var(--mono); }
+[data-look=prism] .mcard .mr .k { color: var(--violet); }
+[data-look=prism] .map-tools { border-radius: 10px; }
+[data-look=prism] .map-legend { font: 12px var(--sans); }
+
+/* Clerk */
+[data-look=prism] .clerk { background: var(--panel); }
+[data-look=prism] .clerk-head h2 { font: 700 15px var(--sans); color: var(--ink); letter-spacing: -.01em; }
+[data-look=prism] .clerk-head h2::before { content: ""; width: 8px; height: 8px; border-radius: 50%; align-self: center; background: conic-gradient(#ff5f6d, #ffc371, #47e891, #3b5bfd, #b44dff, #ff5f6d); }
+[data-look=prism] .clerk-usage { background: var(--sheet-alt); }
+[data-look=prism] .c-user { background: var(--rule2); border-color: transparent; border-radius: 14px 14px 4px 14px; }
+[data-look=prism] .c-ai { font: 13.5px/1.6 var(--sans); }
+[data-look=prism] .c-ai .sig { font: 600 11.5px var(--sans); }
+[data-look=prism] .c-ai h3, [data-look=prism] .c-ai h4, [data-look=prism] .c-ai h5 { font: 700 13.5px var(--sans); }
+[data-look=prism] .c-ai code { border-radius: 5px; }
+[data-look=prism] .c-ai pre { border-radius: 10px; }
+[data-look=prism] .c-ai table { border-radius: 8px; }
+[data-look=prism] .c-note { font: 12px var(--sans); }
+[data-look=prism] .receipt { border-radius: 12px; box-shadow: none; }
+[data-look=prism] .receipt::before { display: none; }
+[data-look=prism] .r-head { font-size: 10px; letter-spacing: .06em; }
+[data-look=prism] .r-ask .q { font: 600 13px var(--sans); }
+[data-look=prism] .c-working { font: 13px var(--sans); }
+[data-look=prism] .quill { background: var(--spectrum); }
+[data-look=prism] .compose-box { border-radius: 14px; padding: 6px 6px 6px 12px; }
+[data-look=prism] .compose-box textarea { font: 13.5px/1.5 var(--sans); }
+[data-look=prism] .send { border-radius: 10px; background: var(--ink); color: var(--paper); }
+[data-look=prism] .send.stop { background: var(--red); color: #fff; }
+[data-look=prism] .suggest { font: 13px/1.4 var(--sans); border: 1px solid var(--rule); border-radius: 10px; padding: 9px 12px; }
+[data-look=prism] .suggest:hover { border-color: var(--blue); transform: none; }
+[data-look=prism] .connect h3 { font: 700 20px/1.15 var(--sans); color: var(--ink); letter-spacing: -.02em; }
+[data-look=prism] .connect p { font: 13.5px/1.55 var(--sans); }
+[data-look=prism] .step { border-radius: 8px; border-left-width: 1px; }
+[data-look=prism] .step-t { font: 12.5px/1.45 var(--sans); }
+[data-look=prism] .turn-pop { border-radius: 12px; }
+[data-look=prism] .turn-pop .pop-h { font: 600 13px var(--sans); }
+[data-look=prism] .att-tag { border-radius: 5px; }
+
+/* extensions, journal, overlays */
+[data-look=prism] .ext-cat { font: 600 13px var(--sans); }
+[data-look=prism] .ext-card { border-radius: 12px; }
+[data-look=prism] .journal { border-top: 1px solid var(--rule); }
+[data-look=prism] .journal-head h2 { font: 600 13.5px var(--sans); }
+[data-look=prism] .jrow .js { border-radius: 5px; }
+[data-look=prism] .jrow .js.src-grid { color: var(--violet); border-color: color-mix(in srgb, var(--violet) 40%, transparent); }
+[data-look=prism] .menu { border-radius: 12px; padding: 6px; }
+[data-look=prism] .menu button, [data-look=prism] .menu .mi { border-radius: 7px; }
+[data-look=prism] .modal-bg { background: rgba(13,14,18,.32); backdrop-filter: blur(4px); }
+[data-look=prism] .modal { border-color: var(--rule); border-radius: 16px; box-shadow: 0 30px 80px -24px rgba(13,14,18,.45); }
+[data-look=prism] .modal::before { display: none; }
+[data-look=prism] .modal-h, [data-look=prism] .modal-b, [data-look=prism] .modal-f, [data-look=prism] .ext-bar, [data-look=prism] .ext-body { padding-left: 22px; }
+[data-look=prism] .modal-h { padding-top: 20px; }
+[data-look=prism] .modal-h h2 { font: 700 20px/1.2 var(--sans); letter-spacing: -.02em; }
+[data-look=prism] .modal-h p { font: 13.5px/1.55 var(--sans); }
+[data-look=prism] .modal-status .ms-bar i { background: var(--blue); }
+[data-look=prism] .sqlpreview { border-style: solid; border-radius: 10px; background: var(--sheet-alt); }
+[data-look=prism] .csvprev { border-radius: 10px; }
+[data-look=prism] .conn-banner { border-radius: 12px; }
+[data-look=prism] .toast { border-radius: 12px; }
+[data-look=prism] .toast button { color: var(--hl); }
+[data-look=prism] .boot b { font: 700 34px var(--sans); letter-spacing: -.04em; }
+[data-look=prism] .boot .tagline { font: 14px var(--sans); color: var(--ink3); margin: 2px 0 8px; }
+[data-look=prism] .boot span { font: 13px var(--sans); }
+[data-look=prism] .boot .bar { border-radius: 2px; }
+[data-look=prism] .boot .bar::after { background: var(--spectrum); }
+
+/* Column profiles and table size bars are part of the Prism look. */
+html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { display: none; }
+
+/* ---------- row panel (both looks) ---------- */
+.rows-body { flex: 1; min-height: 0; display: flex; }
+.rows-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.rowpanel { width: clamp(260px, 30%, 340px); flex: none; border-left: 1px solid var(--rule); overflow-y: auto; padding: 16px 16px 18px; display: flex; flex-direction: column; gap: 18px; background: var(--sheet); }
+.rowpanel[hidden] { display: none; }
+.rp-head { display: flex; align-items: flex-start; gap: 8px; }
+.rp-head > div { flex: 1; min-width: 0; }
+.rp-head small { font: 500 11.5px var(--sans); color: var(--ink3); }
+.rp-head h2 { margin: 2px 0 0; font: 700 20px/1.2 var(--sans); letter-spacing: -.02em; overflow-wrap: anywhere; }
+.rp-head .iconbtn { margin: -4px -6px 0 0; }
+.rp-empty { color: var(--ink3); font-size: 13px; line-height: 1.55; }
+.rp-fields { display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr); gap: 1px 10px; margin: 0; font-size: 12.5px; }
+.rp-fields dt { color: var(--ink3); font: 11px/22px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.rp-fields dd { margin: 0 0 0 -6px; padding: 2px 6px; border-radius: 6px; line-height: 18px; overflow-wrap: anywhere; cursor: pointer; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.rp-fields dd:hover { background: var(--rule2); }
+.rp-fields dd.n { font: 12px/18px var(--mono); }
+.rp-fields dd.null { color: var(--ink4); }
+.rp-fields dd.on { background: var(--acc-soft); color: var(--blue); }
+.rp-rel { display: flex; flex-direction: column; gap: 16px; }
+.rp-sec h5 { margin: 0 0 8px; display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font: 600 11px var(--sans); letter-spacing: .04em; text-transform: uppercase; color: var(--ink3); }
+.rp-sec h5 small { font: 10.5px var(--mono); color: var(--blue); text-transform: none; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.rp-card { border: 1px solid var(--rule); border-radius: calc(var(--radius) + 4px); transition: border-color .12s; }
+.rp-card:hover, .rp-card.open { border-color: color-mix(in srgb, var(--blue) 45%, var(--rule)); }
+.rp-sum { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; }
+.rp-card .rp-sum { padding: 11px 12px; }
+.rp-li .rp-sum { padding: 8px 12px; }
+.rp-sum > div { flex: 1; min-width: 0; }
+.rp-sum b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-li .rp-sum b { font-weight: 500; font-size: 12.5px; }
+.rp-sum small { display: block; color: var(--ink3); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rp-sum .ic { color: var(--ink4); width: 13px; height: 13px; transition: transform .15s; }
+.open > .rp-sum .ic { transform: rotate(90deg); color: var(--blue); }
+.open > .rp-sum small { white-space: normal; }
+.rp-av { width: 36px; height: 36px; border-radius: calc(var(--radius) + 2px); flex: none; display: grid; place-items: center; color: var(--paper); font: 700 12.5px var(--sans); background: oklch(var(--hue-l) var(--hue-c) var(--hh, 260)); }
+.rp-more { display: none; padding: 2px 12px 10px; }
+.rp-card .rp-more { padding-left: 60px; }
+.open > .rp-more { display: block; animation: drop .12s ease-out; }
+.rp-more .rp-fields { font-size: 12px; margin-bottom: 8px; }
+.rp-more .rp-fields dd { cursor: default; }
+.rp-more .rp-fields dd:hover { background: none; }
+.rp-open { font-size: 12px; font-weight: 600; color: var(--blue); padding: 4px 8px; margin-left: -8px; border-radius: 6px; }
+.rp-open:hover { background: var(--acc-soft); }
+.rp-list { border: 1px solid var(--rule); border-radius: calc(var(--radius) + 4px); overflow: hidden; }
+.rp-li { border-bottom: 1px solid var(--rule2); }
+.rp-li:last-child { border-bottom: 0; }
+.rp-li > .rp-sum:hover, .rp-li.open > .rp-sum { background: var(--sheet-alt); }
+.rp-all { width: 100%; text-align: left; padding: 8px 12px; font-size: 12px; font-weight: 600; color: var(--blue); }
+.rp-all:hover { background: var(--acc-soft); }
+.rp-note { font-size: 12px; color: var(--ink3); line-height: 1.5; }
+.rp-note.bad { color: var(--red); font-family: var(--mono); font-size: 11px; }
+.rp-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; padding-top: 4px; }
+.btn.ghost.on { color: var(--blue); background: var(--acc-soft); }
+@media (max-width: 980px) { .rowpanel { display: none; } }
 </style>
 </head>
 <body>
@@ -802,6 +1168,7 @@ select.field { padding-right: 4px; }
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v8.5a.5.5 0 0 1-.5.5H15v-6H9v6H4.5a.5.5 0 0 1-.5-.5z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
   <symbol id="i-caret" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
   <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
@@ -858,7 +1225,7 @@ select.field { padding-right: 4px; }
       <button class="iconbtn upd-btn" id="updateBtn" title="Reload"><svg class="ic"><use href="#i-update"/></svg></button>
       <button class="iconbtn" id="shareBtn" title="Share as link"><svg class="ic"><use href="#i-share"/></svg></button>
       <button class="iconbtn hide-sm" id="journalToggle" title="Journal (Ctrl+Shift+J)"><svg class="ic"><use href="#i-book"/></svg></button>
-      <button class="iconbtn" id="themeToggle" title="Day / night"><svg class="ic"><use href="#i-moon"/></svg></button>
+      <button class="iconbtn" id="themeToggle" title="Appearance: Ledger or Prism, day or night"><svg class="ic"><use href="#i-moon"/></svg></button>
       <button class="clerk-toggle" id="clerkToggle" title="The Clerk (Ctrl+J)"><span class="pip"></span><svg class="ic"><use href="#i-quill"/></svg><span class="lbl">Clerk</span></button>
     </div>
   </header>
@@ -1447,6 +1814,50 @@ function renderAll() {
 /* ==========================================================================
    Index (left rail)
    ========================================================================== */
+/* Prism: a stable hue per table name, and one per column position (golden-angle steps keep neighbours apart).
+   Only the angle is set here (--hh); the CSS turns it into a colour for the current day/night theme. */
+const nameHue = s => ([...s].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % HUE_STEPS) * HUE_STEP;
+const colHue = i => ((250 + i * 137.508) % 360).toFixed(1);
+const compact = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+const parseTime = v => Date.parse(String(v).replace(' ', 'T').replace(/([+-]\d\d)$/, '$1:00'));
+/** Prism: a small profile of one column from the rows on this page — a histogram for numbers and times,
+    the mix of values when there are few, how unique they are otherwise — plus the share of nulls. */
+function colProfile(c, vals) {
+  const n = vals.length;
+  if (!n) return null;
+  const nn = vals.filter(v => v != null), nulls = n - nn.length;
+  const pct = x => Math.round(x / n * 100) + '%';
+  const distinct = new Map();
+  for (const v of nn) distinct.set(v, (distinct.get(v) || 0) + 1);
+  const stack = parts => h('div', { class: 'stack' }, parts.filter(p => p[0] > 0).map(([k, cls, op, tip]) => h('i', { class: cls, style: `flex:${k}${op != null ? ';opacity:' + op : ''}`, title: tip })));
+  const meta = [];
+  let viz = null;
+  const nums = c.cat === 'N' ? nn.map(Number) : c.cat === 'D' ? nn.map(parseTime) : [];
+  const fin = nums.filter(Number.isFinite);
+  if (c.cat === 'B') {
+    const t = nn.filter(v => v === 't' || v === true || v === 'true').length;
+    viz = stack([[t, '', null, `true · ${t}`], [nn.length - t, 'rest', null, `false · ${nn.length - t}`]]);
+    if (nn.length) meta.push(Math.round(t / nn.length * 100) + '% true');
+  } else if (fin.length > 1 && fin.length === nn.length && distinct.size > 6 && !c.pk && !c.fks?.length) {   // keys: how unique, not a histogram
+    const lo = Math.min(...fin), hi = Math.max(...fin), B = 14, bins = Array(B).fill(0);
+    for (const x of fin) bins[hi === lo ? 0 : Math.min(B - 1, Math.floor((x - lo) / (hi - lo) * B))]++;
+    const mx = Math.max(...bins), w = 100 / B;
+    viz = h('div', { html: `<svg viewBox="0 0 100 24" preserveAspectRatio="none">${bins.map((b, i) => b ? `<rect x="${(i * w + .6).toFixed(2)}" y="${(24 - b / mx * 22).toFixed(2)}" width="${(w - 1.2).toFixed(2)}" height="${(b / mx * 22).toFixed(2)}" rx=".8" fill="var(--h)" opacity="${(.35 + .65 * b / mx).toFixed(2)}"/>` : '').join('')}</svg>` });
+    if (c.cat === 'N') meta.push(`${compact.format(lo)} – ${compact.format(hi)}`);
+    else { const d = x => new Date(x).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); meta.push(d(lo) === d(hi) ? new Date(lo).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) + ' – ' + new Date(hi).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : `${d(lo)} – ${d(hi)}`); }
+  } else if (distinct.size > 0 && distinct.size <= 6 && nn.length > distinct.size) {
+    const top = [...distinct].sort((a, b) => b[1] - a[1]);
+    viz = stack(top.map(([v, k], i) => [k, '', (1 - i * .15).toFixed(2), `${v} · ${k}`]));
+    meta.push(`${top.length} values · ${String(top[0][0]).slice(0, 14)} ${Math.round(top[0][1] / nn.length * 100)}%`);
+  } else if (nn.length) {
+    viz = stack([[distinct.size, '', null, `${distinct.size} distinct`], [nn.length - distinct.size, 'rest', null, `${nn.length - distinct.size} repeats`]]);
+    meta.push(distinct.size === nn.length ? 'all unique' : `${distinct.size.toLocaleString()} distinct`);
+  }
+  if (!nn.length) viz = stack([[1, 'rest']]);
+  if (nulls) meta.push(nulls === n ? 'all null' : pct(nulls) + ' null');
+  return h('div', { class: 'prof' }, viz, h('div', { class: 'pm' }, meta.join(' · ')));
+}
+
 function renderIndex() {
   const list = $('idxList');
   const f = $('idxFilter').value.trim().toLowerCase();
@@ -1458,6 +1869,7 @@ function renderIndex() {
   if (!S.tables.length) list.append(h('div', { class: 'index-empty' }, 'No tables yet. Create one, import a CSV, or load the sample.'));
   const isView = t => t.kind === 'v' || t.kind === 'm';
   let delay = 0;
+  const logMax = Math.log10(Math.max(10, ...S.tables.map(t => S.counts[t.key] ?? 0)) + 1);   // prism: size bars, log scale
   const item = (t, label) => {
       const open = S.expanded.has(t.key) || (f && !t.key.toLowerCase().includes(f));
       const el = h('div', { class: 'idx' + (t.kind === 'v' || t.kind === 'm' ? ' view' : '') + (act?.type === 'table' && act.key === t.key ? ' active' : '') + (open ? ' open' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms` },
@@ -1466,6 +1878,8 @@ function renderIndex() {
           h('span', { class: 'idx-name', title: t.key }, label),
           h('span', { class: 'idx-leader' }),
           h('span', { class: 'idx-count', title: S.approx?.has(t.key) ? 'estimated' : null }, t.kind === 'v' ? 'view' : (S.approx?.has(t.key) ? '~' : '') + (S.counts[t.key] ?? 0).toLocaleString())),
+        t.kind !== 'v' && t.kind !== 'm' && h('div', { class: 'idx-bar', style: `--hh:${nameHue(t.key)}`, title: 'Size relative to the largest table (log scale)' },
+          h('i', { style: `width:${Math.max(2, Math.log10((S.counts[t.key] ?? 0) + 1) / logMax * 100).toFixed(1)}%` })),
         h('div', { class: 'idx-cols' }, t.cols.map(c => h('div', { class: 'idx-col', title: `${c.name} ${c.type}` },
           c.pk ? h('span', { class: 'k' }, 'PK') : c.fks?.length ? h('span', { class: 'k fk', title: fkTitle(c) }, fkMark(c)) : null,
           h('span', {}, c.name), h('span', { class: 't' }, c.type)))));
@@ -1774,6 +2188,7 @@ function renderTableTab(tab, pane) {
     h('div', { class: 'spacer' }),
     tab.view === 'rows' && selCount > 0 && h('button', { class: 'btn red', onclick: () => deleteSelected(tab) }, ic('trash'), `Delete ${selCount}`),
     tab.view === 'rows' && t.editable && h('button', { class: 'btn', onclick: () => startDraft(tab), title: 'Insert a row (Ctrl+Alt+R)' }, ic('plus'), 'Row'),
+    tab.view === 'rows' && h('button', { class: 'btn ghost' + (store.get('rowPanel', true) ? ' on' : ''), title: 'Row details: the selected row and its related rows', onclick: () => toggleRowPanel(!store.get('rowPanel', true)) }, ic('view')),
     h('button', { class: 'btn ghost', title: 'Refresh', onclick: async () => { tab.dirty = true; await refreshSchema({ initial: true }); renderIndex(); renderPane(); } }, ic('refresh')),
     tab.view === 'rows' && h('button', { class: 'btn ghost', title: 'Export CSV (current filter)', onclick: () => exportTableCsv(t, tab) }, ic('download')),
     h('button', { class: 'btn blue', title: 'Ask the Clerk about what you\'re viewing', onclick: () => { openClerk(); S.clerk.ctxOn = true; renderClerkCtx(); $('clerkText')?.focus(); } }, ic('quill'), 'Ask'));
@@ -1782,7 +2197,9 @@ function renderTableTab(tab, pane) {
 
   const wrap = h('div', { class: 'gridwrap', tabindex: 0 });
   const foot = h('div', { class: 'grid-foot' });
-  pane.append(wrap, foot);
+  const panel = h('aside', { class: 'rowpanel', hidden: !store.get('rowPanel', true) });   // prism: row panel
+  tab._panel = panel;
+  pane.append(h('div', { class: 'rows-body' }, h('div', { class: 'rows-main' }, wrap, foot), panel));
   const draw = () => {
     wrap.replaceChildren();
     if (tab.error) {
@@ -1811,6 +2228,7 @@ function renderTableTab(tab, pane) {
       tab.markRow = null;
     }
     if (tab.focus) setFocus(tab, wrap, tab.focus.r, tab.focus.c, true);
+    renderRowPanel(tab);
   };
   tab._draw = draw;
   tab._wrap = wrap;
@@ -1832,12 +2250,13 @@ function buildGrid(tab, t) {
   const table = h('table', { class: 'grid' + (ro ? ' ro' : '') });
   const thead = h('thead', {}, h('tr', {},
     h('th', { class: 'rn', title: ro ? '' : 'Click row numbers to select' }, ''),
-    t.cols.map(c => {
+    t.cols.map((c, ci) => {
       const s = tab.sort?.col === c.name ? tab.sort.dir : null;
-      return h('th', { title: `${c.name} · ${c.type}${c.notnull ? ' · not null' : ''}${c.def ? ' · default ' + c.def : ''}\nClick to sort`,
+      return h('th', { style: `--hh:${colHue(ci)}`, title: `${c.name} · ${c.type}${c.notnull ? ' · not null' : ''}${c.def ? ' · default ' + c.def : ''}\nProfile: the ${tab.rows.length.toLocaleString()} rows on this page\nClick to sort`,
         onclick: () => { tab.sort = !s ? { col: c.name, dir: 'asc' } : s === 'asc' ? { col: c.name, dir: 'desc' } : null; tab.page = 0; tab.dirty = true; renderPane(); } },
         h('div', { class: 'cn' }, c.name, s && h('span', { class: 'sort' }, s === 'asc' ? '▲' : '▼')),
-        h('div', { class: 'ct' }, c.pk && h('b', {}, 'PK'), c.fks?.length > 0 && h('b', { class: 'fk', title: fkTitle(c) }, fkMark(c)), c.type));
+        h('div', { class: 'ct' }, c.pk && h('b', {}, 'PK'), c.fks?.length > 0 && h('b', { class: 'fk', title: fkTitle(c) }, fkMark(c)), c.type),
+        colProfile(c, tab.rows.map(r => r[ci + 1])));
     })));
   const tbody = h('tbody');
   if (tab.draft) tbody.append(draftRow(tab, t));
@@ -1879,6 +2298,117 @@ function setFocus(tab, wrap, r, c, noScroll) {
   const td = wrap.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
   if (td) { td.classList.add('focus'); if (!noScroll) td.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
   if (document.activeElement?.tagName !== 'INPUT') wrap.focus({ preventScroll: true });
+  renderRowPanel(tab);
+}
+
+/* ---------- prism: row panel ----------
+   The focused row in full, the rows its foreign keys point to, and — for every table that references this
+   one — the first few rows pointing at it, with a count. Reads only; one query per key, run in turn
+   (a database is one connection), and dropped if the focus moves on before they finish. */
+const LABEL_RX = /^(name|title|label|full_?name|display_?name|username|email|slug|code|sku)$/i;
+/** A short title and subtitle for a row: a name-like column if there is one, else its primary key. */
+function rowSummary(t, vals) {
+  const at = i => vals[i] == null ? null : String(vals[i]);
+  let li = t.cols.findIndex((c, i) => LABEL_RX.test(c.name) && at(i));
+  const pk = t.pk.map(p => at(t.cols.findIndex(c => c.name === p))).filter(v => v != null);
+  if (li < 0 && !pk.length) li = t.cols.findIndex((c, i) => !c.pk && !c.fks?.length && c.cat === 'S' && at(i) && at(i).length <= 80);   // no key: any short text
+  const id = pk.length ? '#' + pk.join(' · ') : null;
+  const rest = t.cols.map((c, i) => [c, at(i), i]).filter(([c, v, i]) => v != null && i !== li && !c.pk && !c.fks?.length && v.length <= 40)
+    .slice(0, 3).map(([c, v]) => `${c.name} ${v}`).join(' · ');
+  return { title: li >= 0 ? at(li) : id || 'Row', sub: [li >= 0 && id, rest].filter(Boolean).join(' · ') };
+}
+const initials = (s, t) => /^[#(]/.test(s) || !/\p{L}/u.test(s) ? t.name.slice(0, 2).toUpperCase()
+  : s.split(/\s+/).filter(w => /\p{L}/u.test(w)).slice(0, 2).map(w => [...w][0]).join('').toUpperCase();
+function toggleRowPanel(on) { store.set('rowPanel', on); renderPane(); }
+
+function renderRowPanel(tab) {
+  const panel = tab._panel;
+  if (!panel || panel.hidden || !panel.isConnected) return;
+  const t = S.byKey[tab.key], r = tab.focus?.r, row = r != null ? tab.rows[r] : null;
+  const markField = () => panel.querySelectorAll('.rp-fields dd').forEach(dd => dd.classList.toggle('on', +dd.dataset.c === tab.focus?.c));
+  if (row && panel._row === row) return markField();          // same row, another cell
+  panel._row = row;
+  const token = panel._token = {};
+  const head = (title, sub) => h('div', { class: 'rp-head' }, h('div', {}, h('small', {}, sub), h('h2', {}, title)),
+    h('button', { class: 'iconbtn', title: 'Hide row details', onclick: () => toggleRowPanel(false) }, ic('x')));
+  if (!t || !row) {
+    panel.replaceChildren(head('No row selected', t?.key || ''), h('div', { class: 'rp-empty' }, 'Click a cell to see its whole row here, with the rows it points to and the rows that point at it.'));
+    return;
+  }
+  const vals = row.slice(1), sum = rowSummary(t, vals);
+  const valOf = name => vals[t.cols.findIndex(c => c.name === name)];
+  const where = (cols, vs) => cols.map((c, i) => `${qi(c)} = ${lit(vs[i])}`).join(' and ');
+  const sel = o => o.cols.map(c => `${qi(c.name)}::text`).join(', ');
+  const rel = h('div', { class: 'rp-rel' });
+  const status = h('div', { class: 'rp-note' }, 'Looking up related rows…');
+  panel.replaceChildren(
+    head(sum.title, `${t.key} · row ${(tab.page * PAGE + r + 1).toLocaleString()}`),
+    h('dl', { class: 'rp-fields' }, t.cols.flatMap((c, i) => [
+      h('dt', { title: `${c.name} · ${c.type}` }, c.name),
+      h('dd', { class: (vals[i] == null ? 'null' : '') + (c.cat === 'N' ? ' n' : ''), 'data-c': i, title: vals[i] != null && vals[i].length > 120 ? vals[i].slice(0, 600) : '',
+        onclick: () => setFocus(tab, tab._wrap, r, i) }, vals[i] == null ? 'null' : String(vals[i]).slice(0, 400))])),
+    rel,
+    h('div', { class: 'rp-acts' },
+      h('button', { class: 'btn sm', onclick: () => { navigator.clipboard?.writeText(JSON.stringify(Object.fromEntries(t.cols.map((c, i) => [c.name, vals[i]])), null, 2)); toast('Copied as JSON'); } }, ic('copy'), 'Copy JSON'),
+      h('button', { class: 'btn sm blue', onclick: () => clerkAsk(`About this row in ${t.key}: ${JSON.stringify(Object.fromEntries(t.cols.map((c, i) => [c.name, vals[i]])))} — `, { draft: true }) }, ic('quill'), 'Ask'),
+      t.editable && h('button', { class: 'btn sm red', onclick: () => { tab.sel = new Set([r]); deleteSelected(tab); } }, ic('trash'), 'Delete')));
+  markField();
+  const section = (label, meta) => { const body = h('div'); rel.append(h('section', { class: 'rp-sec' }, h('h5', {}, h('span', {}, label), h('small', { title: meta }, meta)), body)); return body; };
+  const fail = (body, e) => body.append(h('div', { class: 'rp-note bad' }, e.message));
+  /** A related row: its summary toggles the full row open in place; "Open in …" inside goes to it. */
+  const relItem = (o, x, filter, card) => {
+    const s2 = rowSummary(o, x);
+    const el = h('div', { class: card ? 'rp-card' : 'rp-li' });
+    el.append(
+      h('button', { class: 'rp-sum', 'aria-expanded': 'false', title: 'Show the whole row', onclick: () => {
+        const open = el.classList.toggle('open');
+        el.firstChild.setAttribute('aria-expanded', open);
+      } },
+        card && h('span', { class: 'rp-av', style: `--hh:${nameHue(o.key)}` }, initials(s2.title, o)),
+        h('div', {}, h('b', {}, s2.title), s2.sub && h('small', {}, s2.sub)), ic('caret')),
+      h('div', { class: 'rp-more' },
+        h('dl', { class: 'rp-fields' }, o.cols.flatMap((c, i) => [
+          h('dt', { title: `${c.name} · ${c.type}` }, c.name),
+          h('dd', { class: (x[i] == null ? 'null' : '') + (c.cat === 'N' ? ' n' : ''), title: x[i] != null && x[i].length > 120 ? x[i].slice(0, 600) : '' }, x[i] == null ? 'null' : String(x[i]).slice(0, 400))])),
+        h('button', { class: 'rp-open', onclick: () => openTable(o.key, { view: 'rows', filter }) }, `Open in ${o.key} →`)));
+    return el;
+  };
+  (async () => {
+    const empty = [];
+    rel.append(status);
+    for (const fk of t.fks) {                                   // this row → the rows it references
+      const ref = S.byKey[fk.ref], vs = fk.cols.map(valOf);
+      if (!ref || vs.some(v => v == null)) continue;
+      let res;
+      try { res = await q(`select ${sel(ref)} from ${qt(ref)} where ${where(fk.refCols, vs)} limit 1`, [], true); }
+      catch (e) { if (panel._token === token) fail(section(fk.ref, fkLabel(fk)), e); continue; }
+      if (panel._token !== token) return;
+      const body = section(fk.ref, `${fk.cols.join(', ')} → ${fk.refCols.join(', ')}`);
+      const hit = res.rows[0];
+      if (!hit) { body.append(h('div', { class: 'rp-note' }, 'No matching row — the key points at nothing.')); continue; }
+      body.append(relItem(ref, hit, where(fk.refCols, vs), true));
+    }
+    for (const o of S.tables) for (const fk of o.fks) {         // rows elsewhere → this row
+      if (fk.ref !== t.key) continue;
+      const vs = fk.refCols.map(valOf);
+      if (vs.some(v => v == null)) continue;
+      let res;
+      try { res = await q(`select ${sel(o)}, count(*) over ()::text from ${qt(o)} where ${where(fk.cols, vs)} limit 3`, [], true); }
+      catch (e) { if (panel._token === token) fail(section(o.key, fkLabel(fk)), e); continue; }
+      if (panel._token !== token) return;
+      const n = +(res.rows[0]?.at(-1) ?? 0);
+      if (!n) { empty.push(o.key); continue; }
+      const body = section(o.key, `${n.toLocaleString()} ${n === 1 ? 'row' : 'rows'} · ${fk.cols.join(', ')}`);
+      const opk = o.pk.map(p => o.cols.findIndex(c => c.name === p));
+      body.append(h('div', { class: 'rp-list' },
+        res.rows.map(x => relItem(o, x, opk.length && opk.every(i => i >= 0 && x[i] != null) ? where(o.pk, opk.map(i => x[i])) : where(fk.cols, vs))),
+        n > res.rows.length && h('button', { class: 'rp-all', onclick: () => openTable(o.key, { view: 'rows', filter: where(fk.cols, vs) }) }, `All ${n.toLocaleString()} in ${o.key} →`)));
+    }
+    if (panel._token !== token) return;
+    status.remove();
+    if (empty.length) rel.append(h('div', { class: 'rp-note' }, `Nothing points here from ${empty.join(', ')}.`));
+    if (!rel.children.length) rel.append(h('div', { class: 'rp-note' }, 'No foreign keys lead to or from this table.'));
+  })();
 }
 
 function gridKeys(e, tab, t, wrap) {
@@ -3628,7 +4158,7 @@ const SESSION_PARTS = [
   { key: 'tabs', label: 'Open tabs', on: true },
   { key: 'map', label: 'ERD layout', on: true },
 ];
-const SETTING_KEYS = ['base', 'model', 'sysPrompt', 'theme', 'confirm', 'clerkW', 'split'];
+const SETTING_KEYS = ['base', 'model', 'sysPrompt', 'theme', 'look', 'confirm', 'clerkW', 'split'];
 const gzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
 const gunzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
 const fmtBytes = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
@@ -3806,6 +4336,7 @@ async function importSessionDialog(file, preread, sourceLabel) {
         for (const [k, v] of Object.entries(man.settings)) if (SETTING_KEYS.includes(k)) store.set(k, v);
         C.base = store.get('base', DEFAULT_BASE); C.model = store.get('model', DEFAULT_MODEL);
         const th = store.get('theme', null); if (th) { document.documentElement.dataset.theme = th; applyDbColor(); $('themeToggle').replaceChildren(ic(th === 'day' ? 'moon' : 'sun')); }
+        const lk = store.get('look', null); if (lk) setLook(lk);
         const w = store.get('clerkW', null); if (w) setClerkW(clampClerkW(w));
       }
       m.close();
@@ -4992,6 +5523,7 @@ const COMMANDS = [
   { label: 'README — what pgquire can do', k: 'readme help about features docs guide keys shortcuts', run: openReadme },
   { label: 'Toggle the journal', k: 'journal log history', run: toggleJournal },
   { label: 'Toggle day / night', k: 'theme dark light night day', run: toggleTheme },
+  { label: 'Switch look: Ledger / Prism', k: 'look theme appearance prism ledger style', run: () => setLook(document.documentElement.dataset.look === 'prism' ? 'ledger' : 'prism') },
   { label: 'Load the sample bookstore', k: 'sample demo example data', run: loadSample/*remote:*/, when: () => !isRemote(S.id)/*:remote*/ },
   { label: 'Extensions…', k: 'extensions extension plugins pg_trgm vector pgvector postgis uuid pgcrypto hstore fuzzy', run: () => extensionsDialog() },
   { label: 'Share as link', k: 'share link url send copy', run: shareDialog },
@@ -5522,7 +6054,7 @@ function connectForm() {
   go.onclick = submit;
   [base, key, model].forEach(i => i.onkeydown = e => { if (e.key === 'Enter') submit(); });
   loadModels(C.base, C.key);
-  setTimeout(() => (C.key == null ? key : model).focus(), 50);
+  setTimeout(() => { if (!app.classList.contains('clerk-closed')) (C.key == null ? key : model).focus({ preventScroll: true }); }, 50);   // a closed Clerk must not take focus: it scrolls the app sideways
   return h('div', { class: 'connect' },
     h('h3', {}, clerkOn() ? 'Connection' : 'Hire a clerk.'),
     h('p', {}, 'The Clerk is an AI that can read, query and change this database. Each change it wants to make shows up for you to approve first. It\'s optional; everything else works without it.'),
@@ -6033,6 +6565,7 @@ function recolorDb(id) {
 
 /* Favicon: a ledger page whose spine is the open database's colour, with an ink "pg". */
 function setFavicon(theme) {
+  if (document.documentElement.dataset.look === 'prism') return setPrismFavicon(theme);
   const night = theme === 'night';
   const c = night ? { bg: '#1b1a14', edge: '#ece5d3', ink: '#ece5d3', rule: '#58534a' } : { bg: '#f7f3e8', edge: '#1d1b16', ink: '#1d1b16', rule: '#c9bfa6' };
   const spine = dbColor(currentDb(), theme) || (night ? '#ff6d55' : '#c8412c');
@@ -6044,14 +6577,42 @@ function setFavicon(theme) {
     + `<rect x='1.5' y='1.5' width='29' height='29' rx='5' fill='none' stroke='${c.edge}' stroke-width='2'/></svg>`;
   $('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
+/* Favicon: the prism on a dark tile, with a bar in the open database's colour. */
+function setPrismFavicon(theme) {
+  const spine = dbColor(currentDb(), theme);
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>`
+    + `<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#ff5f6d'/><stop offset='.35' stop-color='#ffc371'/><stop offset='.65' stop-color='#47e891'/><stop offset='1' stop-color='#3b5bfd'/></linearGradient></defs>`
+    + `<rect width='32' height='32' rx='8' fill='#0d0e12'/><path d='M16 5 26.5 23H5.5z' fill='url(#g)'/>`
+    + (spine ? `<rect x='6' y='26' width='20' height='3' rx='1.5' fill='${spine}'/>` : '') + `</svg>`;
+  $('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
 function toggleTheme() {
   const next = document.documentElement.dataset.theme === 'day' ? 'night' : 'day';
   document.documentElement.dataset.theme = next; store.set('theme', next); applyDbColor();
   $('themeToggle').replaceChildren(ic(next === 'day' ? 'moon' : 'sun'));
 }
+/** Ledger or Prism. Day/night is separate, so both looks have both. */
+function setLook(look) {
+  if (look === 'prism') document.documentElement.dataset.look = 'prism'; else delete document.documentElement.dataset.look;
+  store.set('look', look);
+  if (look === 'prism' && !$('prismFonts')) document.head.append(h('link', { id: 'prismFonts', rel: 'stylesheet', href: PRISM_FONTS }));
+  applyDbColor();
+}
+function setMode(theme) { if (document.documentElement.dataset.theme !== theme) toggleTheme(); }
+function appearanceMenu(x, y) {
+  const look = document.documentElement.dataset.look === 'prism' ? 'prism' : 'ledger', theme = document.documentElement.dataset.theme;
+  showMenu(x, y, [
+    { header: true, label: 'Look' },
+    { label: 'Ledger', hint: 'ink on paper', cur: look === 'ledger', icon: look === 'ledger' ? 'check' : null, run: () => setLook('ledger') },
+    { label: 'Prism', hint: 'crisp, data-first', cur: look === 'prism', icon: look === 'prism' ? 'check' : null, run: () => setLook('prism') },
+    '-',
+    { header: true, label: 'Mode' },
+    { label: 'Day', cur: theme === 'day', icon: 'sun', run: () => setMode('day') },
+    { label: 'Night', cur: theme === 'night', icon: 'moon', run: () => setMode('night') }]);
+}
 function closeIndexMobile() { app.classList.remove('index-open'); }
 
-$('themeToggle').onclick = toggleTheme;
+$('themeToggle').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); appearanceMenu(r.right - 190, r.bottom + 6); };
 {
   const mq = matchMedia('(max-width: 600px)'), tiny = matchMedia('(max-width: 420px)');
   const setPh = () => { omniInput.placeholder = tiny.matches ? 'Search…' : mq.matches ? 'Search, SQL or ask…' : 'Jump to a table, type SQL, or ask the Clerk…'; };

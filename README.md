@@ -10,7 +10,8 @@ A single-file Postgres workbench. Run queries, browse schema, and explore your d
 
 - SQL query editor with results grid
 - Database schema browser
-- Light/dark "Ledger" theming
+- Two looks, each with day and night: "Ledger" (ink on paper) and "Prism" (crisp, with column profiles in the grid) — switch in the top-right Appearance menu
+- Row details: click a row to see it in full, the rows it points to, and the rows that point at it
 - Zero build step — one self-contained HTML file
 
 ## Usage
