@@ -1449,6 +1449,9 @@ const loadDbs = () => store.get('dbs', []);
 const saveDbs = d => store.set('dbs', d);
 const currentDb = () => loadDbs().find(d => d.id === S.id);
 
+/** Ask the browser to keep this site's databases when disk runs low (by default it may delete them).
+ *  Covers every database here; called when the user makes one, so a first visit doesn't prompt. */
+const keepStorage = () => navigator.storage?.persist?.().catch(() => {});
 function newDbMeta(name) {
   const dbs = loadDbs();
   let n = dbs.length + 1;
@@ -4178,7 +4181,7 @@ $('dbSwitch').onclick = e => {
   showMenu(r.left, r.bottom + 4, [
     { scroll: listed },
     '-',
-    { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
+    { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) { keepStorage(); openDb(newDbMeta(n).id); } } },
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: dbLabel(d) }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
     { label: 'Connect remote Postgres…', icon: 'plus', hint: 'needs the pgquire app', run: needsAppDialog },
     { label: 'Extensions…', icon: 'puzzle', hint: (S.exts || []).length ? String(S.exts.length) : '', run: () => extensionsDialog() },
@@ -4276,6 +4279,7 @@ async function createDbFrom(name, { sql, dataDir, extensions, build }, onProgres
   let unique = name, n = 2;
   while (names.has(unique)) unique = `${name} (${n++})`;
   const meta = newDbMeta(unique);
+  keepStorage();
   // Extensions the data needs must be loaded before the SQL runs (or the data folder is used).
   const exts = withDeps([...(extensions || []), ...(sql ? detectExtensions(sql) : [])]);
   if (exts.length) setDbExtensions(meta.id, exts);

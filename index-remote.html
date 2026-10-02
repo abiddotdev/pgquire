@@ -580,6 +580,8 @@ select.field { padding-right: 4px; }
 .cp-row .ref { color: var(--ink3); font: italic 11px var(--sans); margin-left: 6px; } /* @remote */
 .cp-row .n { text-align: right; color: var(--ink3); font: 11.5px var(--mono); font-variant-numeric: tabular-nums; } /* @remote */
 .cp-row.off .nm { color: var(--ink3); } /* @remote */
+.copy-space { margin: 0; font-size: 12px; color: var(--ink3); } /* @remote */
+.copy-space.warn { color: var(--red); } /* @remote */
 .wordmark .ver { font: 600 9px var(--mono); font-style: normal; color: var(--red); letter-spacing: .08em; margin-left: 3px; align-self: flex-start; margin-top: 3px; }
 .clerk-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .clerk-title h2 { flex: none; }
@@ -1480,6 +1482,9 @@ const loadDbs = () => store.get('dbs', []);
 const saveDbs = d => store.set('dbs', d);
 const currentDb = () => loadDbs().find(d => d.id === S.id);
 
+/** Ask the browser to keep this site's databases when disk runs low (by default it may delete them).
+ *  Covers every database here; called when the user makes one, so a first visit doesn't prompt. */
+const keepStorage = () => navigator.storage?.persist?.().catch(() => {});
 function newDbMeta(name) {
   const dbs = loadDbs();
   let n = dbs.length + 1;
@@ -4334,7 +4339,7 @@ $('dbSwitch').onclick = e => {
   // @pages: showMenu(r.left, r.bottom + 4, [
     { scroll: listed },
     '-',
-    { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) openDb(newDbMeta(n).id); } },
+    { label: 'New database', icon: 'plus', run: async () => { const n = await promptDlg({ title: 'A new database', label: 'Name', value: `db-${dbs.length + 1}` }); if (n) { keepStorage(); openDb(newDbMeta(n).id); } } },
     { label: 'Rename this one…', icon: 'pen', run: async () => { const d = currentDb(); const n = await promptDlg({ title: 'Rename database', label: 'Name', value: dbLabel(d)/*remote:*/, note: isRemote(S.id) ? renameRemoteNote(d) : null/*:remote*/ }); if (n) { saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, name: n } : x)); renderAll(); document.title = `${n} · pgquire`; } } },
     /* @remote { */
     S.server ? { label: 'Connect remote Postgres…', icon: 'plus', run: connectRemoteDialog }
@@ -4560,6 +4565,7 @@ async function createDbFrom(name, { sql, dataDir, extensions, build }, onProgres
   let unique = name, n = 2;
   while (names.has(unique)) unique = `${name} (${n++})`;
   const meta = newDbMeta(unique);
+  keepStorage();
   // Extensions the data needs must be loaded before the SQL runs (or the data folder is used).
   const exts = withDeps([...(extensions || []), ...(sql ? detectExtensions(sql) : [])]);
   if (exts.length) setDbExtensions(meta.id, exts);
@@ -5410,13 +5416,14 @@ function cloneDbDialog(d) {
   };
 }
 /* @remote { */
+const COPY_CONFIRM = 500 * 1048576, COPY_MEM_WARN = 1024 * 1048576;   // bytes: ask first; warn about the tab's memory
 async function copyToLocalDialog() {
   const d = currentDb();
   if (d?.kind !== 'remote') return;
   const name = h('input', { class: 'field', value: nextFreeName(remoteDbOf(d) || d.name) });
   let rows = 1000;
   const radio = (v, label) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' },
-    h('input', { type: 'radio', name: 'copyrows', checked: v === rows, onchange: () => { rows = v; } }), label);
+    h('input', { type: 'radio', name: 'copyrows', checked: v === rows, onchange: () => { rows = v; paintSpace(); } }), label);
   const box = (label, checked = true) => { const i = h('input', { type: 'checkbox', checked }); return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, i, label)]; };
   const [views, viewsL] = box('Views and materialized views');
   const [code, codeL] = box('Functions and triggers');
@@ -5424,9 +5431,25 @@ async function copyToLocalDialog() {
   const go = h('button', { class: 'btn ink' }, 'Copy');
   const allRows = n => `All${n ? ` (~${Math.round(n).toLocaleString()} rows)` : ''}`;
   const allL = h('span', {}, allRows(Object.values(S.counts || {}).reduce((a, b) => a + b, 0)));
-  let picker = null;
+  let picker = null, chosen = null, free = null;
   const slot = h('div', { style: 'font-size:12px;color:var(--ink3)' }, 'Listing the tables…');
-  copyTablePicker(S.db, p => { allL.textContent = allRows(p.est); go.disabled = !p.count; })
+  // Room for it: what the chosen tables take on the server (scaled down by the row limit) against what the
+  // browser still allows this site. The whole database also sits in the tab's memory while it's open.
+  const space = h('p', { class: 'copy-space', hidden: true });
+  const needed = () => chosen && chosen.reduce((a, t) => a + (t.bytes || 0) * (rows == null || !(t.est > 0) ? 1 : Math.min(1, rows * Math.max(1, t.parts) / t.est)), 0);
+  const tooBig = n => free != null && n > free ? 'room' : n > COPY_MEM_WARN ? 'memory' : '';
+  function paintSpace() {
+    const n = needed();
+    space.hidden = n == null;
+    if (n == null) return;
+    const why = tooBig(n);
+    space.classList.toggle('warn', !!why);
+    space.textContent = `Needs about ${fmtBytes(n)} in this browser${free != null ? ` · ${fmtBytes(free)} free` : ''}.`
+      + (why === 'room' ? ' That is more than the browser allows this site: leave out some tables or copy fewer rows.'
+        : why === 'memory' ? ' Past about 1 GB a copy gets slow, and the tab can run out of memory, since the whole database is held in memory while it\'s open.' : '');
+  }
+  navigator.storage?.estimate?.().then(e => { free = e.quota - e.usage; paintSpace(); }).catch(() => {});
+  copyTablePicker(S.db, p => { allL.textContent = allRows(p.est); go.disabled = !p.count; chosen = p.tables; paintSpace(); })
     .then(p => { picker = p; slot.replaceWith(p.el); })
     .catch(e => { slot.textContent = `Couldn't list the tables (${e.message}), so all of them are copied.`; });
   const m = modal([
@@ -5434,12 +5457,18 @@ async function copyToLocalDialog() {
     h('div', { class: 'modal-b' },
       h('label', { class: 'lab' }, 'Name of the copy', name),
       slot,
+      space,
       h('div', {}, h('div', { class: 'smallcaps', style: 'margin:6px 0 4px' }, 'Rows per table'),
         radio(100, '100'), radio(1000, '1,000 — recommended'), radio(10000, '10,000'), radio(null, allL)),
       h('div', {}, h('div', { class: 'smallcaps', style: 'margin:6px 0 4px' }, 'Also copy'), viewsL, codeL),
       h('p', { style: 'margin:0;font-size:12px;color:var(--ink3)' }, 'With a row limit, foreign keys are added NOT VALID, since sampled rows may point at rows that weren\'t copied. Anything the browser\'s Postgres can\'t run (for example an extension it doesn\'t have) is skipped and listed.')),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   go.onclick = async () => {
+    const n = needed();
+    if (n != null && (tooBig(n) === 'room' || n > COPY_CONFIRM) && !(await confirmDlg({ title: `Copy about ${fmtBytes(n)}?`,
+      body: tooBig(n) === 'room' ? `That is more than the ${fmtBytes(free)} this browser still allows this site, so the copy will probably fail partway.`
+        : `Every row passes through this browser, and the whole copy is held in the tab's memory while it's open. That can take a while${n > COPY_MEM_WARN ? ', and may run out of memory' : ''}.`,
+      ok: 'Copy anyway' }))) return;
     go.disabled = true; status.set('Connecting…', { busy: true });
     const failed = [];
     let result;
@@ -5459,12 +5488,12 @@ async function copyToLocalDialog() {
 }
 /* Which tables a copy takes: the remote database's tables by schema, with the planner's row estimate and the
    size on disk (partitions count into their table and come with it). With "tables they reference" on, tables
-   the chosen ones point at through foreign keys come too, so those keys survive. onChange({ count, est })
+   the chosen ones point at through foreign keys come too, so those keys survive. onChange({ count, est, tables })
    follows the choice; only() is null while everything is chosen. */
 async function copyTablePicker(db, onChange) {
-  const tables = (await db.query(`select n.nspname as schema, c.relname as name, format('%I.%I', n.nspname, c.relname) as qn, z.est, z.bytes
+  const tables = (await db.query(`select n.nspname as schema, c.relname as name, format('%I.%I', n.nspname, c.relname) as qn, z.est, z.bytes, z.parts
     from pg_class c join pg_namespace n on n.oid = c.relnamespace
-    cross join lateral (select sum(pg_total_relation_size(pc.oid))::float8 as bytes,
+    cross join lateral (select sum(pg_total_relation_size(pc.oid))::float8 as bytes, count(*) filter (where pc.relkind = 'r')::int as parts,
         case when bool_or(pc.reltuples < 0) filter (where pc.relkind = 'r') then null else coalesce(sum(pc.reltuples) filter (where pc.relkind = 'r'), 0) end::float8 as est
       from (select c.oid as relid union select relid from pg_partition_tree(c.oid)) pt join pg_class pc on pc.oid = pt.relid) z
     where c.relkind in ('r', 'p') and not c.relispartition and ${USER_NS} and ${NOT_EXT('c.oid')} order by 1, 2`)).rows;
@@ -5528,7 +5557,7 @@ async function copyTablePicker(db, onChange) {
     }
     const all = chosen(), tot = sumUp(all.map(q => byQn.get(q)));
     sum.textContent = !tables.length ? 'none' : `${all.length === tables.length ? `all ${tables.length}` : `${all.length} of ${tables.length}`} · ~${num(tot.est)} rows · ${fmtBytes(tot.bytes)}`;
-    onChange?.({ count: all.length, est: tot.est });
+    onChange?.({ count: all.length, est: tot.est, tables: all.map(q => byQn.get(q)) });
   }
   paint();
   return {
