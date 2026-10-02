@@ -5215,8 +5215,11 @@ addEventListener('pagehide', () => { if (S.db?.remote && S.db.sid) fetch(`/api/s
    statement and returns false if it failed (a table that failed gets no data). `rows` caps rows per table
    (null = all); with a cap, foreign keys are added NOT VALID since the sampled rows may not line up.
    Covers schemas, extensions, enums, domains, sequences, functions, tables (identity, generated,
-   partitioned), data, constraints, indexes, views, materialized views and triggers. */
-async function remoteToSql(d, { rows = null, views = true, code = true } = {}, emit, progress) {
+   partitioned), data, constraints, indexes, views, materialized views and triggers.
+   `only` (null = every table) lists the tables to copy by qualified name, as format('%I.%I') writes it;
+   partitions come with their parent and a partition brings its parents. Foreign keys to tables left out,
+   and views reading them, are dropped; schemas, types, sequences and functions are always copied. */
+async function remoteToSql(d, { rows = null, views = true, code = true, only = null } = {}, emit, progress) {
   const USER = `n.nspname !~ '^pg_' and n.nspname <> 'information_schema'`;
   const NOT_EXT = oid => `not exists (select 1 from pg_depend e where e.objid = ${oid} and e.deptype = 'e')`;
   const db = await new RemoteDb(d.profile, d.database).open();
@@ -5237,31 +5240,47 @@ async function remoteToSql(d, { rows = null, views = true, code = true } = {}, e
           s.min_value::text as min, s.max_value::text as max, s.cycle, s.last_value::text as last,
           (select format('%I.%I', tn.nspname, tc.relname) || '.' || quote_ident(a.attname) from pg_depend d join pg_class tc on tc.oid = d.refobjid
              join pg_namespace tn on tn.oid = tc.relnamespace join pg_attribute a on a.attrelid = tc.oid and a.attnum = d.refobjsubid
-            where d.objid = c.oid and d.deptype = 'a' and d.refclassid = 'pg_class'::regclass limit 1) as owner
+            where d.objid = c.oid and d.deptype = 'a' and d.refclassid = 'pg_class'::regclass limit 1) as owner,
+          (select d.refobjid::int from pg_depend d where d.objid = c.oid and d.deptype = 'a' and d.refclassid = 'pg_class'::regclass limit 1) as owner_oid
         from pg_sequences s join pg_namespace n on n.nspname = s.schemaname join pg_class c on c.relnamespace = n.oid and c.relname = s.sequencename
         where ${USER} and ${NOT_EXT('c.oid')} and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'i') order by c.oid`);
       const funcs = code ? await all(`select format('%I.%I', n.nspname, p.proname) as qn, pg_get_functiondef(p.oid) as def from pg_proc p
           join pg_namespace n on n.oid = p.pronamespace join pg_language l on l.oid = p.prolang
         where p.prokind in ('f', 'p') and l.lanname not in ('c', 'internal') and ${USER} and ${NOT_EXT('p.oid')} order by p.oid`) : [];
-      const tables = await all(`select c.oid::int as oid, format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind, c.reltuples::float8 as est,
+      let tables = await all(`select c.oid::int as oid, format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind, c.reltuples::float8 as est,
           case when c.relkind = 'p' then pg_get_partkeydef(c.oid) end as partkey,
           case when c.relispartition then pg_get_expr(c.relpartbound, c.oid) end as bound,
           case when c.relispartition then (select format('%I.%I', pn.nspname, pc.relname) from pg_inherits i join pg_class pc on pc.oid = i.inhparent
             join pg_namespace pn on pn.oid = pc.relnamespace where i.inhrelid = c.oid) end as parent
         from pg_class c join pg_namespace n on n.oid = c.relnamespace
         where c.relkind in ('r', 'p') and ${USER} and ${NOT_EXT('c.oid')} order by c.relispartition, c.oid`);
+      const dropped = new Set();   // oids of tables (and then views) left out
+      if (only) {
+        const keep = new Set(only), byQn = new Map(tables.map(t => [t.qn, t]));
+        for (let grew = true; grew;) { grew = false; for (const t of tables) if (t.parent && keep.has(t.parent) && !keep.has(t.qn)) keep.add(t.qn), grew = true; }
+        for (const qn of [...keep]) for (let p = byQn.get(qn)?.parent; p && !keep.has(p); p = byQn.get(p)?.parent) keep.add(p);
+        for (const t of tables) if (!keep.has(t.qn)) dropped.add(t.oid);
+        tables = tables.filter(t => keep.has(t.qn));
+      }
       const oids = [tables.map(t => t.oid)];
       const cols = await all(`select a.attrelid::int as oid, a.attname as name, format_type(a.atttypid, a.atttypmod) as type, a.attnotnull as nn,
           pg_get_expr(d.adbin, d.adrelid) as def, a.attidentity::text as ident, a.attgenerated::text as gen
         from pg_attribute a left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
         where a.attrelid = any($1::int[]) and a.attnum > 0 and not a.attisdropped order by a.attrelid, a.attnum`, oids);
-      const cons = await all(`select conrelid::int as oid, conname as name, contype::text as type, pg_get_constraintdef(oid) as def from pg_constraint
+      const cons = await all(`select conrelid::int as oid, confrelid::int as ref, conname as name, contype::text as type, pg_get_constraintdef(oid) as def from pg_constraint
         where conrelid = any($1::int[]) and conparentid = 0 and contype in ('p', 'u', 'c', 'x', 'f') order by contype = 'f', contype <> 'p', oid`, oids);
       const idxs = await all(`select pg_get_indexdef(i.indexrelid) as def from pg_index i where i.indrelid = any($1::int[])
         and not exists (select 1 from pg_constraint c where c.conindid = i.indexrelid and c.contype in ('p', 'u', 'x'))
         and not exists (select 1 from pg_inherits h where h.inhrelid = i.indexrelid) order by i.indexrelid`, oids);
-      const vws = views ? await all(`select format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind, pg_get_viewdef(c.oid, true) as def
+      let vws = views ? await all(`select c.oid::int as oid, format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind, pg_get_viewdef(c.oid, true) as def,
+          array(select distinct dp.refobjid::int from pg_rewrite r join pg_depend dp on dp.classid = 'pg_rewrite'::regclass and dp.objid = r.oid
+            where r.ev_class = c.oid and dp.refclassid = 'pg_class'::regclass and dp.refobjid <> c.oid) as uses
         from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind in ('v', 'm') and ${USER} and ${NOT_EXT('c.oid')} order by c.oid`) : [];
+      // Views reading a table left out (or a view that is) go too.
+      if (dropped.size) {
+        for (let grew = true; grew;) { grew = false; for (const x of vws) if (!dropped.has(x.oid) && x.uses.some(o => dropped.has(o))) dropped.add(x.oid), grew = true; }
+        vws = vws.filter(x => !dropped.has(x.oid));
+      }
       const trigs = code ? await all(`select pg_get_triggerdef(t.oid, true) as def from pg_trigger t
         where t.tgrelid = any($1::int[]) and not t.tgisinternal and coalesce((to_jsonb(t) ->> 'tgparentid')::oid, 0) = 0 order by t.oid`, oids) : [];
 
@@ -5321,12 +5340,12 @@ async function remoteToSql(d, { rows = null, views = true, code = true } = {}, e
         await emit({ kind: 'setval', name: t.qn, sql: `select setval(pg_get_serial_sequence(${lit(t.qn)}, ${lit(c.name)}), coalesce(max(${qi(c.name)}), 0) + 1, false) from ${t.qn}` });
       for (const x of seqs) {
         if (x.last != null) await emit({ kind: 'setval', name: x.qn, sql: `select setval(${lit(x.qn)}, ${x.last}, true)` });
-        if (x.owner) await emit({ kind: 'sequence', name: x.qn, sql: `alter sequence ${x.qn} owned by ${x.owner}` });
+        if (x.owner && !dropped.has(x.owner_oid)) await emit({ kind: 'sequence', name: x.qn, sql: `alter sequence ${x.qn} owned by ${x.owner}` });
       }
       const byOid = new Map(tables.map(t => [t.oid, t]));
       for (const c of cons) {
         const t = byOid.get(c.oid);
-        if (!ok.get(c.oid)) continue;
+        if (!ok.get(c.oid) || c.type === 'f' && dropped.has(c.ref)) continue;
         const notValid = rows != null && c.type === 'f' && !/NOT VALID$/i.test(c.def) ? ' not valid' : '';
         await emit({ kind: c.type === 'f' ? 'foreign key' : 'constraint', name: `${t.qn}.${c.name}`, sql: `alter table ${t.qn} add constraint ${qi(c.name)} ${c.def}${notValid}` });
       }
