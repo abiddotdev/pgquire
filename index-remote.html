@@ -577,6 +577,8 @@ select.field { padding-right: 4px; }
 .clerk-usage .cost { color: var(--blue); margin-left: auto; }
 .c-user-wrap { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 88%; animation: rise .25s both; }
 .c-user-wrap .c-user { max-width: 100%; align-self: auto; animation: none; }
+.clerk-log .ctx-target { outline: 1.5px dashed var(--blue); outline-offset: 4px; border-radius: 2px; }   /* what the open menu acts on */
+.copy-wash { position: fixed; z-index: 90; pointer-events: none; border-radius: 4px; background: var(--hl-soft); box-shadow: 0 0 0 1.5px var(--hl); }
 .c-ts { font: 10px var(--mono); color: var(--ink3); }
 .c-ai .sig { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; }
 .c-ai .sig .m { font: 10px var(--mono); font-style: normal; color: var(--ink3); }
@@ -4246,7 +4248,7 @@ function toggleJournal() { app.classList.toggle('journal-open'); $('journalToggl
    Menus, toasts
    ========================================================================== */
 let openMenuEl = null;
-function showMenu(x, y, items) {
+function showMenu(x, y, items, onClose) {
   closeMenu();
   // { scroll: [items] } is a group that scrolls on its own, so the items around it stay in view.
   const render = list => list.filter(Boolean).map(it => it === '-' ? h('hr') : it.header ? h('div', { class: 'mlabel' }, it.label)
@@ -4259,11 +4261,19 @@ function showMenu(x, y, items) {
   const r = m.getBoundingClientRect();
   m.style.left = Math.min(x, innerWidth - r.width - 8) + 'px';
   m.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
-  openMenuEl = m;
+  openMenuEl = m; menuOnClose = onClose;
   setTimeout(() => document.addEventListener('mousedown', menuAway, true), 0);
 }
 function menuAway(e) { if (openMenuEl && !openMenuEl.contains(e.target)) closeMenu(); }
-function closeMenu() { openMenuEl?.remove(); openMenuEl = null; document.removeEventListener('mousedown', menuAway, true); }
+function closeMenu() { openMenuEl?.remove(); openMenuEl = null; document.removeEventListener('mousedown', menuAway, true); const f = menuOnClose; menuOnClose = null; f?.(); }
+let menuOnClose = null;
+/** One highlighter stroke over what was just copied — a wash laid on top, so a code block's own paper can't hide it. */
+function flashCopied(el) {
+  const r = el.getBoundingClientRect();
+  const wash = h('div', { class: 'copy-wash', style: `left:${r.left - 4}px;top:${r.top - 4}px;width:${r.width + 8}px;height:${r.height + 8}px` });
+  document.body.append(wash);
+  wash.animate([{ opacity: 1 }, { opacity: 1, offset: .25 }, { opacity: 0 }], { duration: 1100, easing: 'ease-out' }).onfinish = () => wash.remove();
+}
 
 function toast(msg, kind, action) {
   const t = h('div', { class: 'toast' + (kind === 'bad' ? ' bad' : '') }, h('span', {}, msg), action && h('button', { onclick: () => { t.remove(); action.run(); } }, action.label));
@@ -6494,15 +6504,16 @@ function renderClerk() {
 function clerkMenu(e) {
   e.preventDefault();
   const quote = text => { const ta = $('clerkText'); if (!ta) return; ta.value = `> ${text.trim().replace(/\n/g, '\n> ')}\n\n${ta.value}`; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.dispatchEvent(new Event('input')); };
-  const copy = (text, what = 'Copied') => { navigator.clipboard?.writeText(text); toast(what); };
+  const cb = e.target.closest('.codeblock'), card = e.target.closest('.receipt'), msg = e.target.closest('.c-ai, .c-user-wrap');
+  const target = cb || card || (msg && (msg.querySelector('.c-user') || msg));
+  const copy = (text, what = 'Copied', el = target) => { navigator.clipboard?.writeText(text); toast(what); el && flashCopied(el); };
   const sqlItems = sql => [
     { label: 'Copy SQL', icon: 'copy', run: () => copy(sql, 'SQL copied') },
     { label: 'Open in editor', icon: 'query', run: () => openQuery(sql, { title: `Clerk ${hms(Date.now())}` }) }];
   const sel = getSelection()?.toString() || '';
   const at = sel.trim() ? [
-    { label: 'Copy', icon: 'copy', hint: 'Ctrl C', run: () => copy(sel) },
+    { label: 'Copy', icon: 'copy', hint: 'Ctrl C', run: () => copy(sel, 'Copied', null) },
     { label: 'Ask about this', icon: 'quill', run: () => quote(sel) }] : [];
-  const cb = e.target.closest('.codeblock'), card = e.target.closest('.receipt'), msg = e.target.closest('.c-ai, .c-user-wrap');
   if (cb) {
     const code = cb.querySelector('code')?.textContent || '';
     if (!cb.dataset.lang || /sql/i.test(cb.dataset.lang)) at.push(at.length && '-', ...sqlItems(code));
@@ -6526,7 +6537,9 @@ function clerkMenu(e) {
     { label: 'Switch conversation…', disabled: C.convs.length < 2, run: () => convMenu({ currentTarget: document.querySelector('.conv-switch') }) },
     { label: 'Connection', icon: 'key', run: () => { C.showConnect = true; renderClerk(); } },
     { label: 'Close the Clerk', icon: 'x', hint: 'Ctrl J', run: toggleClerk });
-  showMenu(e.clientX, e.clientY, at);
+  const mark = !sel.trim() && (cb || card || msg) && target;   // a selection already shows what's meant
+  mark?.classList.add('ctx-target');
+  showMenu(e.clientX, e.clientY, at, () => mark?.classList.remove('ctx-target'));
 }
 
 function suggestions() {
