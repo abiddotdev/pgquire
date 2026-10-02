@@ -653,6 +653,9 @@ select.field { padding-right: 4px; }
 .att-chip button:hover { background: rgba(255,255,255,.2); }
 .attach-btn { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink2); border: 1px dashed var(--rule); border-radius: 12px; padding: 1px 9px 1px 6px; }
 .attach-btn:hover { color: var(--blue); border-color: var(--blue); }
+/* a checkbox or radio with its label, in dialogs; opt-hint goes on the right */
+label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.opt-hint { margin-left: auto; color: var(--ink3); font: 11px var(--mono); }
 .menu label.pick { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12.5px; }
 .menu label.pick:hover { background: var(--hl-soft); }
 .menu label.pick input { accent-color: var(--blue); }
@@ -1368,17 +1371,24 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
    (Visual language: a ledger book. Storage keys keep the 'ledger:' prefix for continuity.)
    ========================================================================== */
 const APP_VERSION = '1.0';                                                                    // bump on each release
-const PGLITE_URL = 'https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.5.8/dist/index.js';
-const PGDUMP_URL = 'https://cdn.jsdelivr.net/npm/@electric-sql/pglite-tools@0.4.8/dist/pg_dump.js';   // pg_dump built for PGlite 0.5.8
+const PGLITE_VER = '0.5.8';
+const PG_CDN = 'https://cdn.jsdelivr.net/npm/@electric-sql/';
+const PGLITE_URL = `${PG_CDN}pglite@${PGLITE_VER}/dist/index.js`;
+const PGDUMP_URL = `${PG_CDN}pglite-tools@0.4.8/dist/pg_dump.js`;     // pg_dump built for PGlite 0.5.8
+const PGLITE_IDB = id => `/pglite/ledger-${id}`;                       // the IndexedDB database PGlite keeps a database's files in
+/** The PGlite module, downloaded once when the first in-browser database opens. */
+const loadPGlite = async () => S.PGlite ??= (await import(PGLITE_URL)).PGlite;
 const DEFAULT_BASE = 'https://openrouter.ai/api/v1';
 const DEFAULT_MODEL = 'xiaomi/mimo-v2.5';
 const PAGE_SIZES = [25, 50, 100, 250, 500, 1000, 2000];
 const pageSize = () => store.get('pageSize', 100);   // rows per page in a table's Rows view; double-click the footer count to change it
 const REMOTE_COUNT_CAP = 100000;   // filtered counts on remote tables stop here // @remote
 const MAX_STEPS = 16;
+const HOSTED = /^https?:$/.test(location.protocol);   // served over http(s), not opened from a file
 
 /* ---------- tiny helpers ---------- */
 const $ = id => document.getElementById(id);
+const app = $('app');
 function h(tag, props, ...kids) {
   const n = document.createElement(tag);
   if (props) for (const [k, v] of Object.entries(props)) {
@@ -1399,6 +1409,31 @@ const qi = s => '"' + String(s).replace(/"/g, '""') + '"';
 const lit = v => v == null ? 'NULL' : "'" + String(v).replace(/'/g, "''") + "'";
 const plural = (n, w) => `${n.toLocaleString()} ${w}${n === 1 ? '' : 's'}`;
 const uid = () => Math.random().toString(36).slice(2, 9);
+/** Copy text and say so (msg null: quietly). Where the Clipboard API is missing or refused, the old way. */
+async function copyText(text, msg = 'Copied') {
+  text = String(text ?? '');
+  try { await navigator.clipboard.writeText(text); }
+  catch { const ta = h('textarea', { value: text, style: 'position:fixed;opacity:0' }); document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+  if (msg) toast(msg);
+}
+const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+const hms = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+/** "14:05" today, "Oct 2" before. */
+const shortWhen = ts => { const d = new Date(ts); return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' }); };
+const dayMonth = ts => new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
+const clip = (v, n) => { const str = String(v ?? ''); return str.length > n ? str.slice(0, n - 1) + '…' : str; };
+const fmtBytes = n => n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
+const fmtMs = ms => ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : ms + ' ms';
+const fileSafe = t => (t || 'conversation').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50) || 'conversation';
+const pipeBytes = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+function downloadBlob(blob, name) {
+  const a = h('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+const isViewish = t => t.kind === 'v' || t.kind === 'm';              // a view or a materialized view
+/** A row of a table (its values in column order) as { column: value }. */
+const rowObj = (t, vals) => Object.fromEntries(t.cols.map((c, i) => [c.name, vals?.[i]]));
 /* ---------- storage ----------
    Small settings stay in localStorage. Per-database working data — conversations and the model's
    history, journal, saved queries, tabs, ERD layouts — lives in IndexedDB: localStorage's ~5 MB is
@@ -1489,7 +1524,6 @@ async function kvInit() {
 }
 addEventListener('pagehide', () => { kvFlush(); });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') kvFlush(); });
-const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 /* ---------- global state ---------- */
 const S = {
@@ -1675,10 +1709,12 @@ async function readSearchPath() {
   document.querySelectorAll('.schema-chip').forEach(paintSchemaChip);
   $('topSchema').hidden = !S.schema;
 }
+/** Whether the search path was changed from the connection's default (SET search_path, set_config…). */
+const searchPathCustom = (sp = S.schema) => !!sp && sp.path.replace(/\s+/g, '') !== sp.def?.replace(/\s+/g, '');
 function paintSchemaChip(el) {
   const sp = S.schema;
   el.replaceChildren(...(sp ? [h('span', { class: 'sc-lbl' }, 'schema: '), h('span', { class: 'sc-name' }, sp.cur ?? 'none')] : []));
-  el.classList.toggle('custom', !!sp && sp.path.replace(/\s+/g, '') !== sp.def?.replace(/\s+/g, ''));
+  el.classList.toggle('custom', searchPathCustom());
   el.title = sp ? `search_path = ${sp.path}${sp.cur ? '' : ' — none of these schemas exist'}\nUnqualified table names resolve here. Click to change.` : '';
 }
 $('topSchema').onclick = schemaMenu;
@@ -1779,19 +1815,21 @@ function openMap() {
   let tab = S.tabs.find(t => t.type === 'map');
   if (!tab) {
     // A new ERD shows everything — unless you've pointed the search path somewhere yourself.
-    const sp = S.schema, custom = sp?.cur && sp.path.replace(/\s+/g, '') !== sp.def?.replace(/\s+/g, '');
+    const sp = S.schema, custom = sp?.cur && searchPathCustom();
     tab = { id: uid(), type: 'map', schemas: custom && S.tables.some(t => t.schema === sp.cur) ? [sp.cur] : [] };
     S.tabs.push(tab);
   }
   activate(tab.id);
 }
-function activate(id) { S.active = id; persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx(); closeIndexMobile(); }
+/** After the open tabs or the active one changed: save them and redraw what shows them. */
+function tabsChanged() { persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx(); }
+function activate(id) { S.active = id; tabsChanged(); closeIndexMobile(); }
 function closeTab(id) {
   const i = S.tabs.findIndex(t => t.id === id);
   if (i < 0) return;
   S.tabs.splice(i, 1);
   if (S.active === id) S.active = (S.tabs[i] || S.tabs[i - 1])?.id || null;
-  persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx();
+  tabsChanged();
 }
 
 let lastTabClick = {};
@@ -1826,11 +1864,12 @@ async function closeTabs(ids) {
   const i = S.tabs.findIndex(t => t.id === S.active);
   S.tabs = S.tabs.filter(t => !set.has(t.id));
   if (set.has(S.active)) S.active = (S.tabs.find((t, j) => j >= i) || S.tabs.at(-1))?.id || null;   // the next tab that's left, else the last
-  persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx();
+  tabsChanged();
 }
 /** Reorder the tab strip (the active tab stays active). */
 function arrangeTabs(order) { S.tabs = order; persistTabs(); renderTabs(); }
 const tabLabel = t => t.type === 'table' ? S.byKey[t.key]?.name || t.key : t.type === 'query' ? t.title : t.type === 'readme' ? 'README' : 'ERD';
+const tabIcon = t => t.type === 'table' ? (S.byKey[t.key]?.kind === 'v' ? 'view' : 'table') : t.type === 'query' ? 'query' : t.type === 'readme' ? 'book' : 'map';
 /** Right-click on a tab: what you can do with it, closing in bulk, and arranging the strip. */
 function tabMenu(t, x, y) {
   const i = S.tabs.indexOf(t), right = S.tabs.slice(i + 1), others = S.tabs.filter(o => o !== t);
@@ -1875,9 +1914,8 @@ async function closeAllTabs() {
   const q = S.tabs.filter(t => t.type === 'query' && t.sql.trim()).length;
   if (!(await confirmDlg({ title: `Close all ${plural(S.tabs.length, 'tab')}?`, body: q ? `${plural(q, 'query tab')} with SQL will be closed too — anything you ran is still in the journal.` : 'Tables and the chart can be reopened from the index.', ok: 'Close all' }))) return;
   S.tabs = []; S.active = null;
-  persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx();
+  tabsChanged();
 }
-const hms = ts => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 /* ---------- saved queries ---------- */
 const loadSaved = () => store.get(`saved:${S.id}`, []);
@@ -1930,10 +1968,9 @@ function renderTabs() {
   host.replaceChildren(...[
     h('button', { class: 'tab' + (!S.active ? ' active' : ''), title: 'Overview', onclick: () => activate(null) }, ic('home')),
     ...S.tabs.map(t => {
-      const label = t.type === 'table' ? S.byKey[t.key]?.name || t.key : t.type === 'query' ? t.title : t.type === 'readme' ? 'README' : 'ERD';
-      const iconName = t.type === 'table' ? (S.byKey[t.key]?.kind === 'v' ? 'view' : 'table') : t.type === 'query' ? 'query' : t.type === 'readme' ? 'book' : 'map';
+      const label = tabLabel(t);
       const el = h('div', { class: `tab t-${t.type}` + (t.id === S.active ? ' active' : ''), title: label },
-        ic(iconName), h('span', { class: 'tt' }, label),
+        ic(tabIcon(t)), h('span', { class: 'tt' }, label),
         t.type === 'query' && (() => {
           const sq = savedOf(t), changed = sq && sq.sql !== t.sql;
           return h('button', { class: 'sv' + (sq ? (changed ? ' changed' : ' saved') : ''), title: sq ? (changed ? 'Save changes (Ctrl+S)' : 'Saved — click to save again') : 'Save query (Ctrl+S)',
@@ -2038,18 +2075,17 @@ function renderIndex() {
   $('idxSummary').textContent = S.tables.length ? `${S.tables.length} · ${S.approx?.size ? '~' : ''}${total.toLocaleString()} rows` : '';
   list.replaceChildren();
   if (!S.tables.length) list.append(h('div', { class: 'index-empty' }, 'No tables yet. Create one, import a CSV, or load the sample.'));
-  const isView = t => t.kind === 'v' || t.kind === 'm';
   let delay = 0;
   const logMax = Math.log10(Math.max(10, ...S.tables.map(t => S.counts[t.key] ?? 0)) + 1);   // prism: size bars, log scale
   const item = (t, label) => {
       const open = S.expanded.has(t.key) || (f && !t.key.toLowerCase().includes(f));
-      const el = h('div', { class: 'idx' + (t.kind === 'v' || t.kind === 'm' ? ' view' : '') + (act?.type === 'table' && act.key === t.key ? ' active' : '') + (open ? ' open' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms` },
+      const el = h('div', { class: 'idx' + (isViewish(t) ? ' view' : '') + (act?.type === 'table' && act.key === t.key ? ' active' : '') + (open ? ' open' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms` },
         h('div', { class: 'idx-row', onclick: () => openTable(t.key), oncontextmenu: e => { e.preventDefault(); tableMenu(t, e.clientX, e.clientY); } },
           h('span', { class: 'idx-caret', onclick: e => { e.stopPropagation(); S.expanded.has(t.key) ? S.expanded.delete(t.key) : S.expanded.add(t.key); renderIndex(); } }, ic('caret', 'width:12px;height:12px')),
           h('span', { class: 'idx-name', title: t.key }, label),
           h('span', { class: 'idx-leader' }),
           h('span', { class: 'idx-count', title: S.approx?.has(t.key) ? 'estimated' : null }, t.kind === 'v' ? 'view' : (S.approx?.has(t.key) ? '~' : '') + (S.counts[t.key] ?? 0).toLocaleString())),
-        t.kind !== 'v' && t.kind !== 'm' && h('div', { class: 'idx-bar', style: `--hh:${nameHue(t.key)}`, title: 'Size relative to the largest table (log scale)' },
+        !isViewish(t) && h('div', { class: 'idx-bar', style: `--hh:${nameHue(t.key)}`, title: 'Size relative to the largest table (log scale)' },
           h('i', { style: `width:${Math.max(2, Math.log10((S.counts[t.key] ?? 0) + 1) / logMax * 100).toFixed(1)}%` })),
         h('div', { class: 'idx-cols' }, t.cols.map(c => h('div', { class: 'idx-col', title: `${c.name} ${c.type}` },
           c.pk ? h('span', { class: 'k' }, 'PK') : c.fks?.length ? h('span', { class: 'k fk', title: fkTitle(c) }, fkMark(c)) : null,
@@ -2058,7 +2094,7 @@ function renderIndex() {
   };
   // One schema: Tables / Views, as always. Several: a collapsible section per schema, public first, bare names inside.
   if (new Set(S.tables.map(t => t.schema)).size < 2) {
-    for (const [label, items] of [['Tables', shown.filter(t => !isView(t))], ['Views', shown.filter(isView)]]) {
+    for (const [label, items] of [['Tables', shown.filter(t => !isViewish(t))], ['Views', shown.filter(isViewish)]]) {
       if (!items.length) continue;
       list.append(h('div', { class: 'index-group smallcaps' }, label));
       for (const t of items) list.append(item(t, t.key));
@@ -2074,13 +2110,12 @@ function renderIndex() {
         ic('caret', 'width:11px;height:11px'), h('span', {}, sc),
         cur && h('span', { class: 'cur', title: 'Current schema: unqualified table names resolve here' }, 'current'),
         h('span', { class: 'n' }, items.length)));
-      if (!closed) for (const t of [...items.filter(t => !isView(t)), ...items.filter(isView)]) list.append(item(t, t.name));
+      if (!closed) for (const t of [...items.filter(t => !isViewish(t)), ...items.filter(isViewish)]) list.append(item(t, t.name));
     }
   }
   const saved = loadSaved().filter(sq => !f || sq.title.toLowerCase().includes(f) || sq.sql.toLowerCase().includes(f)).sort((a, b) => a.title.localeCompare(b.title));
   if (saved.length) {
     list.append(h('div', { class: 'index-group smallcaps' }, 'Queries'));
-    const short = ts => { const d = new Date(ts); return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' }); };
     for (const sq of saved) {
       const key = 'q:' + sq.id, open = S.expanded.has(key);
       list.append(h('div', { class: 'idx saved-q' + (act?.type === 'query' && act.savedId === sq.id ? ' active' : '') + (open ? ' open' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms` },
@@ -2088,7 +2123,7 @@ function renderIndex() {
           h('span', { class: 'idx-caret', title: 'Preview SQL', onclick: e => { e.stopPropagation(); open ? S.expanded.delete(key) : S.expanded.add(key); renderIndex(); } }, ic('caret', 'width:12px;height:12px')),
           h('span', { class: 'idx-name', title: sq.title }, sq.title),
           h('span', { class: 'idx-leader' }),
-          h('span', { class: 'idx-count', title: 'Last saved ' + new Date(sq.updated).toLocaleString() }, short(sq.updated))),
+          h('span', { class: 'idx-count', title: 'Last saved ' + new Date(sq.updated).toLocaleString() }, shortWhen(sq.updated))),
         h('div', { class: 'idx-sql' }, sq.sql.trim())));
     }
   }
@@ -2134,7 +2169,7 @@ function tableMenu(t, x, y) {
     { label: 'Rename…', run: () => renameTable(t) },
     { label: 'Empty table…', danger: true, run: () => truncateTable(t) },
     { label: 'Drop table…', danger: true, icon: 'trash', run: () => dropRelation(t) });
-  else if (t.kind === 'v' || t.kind === 'm') items.push('-', { label: 'Drop view…', danger: true, icon: 'trash', run: () => dropRelation(t) });
+  else if (isViewish(t)) items.push('-', { label: 'Drop view…', danger: true, icon: 'trash', run: () => dropRelation(t) });
   else items.push('-', { label: 'Read-only connection', header: true }); // @remote
   showMenu(x, y, items);
 }
@@ -2202,7 +2237,7 @@ function openReadme() {
 /** Sections of [feature, what it does] pairs; false entries are skipped. The server build (this file)
  *  describes the whole app — in-browser and remote databases; the Pages copy only the in-browser side. */
 function readmeSections() {
-  const remote = isRemote(S.id), r = currentDb()?.remote || {}; // @remote
+  const remote = isRemote(S.id); // @remote
   return [
     { t: 'Where your data lives', items: [
       ['In this browser', 'A real PostgreSQL 18 (PGlite, compiled to WebAssembly), stored in this browser\'s IndexedDB. Nothing leaves the machine unless you ask the Clerk, share a link or export a file.'],
@@ -2326,7 +2361,7 @@ async function loadRows(tab) {
 function renderTableTab(tab, pane) {
   const t = S.byKey[tab.key];
   if (!t) { pane.append(h('div', { class: 'placeholder' }, 'This table no longer exists.')); return; }
-  const isView = t.kind === 'v' || t.kind === 'm'/*remote:*/, ro = !isView && !t.editable/*:remote*/;/*remote:*/   // ro: a table on a read-only connection/*:remote*/
+  const isView = isViewish(t)/*remote:*/, ro = !isView && !t.editable/*:remote*/;/*remote:*/   // ro: a table on a read-only connection/*:remote*/
   const applyFilter = v => { tab.filter = v.trim(); tab.page = 0; tab.dirty = true; renderPane(); };
   const filterInput = h('input', { value: tab.filter, placeholder: 'price > 10 and genre ilike \'%fiction%\'', spellcheck: false,
     oninput: () => syncFilter(),
@@ -2477,7 +2512,6 @@ function relDraw(t, all) {
   const rowY = (n, name) => { const i = n.rows.findIndex(c => c.name === name); return n.y + REL.HEAD + Math.max(0, i) * REL.ROW + REL.ROW / 2 + 2; };
   // A column that links is marked FK here, even when it's also part of its table's primary key.
   const tag = (c, n) => c.fks?.length && n.links.has(c.name) ? fkMark(c) : c.pk ? 'PK' : c.fks?.length ? fkMark(c) : '';
-  const clip = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
   let svg = '';
   for (const { child: c, parent: p, f } of edges) {
     const right = p.x < c.x, px = right ? p.x + REL.W : p.x, cx = right ? c.x : c.x + REL.W, dir = right ? 1 : -1;
@@ -2487,7 +2521,7 @@ function relDraw(t, all) {
   if (selfFk) { const n = nodes.get(t.key), y1 = rowY(n, selfFk.cols[0]), y2 = rowY(n, selfFk.refCols[0]), x = n.x + REL.W;
     svg += `<g class="wire"><title>${esc(`${t.key} ${fkLabel(selfFk)}`)}</title><path d="M${x},${y1} C${x + 40},${y1} ${x + 40},${y2} ${x},${y2}"/><circle cx="${x}" cy="${y2}" r="3"/></g>`; }
   for (const n of nodes.values()) {
-    const o = n.t, cur = o === t, view = o.kind === 'v' || o.kind === 'm', ly = n.y + REL.HEAD + n.rows.length * REL.ROW + 13;
+    const o = n.t, cur = o === t, view = isViewish(o), ly = n.y + REL.HEAD + n.rows.length * REL.ROW + 13;
     svg += `<g class="bx${cur ? ' cur' : ''}${view ? ' view' : ''}" data-key="${esc(o.key)}"><title>${esc(cur ? o.key : `Open ${o.key}`)}</title>`
       + `<rect class="body" x="${n.x}" y="${n.y}" width="${REL.W}" height="${n.h}" rx="3"/>`
       + `<path class="hd" d="M${n.x},${n.y + REL.HEAD} H${n.x + REL.W}"/>`
@@ -2510,7 +2544,6 @@ function relFig(t, tab) {
   el.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   let d, vb;
   const apply = () => el.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
-  // Opening a box makes the diagram taller rather than smaller: its height follows the drawing, within limits.
   // Its height follows the drawing (opening a box makes it taller), unless you've dragged the bottom edge.
   const autoH = () => Math.round(Math.min(REL.MAXH, Math.max(200, d.full.h)));
   const draw = () => { d = relDraw(t); el.innerHTML = d.svg; vb = { ...d.full }; el.style.height = `${store.get('relFigH', null) ?? autoH()}px`; apply(); };
@@ -2539,11 +2572,8 @@ function relFig(t, tab) {
     showMenu(e.clientX, e.clientY, [
       { label: 'Fit', icon: 'fit', run: () => { vb = { ...d.full }; apply(); } },
       '-',
-      { label: 'Copy as Mermaid', icon: 'copy', run: () => copyErdText('mermaid', tables(), `around ${t.key}`) },
-      { label: 'Copy as DBML', icon: 'copy', run: () => copyErdText('dbml', tables(), `around ${t.key}`) },
-      { label: 'Copy as plain text', icon: 'copy', run: () => copyErdText('text', tables(), `around ${t.key}`) },
-      { label: 'Export SVG', icon: 'download', run: () => exportSvg('svg', relSheet(t), file) },
-      { label: 'Export PNG', icon: 'download', run: () => exportSvg('png', relSheet(t), file) },
+      ...erdTextItems(copy, true),
+      ...erdExportItems(exp, true),
       '-',
       { label: 'Open the ERD', icon: 'map', run: () => openMap() }]);
   };
@@ -2576,6 +2606,7 @@ function relFig(t, tab) {
   const tables = () => [...relDraw(t, true).nodes.values()].map(x => x.t);
   const menuAt = (e, items) => { const r = e.currentTarget.getBoundingClientRect(); showMenu(r.right - 190, r.bottom + 4, items); };
   const file = `${currentDb()?.name || 'pgquire'}-${t.name}-relations`;
+  const copy = kind => copyErdText(kind, tables(), `around ${t.key}`), exp = kind => exportSvg(kind, relSheet(t), file);
   return h('section', { class: 'relfig' },
     h('div', { class: 'relcap' },
       h('span', { class: 'smallcaps' }, 'Relations around ', h('b', {}, t.key)),
@@ -2583,15 +2614,8 @@ function relFig(t, tab) {
       h('span', { class: 'spacer' }),
       h('small', { class: 'hint' }, 'drag to pan · scroll to zoom · click a table to open it'),
       h('button', { class: 'iconbtn', title: 'Fit', onclick: () => { vb = { ...d.full }; apply(); } }, ic('fit')),
-      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Copy as text (Mermaid, DBML, plain) — every column', onclick: e => menuAt(e, [
-        { label: 'Copy as text', header: true },
-        { label: 'Mermaid', hint: 'GitHub, Notion…', icon: 'copy', run: () => copyErdText('mermaid', tables(), `around ${t.key}`) },
-        { label: 'DBML', hint: 'dbdiagram.io', icon: 'copy', run: () => copyErdText('dbml', tables(), `around ${t.key}`) },
-        { label: 'Plain text', hint: 'chats, tickets', icon: 'copy', run: () => copyErdText('text', tables(), `around ${t.key}`) }]) }, ic('copy')),
-      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Export (SVG or PNG) — every column', onclick: e => menuAt(e, [
-        { label: 'Export diagram', header: true },
-        { label: 'SVG (vector)', icon: 'download', run: () => exportSvg('svg', relSheet(t), file) },
-        { label: 'PNG (2× resolution)', icon: 'download', run: () => exportSvg('png', relSheet(t), file) }]) }, ic('download')),
+      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Copy as text (Mermaid, DBML, plain) — every column', onclick: e => menuAt(e, [{ label: 'Copy as text', header: true }, ...erdTextItems(copy)]) }, ic('copy')),
+      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Export (SVG or PNG) — every column', onclick: e => menuAt(e, [{ label: 'Export diagram', header: true }, ...erdExportItems(exp)]) }, ic('download')),
       h('button', { class: 'iconbtn', title: 'The whole schema (ERD tab)', onclick: () => openMap() }, ic('map')),
       h('button', { class: 'iconbtn', title: 'Hide the diagram (the map button in the toolbar brings it back)', onclick: () => { tab.rel = false; persistTabs(); renderPane(); } }, ic('x'))),
     d.nodes.size > 1 ? el : h('div', { class: 'rel-none' }, d.selfFk ? `${t.key} only points at itself — ${fkLabel(d.selfFk)}.` : 'No foreign keys lead to or from this table.'),
@@ -2727,8 +2751,8 @@ function renderRowPanel(tab) {
       fieldDd(tab, t, r, i, vals[i])])),
     rel,
     h('div', { class: 'rp-acts' },
-      h('button', { class: 'btn sm', onclick: () => { navigator.clipboard?.writeText(JSON.stringify(Object.fromEntries(t.cols.map((c, i) => [c.name, vals[i]])), null, 2)); toast('Copied as JSON'); } }, ic('copy'), 'Copy JSON'),
-      h('button', { class: 'btn sm blue', onclick: () => clerkAsk(`About this row in ${t.key}: ${JSON.stringify(Object.fromEntries(t.cols.map((c, i) => [c.name, vals[i]])))} — `, { draft: true }) }, ic('quill'), 'Ask'),
+      h('button', { class: 'btn sm', onclick: () => { copyText(JSON.stringify(rowObj(t, vals), null, 2), 'Copied as JSON'); } }, ic('copy'), 'Copy JSON'),
+      h('button', { class: 'btn sm blue', onclick: () => clerkAsk(`About this row in ${t.key}: ${JSON.stringify(rowObj(t, vals))} — `, { draft: true }) }, ic('quill'), 'Ask'),
       t.editable && h('button', { class: 'btn sm red', onclick: () => { tab.sel = new Set([r]); deleteSelected(tab); } }, ic('trash'), 'Delete')));
   markField();
   const section = (label, meta) => { const body = h('div'); rel.append(h('section', { class: 'rp-sec' }, h('h5', {}, h('span', {}, label), h('small', { title: meta }, meta)), body)); return body; };
@@ -2801,7 +2825,7 @@ function fieldDd(tab, t, r, i, v) {
     setFocus(tab, tab._wrap, r, i);
     if (String(getSelection() || '')) return;
     clearTimeout(timer);
-    timer = setTimeout(() => { navigator.clipboard?.writeText(v ?? ''); toast(v == null ? 'Copied (null, as empty)' : `Copied ${c.name}`); }, 260);
+    timer = setTimeout(() => { copyText(v ?? '', v == null ? 'Copied (null, as empty)' : `Copied ${c.name}`); }, 260);
   };
   dd.ondblclick = e => {
     clearTimeout(timer);
@@ -2839,7 +2863,7 @@ function gridKeys(e, tab, t, wrap) {
   if (!f) return;
   if (e.key === 'Tab') { e.preventDefault(); setFocus(tab, wrap, f.r, f.c + (e.shiftKey ? -1 : 1)); return; }
   if ((e.key === 'Enter' || e.key === 'F2') && t.editable) { e.preventDefault(); editCell(tab, t, f.r, f.c); return; }
-  if ((e.ctrlKey || e.metaKey) && e.key === 'c') { navigator.clipboard?.writeText(tab.rows[f.r][f.c + 1] ?? ''); toast('Copied'); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c') { copyText(tab.rows[f.r][f.c + 1] ?? '', 'Copied'); return; }
   if (e.key === ' ' && t.editable) { e.preventDefault(); toggleSel(tab, f.r); return; }
   if (e.key === 'Escape') { tab.sel.clear(); tab._draw(); return; }
   if (t.editable && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); editCell(tab, t, f.r, f.c, e.key); }
@@ -2881,7 +2905,6 @@ function editCell(tab, t, r, c, initial) {
   input.onblur = () => finish(true);
 }
 
-/** Run grid-originated writes in one transaction; record the SQL in the journal; return results. */
 /** What Undo can't put back exactly, in plain words ('' when it's a clean reversal). Undo is a new
  *  statement — delete ↔ insert, update → update back — not a rollback, so cascades and triggers show. */
 function undoCaveat(t, op) {
@@ -2899,6 +2922,7 @@ function undoCaveat(t, op) {
   if (n) out.push(`Undo ${op === 'delete' ? 're-inserts the rows' : op === 'insert' ? 'deletes the row' : 'writes the old value back'}, so ${t.name}'s trigger${n > 1 ? 's' : ''} (${list(t.triggers)}) run${n > 1 ? '' : 's'} again.`);
   return out.join(' ');
 }
+/** Run grid-originated writes in one transaction; record the SQL in the journal; return results. */
 async function gridWrite(info, stmts, undoStmts) {
   const { label, t, op, col } = typeof info === 'string' ? { label: info } : info;
   if (!(await prodWriteOk(stmts.map(s => s.sql).join(';\n')))) return null; // @remote
@@ -3021,7 +3045,7 @@ function cellMenu(tab, t, r, c, x, y) {
   const items = [];
   if (t.editable) items.push({ label: 'Edit', hint: 'Enter', icon: 'pen', run: () => editCell(tab, t, r, c) });
   if (t.editable && !col.notnull && v != null) items.push({ label: 'Set to NULL', run: () => setCellNull(tab, t, r, c) });
-  items.push({ label: 'Copy value', hint: 'Ctrl C', icon: 'copy', run: () => { navigator.clipboard?.writeText(v ?? ''); toast('Copied'); } });
+  items.push({ label: 'Copy value', hint: 'Ctrl C', icon: 'copy', run: () => { copyText(v ?? '', 'Copied'); } });
   items.push('-');
   items.push({ label: v == null ? `Filter: ${col.name} is null` : `Filter: ${col.name} = ${String(v).slice(0, 24)}`, icon: 'filter', run: () => { tab.filter = v == null ? `${qi(col.name)} is null` : `${qi(col.name)} = ${lit(v)}`; tab.page = 0; tab.dirty = true; renderPane(); } });
   // Follow every key this column is part of — matching on ALL of the key's columns (tenant-safe for composites).
@@ -3043,8 +3067,7 @@ function cellMenu(tab, t, r, c, x, y) {
   items.push('-');
   if (t.editable) items.push({ label: tab.sel.has(r) ? 'Unselect row' : 'Select row', hint: 'Space', run: () => toggleSel(tab, r) });
   items.push({ label: 'Ask the Clerk about this row', icon: 'quill', run: () => {
-    const obj = Object.fromEntries(t.cols.map((cc, i) => [cc.name, tab.rows[r][i + 1]]));
-    clerkAsk(`About this row in ${t.key}: ${JSON.stringify(obj)} — `, { draft: true });
+    clerkAsk(`About this row in ${t.key}: ${JSON.stringify(rowObj(t, tab.rows[r].slice(1)))} — `, { draft: true });
   } });
   if (t.editable) items.push({ label: 'Delete row', danger: true, icon: 'trash', run: () => { tab.sel = new Set([r]); deleteSelected(tab); } });
   showMenu(x, y, items);
@@ -3089,14 +3112,14 @@ async function renderStructure(tab, t, pane) {
   }
   const side = h('div', { class: 'side-stack' });
   body.append(h('div', { class: 'side-stack' }, colsCard, t.editable && h('div', { class: 'card' },
-    h('h3', {}, 'Definition', h('span', { class: 'spacer' }), h('button', { class: 'btn sm ghost', onclick: () => { navigator.clipboard?.writeText(tableDDL(t)); toast('DDL copied'); } }, ic('copy'), 'Copy')),
+    h('h3', {}, 'Definition', h('span', { class: 'spacer' }), h('button', { class: 'btn sm ghost', onclick: () => { copyText(tableDDL(t), 'DDL copied'); } }, ic('copy'), 'Copy')),
     h('pre', { class: 'ddl', html: highlightSQL(tableDDL(t)) }))), side);
 
   // Indexes + constraints + danger zone
   let idx = [];
   try { idx = (await q(`select indexname, indexdef from pg_indexes where schemaname = $1 and tablename = $2 order by 1`, [t.schema, t.name])).rows; } catch {}
   let viewDef = null;
-  if (t.kind === 'v' || t.kind === 'm') try { viewDef = (await q(`select pg_get_viewdef($1::regclass, true) as d`, [qt(t)])).rows[0].d; } catch {}
+  if (isViewish(t)) try { viewDef = (await q(`select pg_get_viewdef($1::regclass, true) as d`, [qt(t)])).rows[0].d; } catch {}
   if (viewDef) side.append(h('div', { class: 'card' }, h('h3', {}, 'View definition'), h('pre', { class: 'ddl', html: highlightSQL(viewDef.trim()) })));
   if (t.editable) side.append(h('div', { class: 'card' },
     h('h3', {}, 'Indexes', h('span', { class: 'spacer' }), h('button', { class: 'btn sm ghost', onclick: () => openQuery(`create index on ${qt(t)} (${t.cols[0] ? qi(t.cols[0].name) : ''});`, { title: `index ${t.name}` }) }, ic('plus'), 'New')),
@@ -3108,7 +3131,7 @@ async function renderStructure(tab, t, pane) {
   side.append(h('div', { class: 'card' }, h('h3', {}, 'Housekeeping'), h('div', { class: 'danger-zone' },
     t.editable && h('button', { class: 'btn sm', onclick: () => renameTable(t) }, 'Rename…'),
     t.editable && h('button', { class: 'btn sm red', onclick: () => truncateTable(t) }, 'Empty…'),
-    h('button', { class: 'btn sm red', onclick: () => dropRelation(t) }, ic('trash'), t.kind === 'v' || t.kind === 'm' ? 'Drop view…' : 'Drop table…'))));
+    h('button', { class: 'btn sm red', onclick: () => dropRelation(t) }, ic('trash'), isViewish(t) ? 'Drop view…' : 'Drop table…'))));
 }
 
 async function runDDL(sql, label, { confirmed } = {}) {
@@ -3510,8 +3533,8 @@ function queryEditor(tab) {
     showMenu(e.clientX, e.clientY, [
       { label: sel ? 'Run selection' : 'Run', icon: 'play', hint: 'Ctrl ⏎', disabled: tab.running || !(sel || ta.value).trim(), run },
       '-',
-      { label: 'Cut', hint: 'Ctrl X', disabled: !sel, run: () => { navigator.clipboard?.writeText(sel); put(''); } },
-      { label: 'Copy', icon: 'copy', hint: 'Ctrl C', disabled: !sel, run: () => navigator.clipboard?.writeText(sel) },
+      { label: 'Cut', hint: 'Ctrl X', disabled: !sel, run: () => { copyText(sel, null); put(''); } },
+      { label: 'Copy', icon: 'copy', hint: 'Ctrl C', disabled: !sel, run: () => copyText(sel, null) },
       { label: 'Paste', hint: 'Ctrl V', run: async () => { try { put(await navigator.clipboard.readText()); } catch { ta.focus(); toast('The browser kept the clipboard to itself — press Ctrl+V'); } } },
       { label: 'Select all', hint: 'Ctrl A', run: () => { ta.focus(); ta.select(); } },
       '-',
@@ -3538,7 +3561,7 @@ function renderQueryTab(tab, pane, keep) {
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn ghost', title: 'Attach this query (and its latest result) to your next Clerk message', onclick: () => { C.attachQ.add(tab.id); openClerk(); $('clerkText')?.focus(); toast(`Attached “${tab.title}” to your next message`); } }, ic('plus'), 'Attach'),
     h('button', { class: 'btn ghost', title: tab._fh ? `Save to ${tab._fh.name} (Ctrl+Shift+S) — right-click the tab for Save as` : 'Save as a .sql file (Ctrl+Shift+S)', onclick: () => saveQueryFile(tab) }, ic('download'), tab._fh ? 'Save file' : 'Save as…'),
-    h('button', { class: 'btn ghost', title: 'Copy the whole query', onclick: () => { if (!tab.sql.trim()) return toast('Nothing to copy yet'); navigator.clipboard?.writeText(tab.sql); toast(`Copied ${plural(tab.sql.split('\n').length, 'line')}`); } }, ic('copy'), 'Copy'),
+    h('button', { class: 'btn ghost', title: 'Copy the whole query', onclick: () => { if (!tab.sql.trim()) return toast('Nothing to copy yet'); copyText(tab.sql, `Copied ${plural(tab.sql.split('\n').length, 'line')}`); } }, ic('copy'), 'Copy'),
     h('button', { class: 'btn blue', onclick: () => tab.sql.trim() ? clerkAsk(`Explain this query step by step, and suggest improvements if any:\n\n${tab.sql}`) : toast('Write a query first') }, ic('quill'), 'Explain'),
     h('button', { class: 'btn blue', onclick: () => { openClerk(); S.clerk.ctxOn = true; renderClerkCtx(); const t = $('clerkText'); if (t) { t.value = 'Write a query that '; t.focus(); } } }, ic('quill'), 'Draft with Clerk'));
 
@@ -3577,7 +3600,7 @@ function renderQueryTab(tab, pane, keep) {
         if (cur.truncated && S.db?.remote && tab.single) return h('button', { class: 'btn sm ghost', title: 'Runs the query again and streams every row to a file', onclick: () => remoteCsv(hashComments(tab.ranSql), `${tab.title}.csv`) }, ic('download'), `CSV (all ${cur.truncated.toLocaleString()})`); // @remote
         return h('button', { class: 'btn sm ghost', title: cur.truncated ? 'Only the rows shown — run this query on its own to download all of them' : null, onclick: () => downloadCsv(cur.fields.map(f => f.name), cur.rows, `${tab.title}.csv`) }, ic('download'), 'CSV');
       })(),
-      cur?.fields.length > 0 && h('button', { class: 'btn sm ghost', onclick: () => { navigator.clipboard?.writeText(toCsv(cur.fields.map(f => f.name), cur.rows, '\t')); toast('Copied as TSV — paste into a spreadsheet'); } }, ic('copy'), 'Copy')));
+      cur?.fields.length > 0 && h('button', { class: 'btn sm ghost', onclick: () => { copyText(toCsv(cur.fields.map(f => f.name), cur.rows, '\t'), 'Copied as TSV — paste into a spreadsheet'); } }, ic('copy'), 'Copy')));
     if (cur?.fields.length) results.append(h('div', { class: 'gridwrap' }, readGrid(cur)));
     else results.append(h('div', { class: 'placeholder' }, cur?.stmts > 1 ? `Done — ${plural(cur.stmts, 'statement')}${cur.affected ? `, ${plural(cur.affected, 'row')} affected` : ''}.` : cur?.affected != null ? `Done — ${plural(cur.affected, 'row')} affected.` : 'Done.'));
   }
@@ -3601,7 +3624,7 @@ function readGrid(r) {
 function resultCellMenu(r, ri, ci, x, y) {
   const col = r.fields[ci], row = r.rows[ri], v = row[ci];
   const obj = () => Object.fromEntries(r.fields.map((f, i) => [f.name, row[i]]));
-  const copy = (text, what) => { navigator.clipboard?.writeText(text); toast(`Copied ${what}`); };
+  const copy = (text, what) => copyText(text, `Copied ${what}`);
   showMenu(x, y, [
     { label: 'Copy value', icon: 'copy', disabled: col.cat === 'B', run: () => copy(v ?? '', 'value') },
     { label: 'Copy row as JSON', icon: 'copy', run: () => copy(JSON.stringify(obj(), null, 2), 'row as JSON') },
@@ -3615,11 +3638,6 @@ function resultCellMenu(r, ri, ci, x, y) {
 function toCsv(header, rows, sep = ',') {
   const cell = v => v == null ? '' : /[",\n\r\t]/.test(v) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
   return [header, ...rows].map(r => r.map(cell).join(sep)).join('\n');
-}
-function downloadBlob(blob, name) {
-  const a = h('a', { href: URL.createObjectURL(blob), download: name });
-  document.body.append(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 const downloadCsv = (header, rows, name) => downloadBlob(new Blob([toCsv(header, rows)], { type: 'text/csv' }), name);
 /* @remote { */
@@ -3693,7 +3711,6 @@ async function pgVersion() {
   try { const v = (await q(`show server_version`)).rows[0]?.server_version?.split(' ')[0] || null; if (S.id === id) S.pgVer = { id, v }; return v; }
   catch { return null; }
 }
-const PGLITE_VER = PGLITE_URL.match(/@([\d.]+)/)?.[1];
 /** About: the version, where it's running, the open database's Postgres, and where the source lives. */
 function aboutDialog() {
   const pg = h('span', {}, S.db ? '…' : '—'), storage = h('span', {}, navigator.storage?.estimate ? '…' : 'unknown');
@@ -3769,10 +3786,12 @@ function promptDlg({ title, label, value = '', note }) {
   });
 }
 
+/** A new table's name for its CREATE: in the picked schema, or unqualified (as before) when there's no picker. */
+const newTableName = (sch, nm) => sch ? `${qi(sch.value)}.${qi(nm)}` : qi(nm);
 function createTableDialog({ schema } = {}) {
   const name = h('input', { class: 'field', placeholder: 'e.g. projects', value: '' });
   const sch = schemaPicker(schema);                     // unqualified (as before) when there's only one schema
-  const target = nm => sch ? `${qi(sch.value)}.${qi(nm)}` : qi(nm);
+  const target = nm => newTableName(sch, nm);
   const cols = [{ name: 'id', type: 'bigint generated always as identity', pk: true, nn: true, def: '' }, { name: 'name', type: 'text', pk: false, nn: true, def: '' }, { name: 'created_at', type: 'timestamptz', pk: false, nn: true, def: 'now()' }];
   const list = h('div', { style: 'display:flex;flex-direction:column;gap:6px' });
   const preview = h('pre', { class: 'sqlpreview' });
@@ -3816,7 +3835,7 @@ function importCsvDialog({ schema } = {}) {
   const file = h('input', { type: 'file', accept: '.csv,.tsv,.txt,text/csv', class: 'field', style: 'padding:4px' });
   const nameI = h('input', { class: 'field', placeholder: 'table name' });
   const sch = schemaPicker(schema);
-  const target = nm => sch ? `${qi(sch.value)}.${qi(nm)}` : qi(nm);
+  const target = nm => newTableName(sch, nm);
   const header = h('input', { type: 'checkbox', checked: true });
   const prev = h('div');
   const status = modalStatus();
@@ -3962,15 +3981,8 @@ function renderMap(tab, pane) {
       })(),
       h('button', { class: 'iconbtn', title: 'Fit', onclick: () => fit() }, ic('fit')),
       h('button', { class: 'iconbtn', title: 'Re-arrange', onclick: () => { store.set(`map:${S.id}`, {}); renderPane(); } }, ic('refresh')),
-      h('button', { class: 'iconbtn', title: 'Copy as text (Mermaid, DBML, plain)', onclick: e => { const r = e.currentTarget.getBoundingClientRect(); showMenu(r.left - 170, r.top - 140, [
-        { label: 'Copy as text', header: true },
-        { label: 'Mermaid', hint: 'GitHub, Notion…', icon: 'copy', run: () => copyErdText('mermaid') },
-        { label: 'DBML', hint: 'dbdiagram.io', icon: 'copy', run: () => copyErdText('dbml') },
-        { label: 'Plain text', hint: 'chats, tickets', icon: 'copy', run: () => copyErdText('text') }]); } }, ic('copy')),
-      h('button', { class: 'iconbtn', title: 'Export ERD', onclick: e => { const r = e.currentTarget.getBoundingClientRect(); showMenu(r.left - 150, r.top - 110, [
-        { label: 'Export ERD', header: true },
-        { label: 'SVG (vector)', icon: 'download', run: () => exportChart('svg') },
-        { label: 'PNG (2× resolution)', icon: 'download', run: () => exportChart('png') }]); } }, ic('download'))));
+      h('button', { class: 'iconbtn', title: 'Copy as text (Mermaid, DBML, plain)', onclick: e => { const r = e.currentTarget.getBoundingClientRect(); showMenu(r.left - 170, r.top - 140, [{ label: 'Copy as text', header: true }, ...erdTextItems(k => copyErdText(k))]); } }, ic('copy')),
+      h('button', { class: 'iconbtn', title: 'Export ERD', onclick: e => { const r = e.currentTarget.getBoundingClientRect(); showMenu(r.left - 150, r.top - 110, [{ label: 'Export ERD', header: true }, ...erdExportItems(exportChart)]); } }, ic('download'))));
   pane.append(map);
 
   // Default layout: columns by reference depth.
@@ -4033,11 +4045,8 @@ function renderMap(tab, pane) {
       { label: 'Zoom out', run: () => zoom(1 / 1.2, e.clientX - r.left, e.clientY - r.top) },
       { label: 'Re-arrange', icon: 'refresh', run: () => { store.set(`map:${S.id}`, {}); renderPane(); } },
       '-',
-      { label: 'Copy as Mermaid', icon: 'copy', run: () => copyErdText('mermaid') },
-      { label: 'Copy as DBML', icon: 'copy', run: () => copyErdText('dbml') },
-      { label: 'Copy as plain text', icon: 'copy', run: () => copyErdText('text') },
-      { label: 'Export SVG', icon: 'download', run: () => exportChart('svg') },
-      { label: 'Export PNG', icon: 'download', run: () => exportChart('png') }]);
+      ...erdTextItems(k => copyErdText(k), true),
+      ...erdExportItems(exportChart, true)]);
   };
   map.onwheel = e => { e.preventDefault(); const r = map.getBoundingClientRect(); zoom(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top); };
   map.onpointerdown = e => {
@@ -4125,7 +4134,6 @@ function chartSvg() {
   const x0 = Math.min(...cards.map(c => c.x)) - pad, y0 = Math.min(...cards.map(c => c.y)) - pad;
   const x1 = Math.max(...cards.map(c => c.x + W)) + pad, y1 = Math.max(...cards.map(c => c.y + c.h)) + pad + 20;
   const w = x1 - x0, hh = y1 - y0;
-  const clip = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
   const F = { serif: "Newsreader, Georgia, 'Times New Roman', serif", sans: "'IBM Plex Sans', 'Segoe UI', Helvetica, Arial, sans-serif", mono: "'IBM Plex Mono', Menlo, Consolas, monospace" };
   const g = wireGeometry(pos).filter(e => showComposite() || !e.composite);   // export matches what's on screen
   let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${hh}" viewBox="${x0} ${y0} ${w} ${hh}">
@@ -4133,7 +4141,7 @@ function chartSvg() {
 <rect x="${x0}" y="${y0}" width="${w}" height="${hh}" fill="${v('--sheet')}"/><rect x="${x0}" y="${y0}" width="${w}" height="${hh}" fill="url(#dots)"/>
 ${g.map(e => edgeSvg(e, { line: ` fill="none" stroke="${v('--blue')}" stroke-width="${e.composite ? 2.4 : 1.4}" opacity=".8"`, br: ` fill="none" stroke="${v('--blue')}" stroke-width="1.8" stroke-linecap="round"`, dot: ` fill="${v('--blue')}"` }).replace('<path class="hit"', '<path class="hit" fill="none" stroke="none"')).join('')}`;
   for (const { t, x, y, h: ch } of cards) {
-    const view = t.kind === 'v' || t.kind === 'm';
+    const view = isViewish(t);
     out += `<g><rect x="${x}" y="${y}" width="${W}" height="${ch}" rx="4" fill="${v('--sheet')}" stroke="${v('--ink3')}"${view ? ' stroke-dasharray="4 3"' : ''}/>
 <rect x="${x + .5}" y="${y + .5}" width="${W - 1}" height="36" rx="3.5" fill="${v('--paper')}"/><line x1="${x}" y1="${y + 36.5}" x2="${x + W}" y2="${y + 36.5}" stroke="${v('--ink')}" stroke-width="1.5"/>
 <text x="${x + 10}" y="${y + 23}" font-family="${F.serif}" font-size="15" font-weight="500" fill="${v('--ink')}">${esc(clip(t.key, 22))}</text>
@@ -4194,7 +4202,7 @@ function erdText(kind, tables = erdTables()) {
       }
       const multi = [...(t.pk.length > 1 ? [[t.pk, 'pk']] : []), ...uniques(t).filter(u => u.length > 1).map(u => [u, 'unique'])];
       if (multi.length) { out.push('', '  Indexes {'); for (const [cols, kindName] of multi) out.push(`    (${cols.map(q).join(', ')}) [${kindName}]`); out.push('  }'); }
-      if (t.kind === 'v' || t.kind === 'm') out.push(`  Note: '${t.kind === 'v' ? 'view' : 'materialized view'}'`);
+      if (isViewish(t)) out.push(`  Note: '${t.kind === 'v' ? 'view' : 'materialized view'}'`);
       out.push('}', '');
     }
     for (const t of tables) for (const f of t.fks) {
@@ -4225,11 +4233,15 @@ function erdText(kind, tables = erdTables()) {
 async function copyErdText(kind, tables = erdTables(), scope = erdScope() ? `in ${erdScope()}` : '') {
   if (!tables.length) return toast('No tables to describe yet', 'bad');
   const text = erdText(kind, tables);
-  try { await navigator.clipboard.writeText(text); }
-  catch { const ta = h('textarea', { value: text, style: 'position:fixed;opacity:0' }); document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
-  toast(`Copied ${{ mermaid: 'Mermaid', dbml: 'DBML', text: 'plain-text' }[kind]} ERD · ${plural(tables.length, 'table')}${scope ? ' ' + scope : ''}`);
+  copyText(text, `Copied ${{ mermaid: 'Mermaid', dbml: 'DBML', text: 'plain-text' }[kind]} ERD · ${plural(tables.length, 'table')}${scope ? ' ' + scope : ''}`);
 }
 
+/** A diagram's Copy-as-text and Export menu items: for a button's menu (under a header), or a right-click menu (`menu`). */
+const erdTextItems = (copy, menu) => [['mermaid', 'Mermaid', 'GitHub, Notion…'], ['dbml', 'DBML', 'dbdiagram.io'], ['text', 'Plain text', 'chats, tickets']]
+  .map(([kind, label, hint]) => ({ label: menu ? `Copy as ${kind === 'text' ? 'plain text' : label}` : label, hint: menu ? null : hint, icon: 'copy', run: () => copy(kind) }));
+const erdExportItems = (exp, menu) => [
+  { label: menu ? 'Export SVG' : 'SVG (vector)', icon: 'download', run: () => exp('svg') },
+  { label: menu ? 'Export PNG' : 'PNG (2× resolution)', icon: 'download', run: () => exp('png') }];
 function exportChart(kind) { exportSvg(kind, chartSvg(), `${currentDb()?.name || 'pgquire'}-erd`); }
 function exportSvg(kind, c, name) {
   if (!c) return toast('Nothing to export yet', 'bad');
@@ -4265,14 +4277,14 @@ function renderJournal() {
       h('span', { class: 'ji', title: e.error || e.info || '' }, e.error ? '✗ ' + e.error : e.info ? '✓ ' + e.info : '✓'),
       h('span', { class: 'jm' }, e.ms != null ? fmtMs(e.ms) : ''),
       h('span', { class: 'ja' },
-        h('button', { title: 'Copy SQL', onclick: ev => { ev.stopPropagation(); navigator.clipboard?.writeText(sql); toast('SQL copied'); } }, ic('copy', 'width:13px;height:13px')),
+        h('button', { title: 'Copy SQL', onclick: ev => { ev.stopPropagation(); copyText(sql, 'SQL copied'); } }, ic('copy', 'width:13px;height:13px')),
         h('button', { title: 'Open in a query tab', onclick: ev => { ev.stopPropagation(); openQuery(sql, { title: `journal ${hms(e.ts)}` }); } }, ic('query', 'width:13px;height:13px'))));
     row.onclick = () => { J.open.has(key) ? J.open.delete(key) : J.open.add(key); row.classList.toggle('open'); };
     row.ondblclick = () => openQuery(sql, { title: `journal ${hms(e.ts)}` });
     row.oncontextmenu = ev => { ev.preventDefault(); const sel = getSelection()?.toString() || ''; showMenu(ev.clientX, ev.clientY, [
-      sel.trim() && { label: 'Copy selection', icon: 'copy', hint: 'Ctrl C', run: () => { navigator.clipboard?.writeText(sel); toast('Copied'); } },
-      { label: 'Copy SQL', icon: 'copy', run: () => { navigator.clipboard?.writeText(sql); toast('SQL copied'); } },
-      e.error && { label: 'Copy error', icon: 'copy', run: () => { navigator.clipboard?.writeText(e.error); toast('Error copied'); } },
+      sel.trim() && { label: 'Copy selection', icon: 'copy', hint: 'Ctrl C', run: () => { copyText(sel, 'Copied'); } },
+      { label: 'Copy SQL', icon: 'copy', run: () => { copyText(sql, 'SQL copied'); } },
+      e.error && { label: 'Copy error', icon: 'copy', run: () => { copyText(e.error, 'Error copied'); } },
       { label: 'Open in editor', icon: 'query', run: () => openQuery(sql, { title: `journal ${hms(e.ts)}` }) },
       '-',
       { label: e.error ? 'Fix with the Clerk' : 'Explain with the Clerk', icon: 'quill', run: () => clerkAsk(e.error ? `This statement failed with: ${e.error}\n\n${sql}\n\nFix it and put the corrected SQL in my editor.` : `Explain this statement step by step:\n\n${sql}`) }]); };
@@ -4296,7 +4308,7 @@ function toggleJournal() { app.classList.toggle('journal-open'); $('journalToggl
 /* ==========================================================================
    Menus, toasts
    ========================================================================== */
-let openMenuEl = null;
+let openMenuEl = null, menuOnClose = null;
 function showMenu(x, y, items, onClose) {
   closeMenu();
   // { scroll: [items] } is a group that scrolls on its own, so the items around it stay in view.
@@ -4315,7 +4327,6 @@ function showMenu(x, y, items, onClose) {
 }
 function menuAway(e) { if (openMenuEl && !openMenuEl.contains(e.target)) closeMenu(); }
 function closeMenu() { openMenuEl?.remove(); openMenuEl = null; document.removeEventListener('mousedown', menuAway, true); const f = menuOnClose; menuOnClose = null; f?.(); }
-let menuOnClose = null;
 /** One highlighter stroke over what was just copied — a wash laid on top, so a code block's own paper can't hide it. */
 function flashCopied(el) {
   const r = el.getBoundingClientRect();
@@ -4419,10 +4430,10 @@ async function readOnlyLoginDialog() {
       h('p', {}, `pgquire's read-only setting is a guard rail: SQL can switch it off. A login that isn't allowed to write can't be talked around — in pgquire or any other tool. This creates one that can read all data on ${d.remote?.host || 'the server'} and change nothing. pgquire generates its password and keeps it; you never need to type it.`)),
     h('div', { class: 'modal-b' },
       h('label', { class: 'lab' }, 'Login name', name),
-      h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, sw, 'Use it for this connection from now on'),
+      h('label', { class: 'pick opt' }, sw, 'Use it for this connection from now on'),
       pre),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }),
-      h('button', { class: 'btn ghost', onclick: () => { navigator.clipboard?.writeText(sql); toast('SQL copied — replace the password placeholder'); } }, ic('copy'), 'Copy SQL'),
+      h('button', { class: 'btn ghost', onclick: () => { copyText(sql, 'SQL copied — replace the password placeholder'); } }, ic('copy'), 'Copy SQL'),
       h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   go.onclick = async () => {
     go.disabled = true; status.set('Creating the login…', { busy: true });
@@ -4437,7 +4448,7 @@ async function readOnlyLoginDialog() {
       const how = r.grants === 'pg_read_all_data' ? 'read all data' : `read the ${plural(r.schemas.length, 'schema')} of ${r.database}`;
       const removal = r.removeSQL.map(x => x + ';').join('\n');
       toast(`${r.switched ? `Now connected as ${r.role}: it can ${how}, and can't change anything.` : `Created ${r.role}: it can ${how}. Connect with it to use it.`} To remove it later, forget this connection (pgquire offers to drop it) or run the removal SQL on ${r.database}.`,
-        null, { label: 'Copy removal SQL', run: () => { navigator.clipboard?.writeText(removal); toast('Removal SQL copied'); } });
+        null, { label: 'Copy removal SQL', run: () => { copyText(removal, 'Removal SQL copied'); } });
     } catch (e) { go.disabled = false; status.fail(e.message); }
   };
   load(); name.focus();
@@ -4456,9 +4467,9 @@ function forgetConnection(p) {
       h('div', { class: 'modal-h' }, h('h2', {}, `Forget “${p.name}”?`), h('p', {}, 'The pgquire server stops remembering this connection. Its databases are not touched.')),
       role && h('div', { class: 'modal-b' },
         h('p', { style: 'margin:0;font-size:13px' }, `It uses ${role}, a login pgquire created on ${p.host}${p.createdRoleDb ? ` (in ${p.createdRoleDb})` : ''}. Once the connection is forgotten, nobody knows that login's password.`),
-        h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, drop, `Also remove the login ${role} from the server`),
+        h('label', { class: 'pick opt' }, drop, `Also remove the login ${role} from the server`),
         h('pre', { class: 'sqlpreview', html: highlightSQL(removal) }),
-        h('button', { class: 'btn sm ghost', style: 'align-self:flex-start', onclick: () => { navigator.clipboard?.writeText(removal); toast('Removal SQL copied'); } }, ic('copy'), 'Copy SQL')),
+        h('button', { class: 'btn sm ghost', style: 'align-self:flex-start', onclick: () => { copyText(removal, 'Removal SQL copied'); } }, ic('copy'), 'Copy SQL')),
       h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => { m.close(); res(false); } }, 'Cancel'), go)]);
     m.bg.addEventListener('cancel', () => res(false));
     go.onclick = async () => {
@@ -4565,32 +4576,26 @@ async function sqlDump(id) {
   try { return await (await pgDumpFn({ pg: inst, args })).text(); } finally { await inst.close().catch(() => {}); }
 }
 
-/** Run a plain-SQL dump. Handles pg_dump's COPY … FROM stdin blocks and skips psql meta-commands (\restrict, \connect…).
+/** Run a plain-SQL dump into a database being made: splitSql reads it (pg_dump's COPY … FROM stdin blocks go in as
+ *  INSERTs; psql meta-commands such as \restrict and \connect are skipped), statements between them run as one batch.
  *  onProgress(table, done, total) before each COPY block's data. */
 async function runSqlScript(pg, sql, onProgress) {
-  const meta = /^\\[a-z].*$/gim;
-  const copyRe = /^COPY\s+(.+?)\s+FROM\s+stdin;[ \t]*\r?$/gim;
-  const total = sql.match(copyRe)?.length || 0;
-  let pos = 0, m, done = 0;
-  while ((m = copyRe.exec(sql))) {
-    const before = sql.slice(pos, m.index).replace(meta, '');
-    if (before.trim()) await pg.exec(before);
-    const start = sql.indexOf('\n', m.index) + 1;
-    let end = sql.indexOf('\n\\.', start - 1);
-    if (end < 0) end = sql.length;
-    onProgress?.(m[1].replace(/\s*\(.*$/s, ''), done++, total);   // the table, without COPY's column list
-    for (const ins of copyInserts(m[1], sql.slice(start, end))) await pg.exec(ins.sql);
-    pos = end + 3;
-    copyRe.lastIndex = pos;
+  const spans = splitSql(sql), total = spans.filter(sp => sp.copy).length;
+  let done = 0, batch = [];
+  const flush = async () => { if (batch.length) await pg.exec(batch.join('\n')); batch = []; };
+  for (const sp of spans) {
+    if (!sp.copy) { batch.push(sql.slice(sp.s, sp.e)); continue; }
+    await flush();
+    onProgress?.(sp.copy.target.replace(/\s*\(.*$/s, ''), done++, total);   // the table, without COPY's column list
+    for (const ins of copyInserts(sp.copy.target, sql.slice(sp.copy.ds, sp.copy.de))) await pg.exec(ins.sql);
   }
-  const rest = sql.slice(pos).replace(meta, '');
-  if (rest.trim()) await pg.exec(rest);
+  await flush();
   await pg.exec('RESET ALL');          // the dump sets search_path='' etc. for its session
 }
 
 /** Create a brand-new database from SQL text, a PGlite data-folder archive, or a build(pg) callback. Returns its metadata. */
 async function createDbFrom(name, { sql, dataDir, extensions, build }, onProgress) {
-  if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
+  await loadPGlite();
   const names = new Set(loadDbs().map(x => x.name));
   let unique = name, n = 2;
   while (names.has(unique)) unique = `${name} (${n++})`;
@@ -4605,7 +4610,7 @@ async function createDbFrom(name, { sql, dataDir, extensions, build }, onProgres
     finally { await inst.close().catch(() => {}); }
   } catch (e) {
     saveDbs(loadDbs().filter(x => x.id !== meta.id));
-    indexedDB.deleteDatabase(`/pglite/ledger-${meta.id}`);
+    indexedDB.deleteDatabase(PGLITE_IDB(meta.id));
     throw e;
   }
   return meta;
@@ -4654,7 +4659,7 @@ async function deleteDb(d = currentDb()) {
   // @pages: if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
   const open = d.id === S.id;
   if (open) { await S.db?.close().catch(() => {}); S.db = null; }
-  /*remote:*/if (!isRemote(d.id)) /*:remote*/indexedDB.deleteDatabase(`/pglite/ledger-${d.id}`);
+  /*remote:*/if (!isRemote(d.id)) /*:remote*/indexedDB.deleteDatabase(PGLITE_IDB(d.id));
   for (const k of ['tabs', 'journal', 'map', 'clerk', 'clerkv2', 'saved']) store.del(`${k}:${d.id}`);
   for (const k of store.keys(`conv:${d.id}:`)) store.del(k);
   const rest = loadDbs().filter(x => x.id !== d.id);
@@ -4666,7 +4671,6 @@ async function deleteDb(d = currentDb()) {
 /* ==========================================================================
    Storage — what this browser holds for pgquire, and room to free some
    ========================================================================== */
-const PGLITE_IDB = id => `/pglite/ledger-${id}`;
 /** Bytes a database in this browser takes on disk. PGlite keeps its files in an IndexedDB database of their
  *  own (Emscripten's IDBFS: store FILE_DATA, a record per file with its contents), so they can be added up
  *  without starting Postgres. null if there's no such store. */
@@ -4781,7 +4785,7 @@ function storageDialog() {
       draw();
     }
     const known = new Set(loadDbs().map(d => PGLITE_IDB(d.id)));
-    const names = (await (indexedDB.databases?.() ?? Promise.resolve([])).catch(() => [])).map(x => x.name).filter(x => x?.startsWith('/pglite/ledger-') && !known.has(x));
+    const names = (await (indexedDB.databases?.() ?? Promise.resolve([])).catch(() => [])).map(x => x.name).filter(x => x?.startsWith(PGLITE_IDB('')) && !known.has(x));
     orphans.length = 0;
     for (const name of names) orphans.push({ name, size: await idbFileBytes(name) });
     if (me !== run) return;
@@ -4804,6 +4808,7 @@ function storageDialog() {
      databases/<dir>/conversations.json · saved-queries.json · journal.json · workspace.json
    ========================================================================== */
 const SESSION_FORMAT = 'pgquire-session';
+const sessionManifest = extra => ({ format: SESSION_FORMAT, version: 3, app: 'pgquire', appVersion: APP_VERSION, pglite: PGLITE_VER, exported: new Date().toISOString(), ...extra });
 const STATE_FILES = { clerkv2: 'conversations.json', saved: 'saved-queries.json', journal: 'journal.json' };   // tabs + map share workspace.json
 
 /* ---------- minimal ustar writer / reader ---------- */
@@ -4854,9 +4859,8 @@ const SESSION_PARTS = [
   { key: 'map', label: 'ERD layout', on: true },
 ];
 const SETTING_KEYS = ['base', 'model', 'sysPrompt', 'theme', 'look', 'confirm', 'clerkW', 'split'];
-const gzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
-const gunzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
-const fmtBytes = n => n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
+const gzip = bytes => pipeBytes(bytes, new CompressionStream('gzip'));
+const gunzip = bytes => pipeBytes(bytes, new DecompressionStream('gzip'));
 
 async function dumpDatabase(id) {
   if (!dbCaps(id).dataDir) throw new Error('Exact copies are only possible for databases in this browser.'); // @remote
@@ -4877,11 +4881,11 @@ function exportSessionDialog() {
   let format = 'sql';
   const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, ic('download'), 'Export');
-  const radio = (val, label, hint) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:baseline;font-size:13px;padding:3px 0' },
+  const radio = (val, label, hint) => h('label', { class: 'pick opt', style: 'align-items:baseline;padding:3px 0' },
     h('input', { type: 'radio', name: 'fmt', checked: format === val, onchange: () => format = val }), h('span', {}, h('b', { style: 'font-weight:500' }, label), h('span', { style: 'color:var(--ink3);font-size:12px' }, ' — ' + hint)));
   const upd = () => { go.disabled = !chosen.size; status.set(chosen.size ? `${plural(chosen.size, 'database')} selected` : 'Choose at least one database'); };
-  const check = (checked, on, label, hint) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0' },
-    h('input', { type: 'checkbox', checked, onchange: e => { on(e.target.checked); upd(); } }), label, hint && h('small', { style: 'margin-left:auto;color:var(--ink3);font:11px var(--mono)' }, hint));
+  const check = (checked, on, label, hint) => h('label', { class: 'pick opt', style: 'padding:3px 0' },
+    h('input', { type: 'checkbox', checked, onchange: e => { on(e.target.checked); upd(); } }), label, hint && h('small', { class: 'opt-hint' }, hint));
   const dbList = dbs.length > 1 && h('div', {},
     h('div', { class: 'smallcaps', style: 'display:flex;align-items:center;gap:8px;margin-bottom:4px' }, 'Databases',
       h('button', { class: 'btn sm ghost', onclick: () => { const all = chosen.size < dbs.length; dbs.forEach(d => all ? chosen.add(d.id) : chosen.delete(d.id)); m.box.querySelectorAll('.dbpick input').forEach(i => i.checked = all); upd(); } }, 'All / none')),
@@ -4907,7 +4911,7 @@ function exportSessionDialog() {
     try {
       persistTabs(); saveClerk();                       // flush the open database's state first
       const list = dbs.filter(d => chosen.has(d.id));
-      const manifest = { format: SESSION_FORMAT, version: 3, app: 'pgquire', appVersion: APP_VERSION, pglite: PGLITE_URL.match(/@([\d.]+)/)?.[1], exported: new Date().toISOString(), databases: [], settings: withSettings };
+      const manifest = sessionManifest({ databases: [], settings: withSettings });
       const files = [];
       const json = v => JSON.stringify(v, null, 2);
       const dirs = new Set();
@@ -4984,34 +4988,33 @@ async function importSessionDialog(file, preread, sourceLabel) {
   if (!man) try { man = await readSession(file); } catch (e) { toast(e.message, 'bad'); return; }
   const chosen = new Set(man.databases.map((_, i) => i));
   let applySettings = !!man.settings;
-  const mine = pglite => PGLITE_URL.includes('@' + pglite);
   const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, ic('upload'), 'Open');
   const upd = () => { go.disabled = !chosen.size; status.set(`${plural(chosen.size, 'database')} will be added`); };
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Open session'), h('p', {}, `${srcName} · ${man.shared ? 'shared' : 'exported'} ${new Date(man.exported).toLocaleString()}. Each database is added alongside yours — nothing existing is overwritten.`)),
     h('div', { class: 'modal-b' },
-      man.pglite && !mine(man.pglite) && man.databases.some(d => (d.data.kind || 'datadir') === 'datadir') && h('div', { class: 'pane-error', style: 'margin:0' }, h('div', {}, `Made with PGlite ${man.pglite}; this app uses a different version. Loading may fail if the storage format changed.`)),
+      man.pglite && man.pglite !== PGLITE_VER && man.databases.some(d => (d.data.kind || 'datadir') === 'datadir') && h('div', { class: 'pane-error', style: 'margin:0' }, h('div', {}, `Made with PGlite ${man.pglite}; this app uses a different version. Loading may fail if the storage format changed.`)),
       h('div', { class: 'smallcaps' }, 'Databases in this file'),
       man.databases.map((d, i) => {
         const st = d.state || {};
         const hint = [(d.data.kind === 'sql' ? 'SQL · ' : 'exact · ') + fmtBytes(d.data.length), (() => { const n = (st.clerkv2?.convs || []).filter(c => c.items?.length).length; return n ? plural(n, 'chat') : ''; })(), st.saved?.length ? `${st.saved.length} saved` : '', st.journal?.length ? `${st.journal.length} journal` : ''].filter(Boolean).join(' · ');
         const clash = loadDbs().some(x => x.name === d.name);
-        return h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0' },
+        return h('label', { class: 'pick opt', style: 'padding:3px 0' },
           h('input', { type: 'checkbox', checked: true, onchange: e => { e.target.checked ? chosen.add(i) : chosen.delete(i); upd(); } }),
           d.name, clash && h('small', { style: 'color:var(--red)' }, '(name exists — will be renamed)'),
-          h('small', { style: 'margin-left:auto;color:var(--ink3);font:11px var(--mono)' }, hint));
+          h('small', { class: 'opt-hint' }, hint));
       }),
-      man.settings && h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px;padding:6px 0 0' },
+      man.settings && h('label', { class: 'pick opt', style: 'padding:6px 0 0' },
         h('input', { type: 'checkbox', checked: true, onchange: e => applySettings = e.target.checked }), 'Also apply settings from the file',
-        h('small', { style: 'margin-left:auto;color:var(--ink3);font:11px var(--mono)' }, Object.keys(man.settings).join(', ')))),
+        h('small', { class: 'opt-hint' }, Object.keys(man.settings).join(', ')))),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   upd();
   go.onclick = async () => {
     go.disabled = true;
     const added = [];
     try {
-      if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
+      await loadPGlite();
       const picked = [...chosen].sort((a, b) => a - b);
       for (const [k, i] of picked.entries()) {
         const d = man.databases[i];
@@ -5030,7 +5033,7 @@ async function importSessionDialog(file, preread, sourceLabel) {
       if (applySettings && man.settings) {
         for (const [k, v] of Object.entries(man.settings)) if (SETTING_KEYS.includes(k)) store.set(k, v);
         C.base = store.get('base', DEFAULT_BASE); C.model = store.get('model', DEFAULT_MODEL);
-        const th = store.get('theme', null); if (th) { document.documentElement.dataset.theme = th; applyDbColor(); $('themeToggle').replaceChildren(ic(th === 'day' ? 'moon' : 'sun')); }
+        const th = store.get('theme', null); if (th) { document.documentElement.dataset.theme = th; applyDbColor(); paintThemeIcon(); }
         const lk = store.get('look', null); if (lk) setLook(lk);
         const w = store.get('clerkW', null); if (w) setClerkW(clampClerkW(w));
       }
@@ -5061,7 +5064,6 @@ window.addEventListener('drop', e => {
    still opens, but anything touching it fails (and pg_dump breaks) — so every
    open checks pg_extension and loads whatever is in use.
    ========================================================================== */
-const PG_CDN = 'https://cdn.jsdelivr.net/npm/@electric-sql/';
 const EXT_CATS = ['Text & search', 'Data types', 'Indexing', 'IDs & crypto', 'AI & vectors', 'Geo', 'Views, triggers & sampling', 'Admin & inspection'];
 const EXT = [
   { id: 'pg_trgm', cat: 0, kb: 15, desc: 'Trigram similarity: fuzzy matching, typo-tolerant search and fast LIKE / ILIKE indexes.', try: "select similarity('postgres', 'postgis') as similarity,\n       'postgres' % 'postgis' as is_similar,\n       show_trgm('clerk') as trigrams;" },
@@ -5101,7 +5103,7 @@ const EXT = [
 const EXT_BY = Object.fromEntries(EXT.map(e => [e.id, e]));
 const extSql = e => e.sql || e.id;
 const EXT_BY_SQL = Object.fromEntries(EXT.map(e => [extSql(e), e]));
-const extUrl = e => e.pkg ? `${PG_CDN}pglite-${e.pkg}/dist/index.js` : `${PG_CDN}pglite@0.5.8/dist/contrib/${e.id}.js`;
+const extUrl = e => e.pkg ? `${PG_CDN}pglite-${e.pkg}/dist/index.js` : `${PG_CDN}pglite@${PGLITE_VER}/dist/contrib/${e.id}.js`;
 const extKb = kb => kb >= 1000 ? (kb / 1024).toFixed(kb >= 10240 ? 0 : 1) + ' MB' : kb + ' KB';
 /** ids plus anything they need (earthdistance → cube), dependencies first. */
 function withDeps(ids) {
@@ -5588,9 +5590,9 @@ async function copyToLocalDialog() {
   if (d?.kind !== 'remote') return;
   const name = h('input', { class: 'field', value: nextFreeName(remoteDbOf(d) || d.name) });
   let rows = 1000;
-  const radio = (v, label) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' },
+  const radio = (v, label) => h('label', { class: 'pick opt' },
     h('input', { type: 'radio', name: 'copyrows', checked: v === rows, onchange: () => { rows = v; paintSpace(); } }), label);
-  const box = (label, checked = true) => { const i = h('input', { type: 'checkbox', checked }); return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, i, label)]; };
+  const box = (label, checked = true) => { const i = h('input', { type: 'checkbox', checked }); return [i, h('label', { class: 'pick opt' }, i, label)]; };
   const [views, viewsL] = box('Views and materialized views');
   const [code, codeL] = box('Functions and triggers');
   const status = modalStatus();
@@ -5843,7 +5845,7 @@ async function pickDatabasesDialog(p, { intro, open } = {}) {
   const have = new Set(loadDbs().filter(x => x.kind === 'remote' && x.profile === p.name).map(remoteDbOf));
   const picks = list.databases.map(name => {
     const i = h('input', { type: 'checkbox', checked: have.has(name) || (!!open && name === def), disabled: have.has(name) });
-    return { name, i, el: h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0' }, i,
+    return { name, i, el: h('label', { class: 'pick opt', style: 'padding:2px 0' }, i,
       h('span', { style: 'font-family:var(--mono)' }, name), name === def && h('span', { style: 'color:var(--ink3)' }, '— from the connection string'), have.has(name) && h('span', { style: 'color:var(--ink3)' }, '— added')) };
   });
   const go = h('button', { class: 'btn ink' }, 'Add');
@@ -5914,7 +5916,7 @@ async function connectRemoteDialog() {
   };
   const box = (checked, label, hint, title) => {
     const i = h('input', { type: 'checkbox', checked });
-    return [i, h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px', title }, i, h('span', {}, label, hint && h('span', { style: 'color:var(--ink3)' }, ' — ', hint)))];
+    return [i, h('label', { class: 'pick opt', title }, i, h('span', {}, label, hint && h('span', { style: 'color:var(--ink3)' }, ' — ', hint)))];
   };
   const [prod, prodL] = box(false, 'Production', 'red marker, read-only unless you untick below');
   const [ro, roL] = box(false, 'Read-only', 'writes are refused (a guard rail; for a hard guarantee use a read-only role)');
@@ -5989,7 +5991,7 @@ async function connectDb(id, opts = {}) {
     return db;
   }
   /* } @remote */
-  if (!S.PGlite) ({ PGlite: S.PGlite } = await import(PGLITE_URL));
+  await loadPGlite();
   if (dbExtensions(id).length) bootMsg(`loading ${dbExtensions(id).join(', ')}…`, true);
   return syncExtensions(id, await openInstance(id, opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}));
 }
@@ -6175,7 +6177,6 @@ function extensionsDialog(focusId) {
 const SHARE_TAG = 'pgquire1';
 const b64url = bytes => { let bin = ''; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
 const unb64url = str => { const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4)); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; };
-const pipeBytes = async (bytes, stream) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
 // Built-in deflate-raw streams exist in Chrome/Edge 103+, Firefox 113+, Safari/iOS 16.4+. Older
 // browsers load fflate (same raw DEFLATE format, ~8 KB) on demand, so links open everywhere.
 const FFLATE_URL = 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
@@ -6220,7 +6221,7 @@ async function buildSharePayload(sql, { saved, chats, curId }) {   // saved / ch
     const convs = c.convs.filter(x => chats.has(x.id) && x.items.length).map(({ convo, ...x }) => ({ ...x, items: x.items.map(stripItem).map(i => i.k === 'turn' ? { ...i, steps: undefined } : i) }));
     if (convs.length) { files.push({ name: dir + 'conversations.json', data: JSON.stringify({ cur: convs.some(x => x.id === curId) ? curId : convs.at(-1).id, convs }) }); db.files.clerkv2 = 'conversations.json'; }
   }
-  const manifest = { format: SESSION_FORMAT, version: 3, app: 'pgquire', appVersion: APP_VERSION, shared: true, pglite: PGLITE_URL.match(/@([\d.]+)/)?.[1], exported: new Date().toISOString(), databases: [db], settings: false };
+  const manifest = sessionManifest({ shared: true, databases: [db], settings: false });
   files.unshift({ name: 'manifest.json', data: JSON.stringify(manifest) });
   return new Uint8Array(await tarPack(files).arrayBuffer());
 }
@@ -6238,8 +6239,8 @@ function shareDialog() {
   const meter = h('div', { class: 'share-meter' }, h('i'));
   const verdict = h('div', { class: 'share-verdict' });
   const copy = h('button', { class: 'btn ink', disabled: true }, ic('copy'), 'Copy link');
-  const check = (key, label, hint) => h('label', { class: 'pick', style: 'display:flex;gap:8px;align-items:center;font-size:13px' },
-    h('input', { type: 'checkbox', checked: opts[key], onchange: e => { opts[key] = e.target.checked; rebuild(); } }), label, h('small', { style: 'margin-left:auto;color:var(--ink3);font:11px var(--mono)' }, hint));
+  const check = (key, label, hint) => h('label', { class: 'pick opt' },
+    h('input', { type: 'checkbox', checked: opts[key], onchange: e => { opts[key] = e.target.checked; rebuild(); } }), label, h('small', { class: 'opt-hint' }, hint));
   const rebuild = debounce(async () => {
     const my = ++building;
     copy.disabled = true; verdict.textContent = 'Building…'; verdict.className = 'share-verdict';
@@ -6261,58 +6262,40 @@ function shareDialog() {
   }, 250);
   pass.oninput = rebuild;
   copy.onclick = async () => {
-    try { await navigator.clipboard.writeText(link); } catch { const t = h('textarea', { value: link, style: 'position:fixed;opacity:0' }); document.body.append(t); t.select(); document.execCommand('copy'); t.remove(); }
-    toast(pass.value ? 'Link copied — send the passphrase separately' : 'Link copied');
+    copyText(link, pass.value ? 'Link copied — send the passphrase separately' : 'Link copied');
+  };
+  /** Checkboxes for opts[key], at most `max` ticked, under a heading that counts them; extra(sync) adds to the heading. */
+  const capped = (key, list, max, title, extra, row) => {
+    const head = h('div', { class: 'smallcaps', style: 'display:flex;gap:8px;align-items:baseline' });
+    const boxes = list.map(x => ({ id: x.id, input: h('input', { type: 'checkbox', checked: opts[key].has(x.id), onchange: e => { e.target.checked ? opts[key].add(x.id) : opts[key].delete(x.id); sync(); rebuild(); } }) }));
+    const sync = () => {
+      head.replaceChildren(`${title} · ${opts[key].size} of up to ${max}`, extra(sync));
+      for (const { input, id } of boxes) { input.checked = opts[key].has(id); input.disabled = !input.checked && opts[key].size >= max; input.title = input.disabled ? `Up to ${max} per link` : ''; }
+    };
+    sync();
+    return h('div', { style: 'display:flex;flex-direction:column;gap:5px' }, head, h('div', { class: 'share-convs' }, list.map((x, i) => row(x, boxes[i].input))));
   };
   const local = location.protocol === 'file:';
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Share as link'), h('p', {}, `“${currentDb()?.name}” packed into the link itself — tables, data, views and extensions. Whoever opens it gets their own copy; nothing is uploaded.`)),
     h('div', { class: 'modal-b' },
       local && h('div', { class: 'pane-error', style: 'margin:0;color:var(--ink2);border-color:var(--rule);background:var(--paper)' }, h('div', {}, 'pgquire is open from a file on this computer, so the link only works here. To share with others, host the pgquire HTML file somewhere public (e.g. GitHub Pages) and share from there.')),
-      savedList.length ? (() => {
-        const head = h('div', { class: 'smallcaps', style: 'display:flex;gap:8px;align-items:baseline' });
-        const boxes = [];
-        const sync = () => {
-          head.replaceChildren(`Saved queries · ${opts.saved.size} of up to ${MAX_SAVED}`,
-            h('button', { class: 'btn sm ghost', style: 'text-transform:none;letter-spacing:0;height:20px', onclick: () => { const none = opts.saved.size > 0; opts.saved = new Set(none ? [] : savedList.slice(0, MAX_SAVED).map(q => q.id)); boxes.forEach(b => b.input.checked = opts.saved.has(b.id)); sync(); rebuild(); } }, opts.saved.size ? 'None' : `Latest ${Math.min(MAX_SAVED, savedList.length)}`));
-          for (const { input, id } of boxes) input.disabled = !opts.saved.has(id) && opts.saved.size >= MAX_SAVED;
-        };
-        const when = ts => new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
-        const list = h('div', { class: 'share-convs' }, savedList.map(q => {
-          const input = h('input', { type: 'checkbox', checked: opts.saved.has(q.id), onchange: e => { e.target.checked ? opts.saved.add(q.id) : opts.saved.delete(q.id); sync(); rebuild(); } });
-          boxes.push({ input, id: q.id });
-          return h('label', { class: 'pick', title: q.sql.trim().slice(0, 400) }, input,
-            h('span', { class: 'sc-title' }, q.title),
-            h('small', {}, `${q.sql.replace(/\s+/g, ' ').trim().slice(0, 28)}${q.sql.trim().length > 28 ? '…' : ''} · ${when(q.updated)}`));
-        }));
-        sync();
-        return h('div', { style: 'display:flex;flex-direction:column;gap:5px' }, head, list);
-      })() : h('div', { class: 'smallcaps', style: 'color:var(--ink4)' }, 'No saved queries to include yet'),
-      convList.length ? (() => {
-        const head = h('div', { class: 'smallcaps', style: 'display:flex;gap:8px;align-items:baseline' });
-        const boxes = [];
-        const sync = () => {
-          head.replaceChildren(`Conversations · ${opts.chats.size} of up to ${MAX_CHATS}`, h('span', { style: 'text-transform:none;letter-spacing:0;font-weight:400' }, 'visible messages only'));
-          for (const { input, id } of boxes) input.disabled = !opts.chats.has(id) && opts.chats.size >= MAX_CHATS;
-        };
-        const when = ts => new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
-        const list = h('div', { class: 'share-convs' }, convList.map(c => {
-          const input = h('input', { type: 'checkbox', checked: opts.chats.has(c.id), onchange: e => { e.target.checked ? opts.chats.add(c.id) : opts.chats.delete(c.id); sync(); rebuild(); } });
-          boxes.push({ input, id: c.id });
-          return h('label', { class: 'pick', title: input.disabled ? `Up to ${MAX_CHATS} conversations per link` : '' }, input,
-            h('span', { class: 'sc-title' }, c.title), c.id === C.cur && h('span', { class: 'sc-cur' }, 'open'),
-            h('small', {}, `${plural(c.items.filter(i => i.k === 'user').length, 'message')} · ${when(c.updated)}`));
-        }));
-        sync();
-        return h('div', { style: 'display:flex;flex-direction:column;gap:5px' }, head, list);
-      })() : h('div', { class: 'smallcaps', style: 'color:var(--ink4)' }, 'No Clerk conversations to include yet'),
+      savedList.length ? capped('saved', savedList, MAX_SAVED, 'Saved queries', sync => h('button', { class: 'btn sm ghost', style: 'text-transform:none;letter-spacing:0;height:20px', onclick: () => { opts.saved = new Set(opts.saved.size ? [] : savedList.slice(0, MAX_SAVED).map(q => q.id)); sync(); rebuild(); } }, opts.saved.size ? 'None' : `Latest ${Math.min(MAX_SAVED, savedList.length)}`),
+        (q, input) => h('label', { class: 'pick', title: q.sql.trim().slice(0, 400) }, input,
+          h('span', { class: 'sc-title' }, q.title),
+          h('small', {}, `${q.sql.replace(/\s+/g, ' ').trim().slice(0, 28)}${q.sql.trim().length > 28 ? '…' : ''} · ${dayMonth(q.updated)}`)))
+        : h('div', { class: 'smallcaps', style: 'color:var(--ink4)' }, 'No saved queries to include yet'),
+      convList.length ? capped('chats', convList, MAX_CHATS, 'Conversations', () => h('span', { style: 'text-transform:none;letter-spacing:0;font-weight:400' }, 'visible messages only'),
+        (c, input) => h('label', { class: 'pick' }, input,
+          h('span', { class: 'sc-title' }, c.title), c.id === C.cur && h('span', { class: 'sc-cur' }, 'open'),
+          h('small', {}, `${plural(c.items.filter(i => i.k === 'user').length, 'message')} · ${dayMonth(c.updated)}`)))
+        : h('div', { class: 'smallcaps', style: 'color:var(--ink4)' }, 'No Clerk conversations to include yet'),
       h('label', { class: 'lab' }, 'Passphrase', pass),
       h('div', { style: 'display:flex;flex-direction:column;gap:6px' }, out, meter, verdict),
       h('p', { style: 'margin:0;font-size:12px;color:var(--ink3)' }, 'Anyone with the link can open this data (unless it has a passphrase). The data sits after the “#”, which browsers never send to a server.')),
     h('div', { class: 'modal-f' }, h('button', { class: 'btn ghost', onclick: () => { m.close(); exportSessionDialog(); } }, 'Export a file instead'), h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'), copy)], { wide: true });
   rebuild();
 }
-/** Open a #pgquire1… link: decode (and decrypt), then show the usual Open session dialog. */
 /** Parse a pgquire link fragment. Ignores anything a chat app or sentence adds after the data
  *  (trailing ". ) > ' ”" etc.) and tolerates the tag being URL-encoded. */
 function parseShareHash(hash) {
@@ -6321,6 +6304,7 @@ function parseShareHash(hash) {
   const m = new RegExp(`^#${SHARE_TAG}(e?)\\.([A-Za-z0-9_-]+)`).exec(h);
   return m ? { locked: !!m[1], data: m[2] } : null;
 }
+/** Open a #pgquire1… link: decode (and decrypt), then show the usual Open session dialog. */
 async function openSharedLink() {
   const link = parseShareHash(location.hash);
   if (!link) return;
@@ -6383,12 +6367,18 @@ function buildOmni() {
   if (dbOnly) {
     items.push(...dbItems);
     if (!dbHits.length) items.push({ sep: 'No other databases match' });
-    omniItems = items.filter(i => !i.sep);
-    omniSel = Math.min(omniSel, Math.max(0, omniItems.length - 1));
-    omniList.replaceChildren(...items.map(i => i.sep ? h('div', { class: 'omni-sep' }, i.sep) : h('div', { class: 'omni-item' + (omniItems.indexOf(i) === omniSel ? ' sel' : ''), onmousedown: e => { e.preventDefault(); runOmni(omniItems.indexOf(i)); } },
-      h('span', { class: 'kind db' }, 'db'), h('span', { class: 'label' }, i.label), h('span', { class: 'hint' }, i.hint))));
-    return;
-  }
+  } else omniMatches(text, t, looksSql, items, dbItems);
+  omniItems = items.filter(i => !i.sep);
+  omniSel = Math.max(0, Math.min(omniSel, omniItems.length - 1));
+  omniList.replaceChildren(...items.map(i => {
+    if (i.sep) return h('div', { class: 'omni-sep' }, i.sep);
+    const idx = omniItems.indexOf(i);
+    return h('div', { class: 'omni-item' + (idx === omniSel ? ' sel' : ''), onmousedown: e => { e.preventDefault(); runOmni(idx); }, onmousemove: () => { if (omniSel !== idx) { omniSel = idx; buildOmni(); } } },
+      h('span', { class: 'kind ' + (i.kind || '') }, i.kind), h('span', { class: 'label' }, i.label), i.hint && h('span', { class: 'hint' }, i.hint));
+  }));
+}
+/** Everything but databases-only: saved queries, tables, databases, the Clerk and actions matching the text. */
+function omniMatches(text, t, looksSql, items, dbItems) {
   const multi = new Set(S.tables.map(x => x.schema)).size > 1;
   const tables = S.tables.filter(x => !t || `${x.schema}.${x.name}`.toLowerCase().includes(t))
     .sort((a, b) => !t ? 0 : (!a.name.toLowerCase().startsWith(t)) - (!b.name.toLowerCase().startsWith(t)))   // names starting with it first
@@ -6401,14 +6391,6 @@ function buildOmni() {
   const cmds = COMMANDS.filter(c => (!c.when || c.when()) && (!t || c.label.toLowerCase().includes(t) || c.k.includes(t))).slice(0, t ? 4 : 6);
   if (cmds.length) { items.push({ sep: 'Actions' }); for (const c of cmds) items.push({ kind: 'do', label: c.label, run: c.run }); }
   if (t && looksSql) items.push({ sep: 'Clerk' }, { kind: 'ask', label: h('span', {}, 'Ask the Clerk about this SQL'), run: () => clerkAsk(`About this SQL:\n${text.trim()}`) });
-  omniItems = items.filter(i => !i.sep);
-  omniSel = Math.min(omniSel, omniItems.length - 1);
-  omniList.replaceChildren(...items.map(i => {
-    if (i.sep) return h('div', { class: 'omni-sep' }, i.sep);
-    const idx = omniItems.indexOf(i);
-    return h('div', { class: 'omni-item' + (idx === omniSel ? ' sel' : ''), onmousedown: e => { e.preventDefault(); runOmni(idx); }, onmousemove: () => { if (omniSel !== idx) { omniSel = idx; buildOmni(); } } },
-      h('span', { class: 'kind ' + (i.kind || '') }, i.kind), h('span', { class: 'label' }, i.label), i.hint && h('span', { class: 'hint' }, i.hint));
-  }));
 }
 function runOmni(i) { const it = omniItems[i]; if (!it) return; omniInput.value = ''; omni.classList.remove('open'); omniInput.blur(); it.run(); }
 omni.querySelector('.omni-box').onclick = () => omniInput.focus();   // the icon alone, when the box is folded on a phone
@@ -6511,10 +6493,9 @@ function startNewConv() {
 function convMenu(e) {
   const r = e.currentTarget.getBoundingClientRect();
   const list = [...C.convs].sort((a, b) => b.updated - a.updated);
-  const when = ts => { const d = new Date(ts); return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString([], { month: 'short', day: 'numeric' }); };
   showMenu(r.left, r.bottom + 4, [
     { label: `Conversations · ${list.length}`, header: true },
-    ...list.slice(0, 25).map(c => ({ label: c.title.length > 40 ? c.title.slice(0, 39) + '…' : c.title, cur: c.id === C.cur, icon: c.id === C.cur ? 'caret' : null, hint: `${when(c.updated)} · ${c.items.filter(i => i.k === 'user').length} msg${c.usage.calls ? ' · ' + fmtCost(c.usage) : ''}`, run: () => switchConv(c.id) })),
+    ...list.slice(0, 25).map(c => ({ label: c.title.length > 40 ? c.title.slice(0, 39) + '…' : c.title, cur: c.id === C.cur, icon: c.id === C.cur ? 'caret' : null, hint: `${shortWhen(c.updated)} · ${c.items.filter(i => i.k === 'user').length} msg${c.usage.calls ? ' · ' + fmtCost(c.usage) : ''}`, run: () => switchConv(c.id) })),
     '-',
     { label: 'New conversation', icon: 'plus', run: startNewConv },
     { label: 'Import conversation…', icon: 'upload', run: importConvs },
@@ -6534,7 +6515,6 @@ function convMenu(e) {
 
 /* ---------- export / import ---------- */
 const CONV_FORMAT = 'pgquire-conversations';
-const fileSafe = t => (t || 'conversation').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 50) || 'conversation';
 function convToMarkdown(c) {
   const lines = [`# ${c.title}`, '', `*pgquire · database “${currentDb()?.name}” · ${C.model} · started ${new Date(c.created).toLocaleString()}*`];
   if (c.usage?.calls) lines.push('', `*${c.usage.calls} model calls · ${c.usage.in.toLocaleString()} input + ${c.usage.out.toLocaleString()} output tokens · ${fmtCost(c.usage)}*`);
@@ -6565,13 +6545,12 @@ function convToMarkdown(c) {
 function exportConvs(list, kind) {
   list = list.filter(c => c && c.items.length);
   if (!list.length) return toast('Nothing to export yet');
-  const strip = ({ _node, fresh, ...rest }) => rest;
   const name = list.length === 1 ? fileSafe(list[0].title) : `${fileSafe(currentDb()?.name)}-conversations`;
   if (kind === 'md') {
     downloadBlob(new Blob([list.map(convToMarkdown).join('\n---\n\n')], { type: 'text/markdown' }), `${name}.md`);
   } else {
     const doc = { format: CONV_FORMAT, version: 1, exported: new Date().toISOString(), database: currentDb()?.name, endpoint: C.base, model: C.model,
-      conversations: list.map(c => ({ ...c, items: c.items.map(strip), convo: convoCache.get(c.id) || c.convo || null })) };
+      conversations: list.map(c => ({ ...c, items: c.items.map(stripItem), convo: convoCache.get(c.id) || c.convo || null })) };
     downloadBlob(new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }), `${name}.json`);
   }
   toast(`Exported ${plural(list.length, 'conversation')}`);
@@ -6607,7 +6586,6 @@ function importConvs() {
 
 /* ---------- usage & cost ---------- */
 const fmtTok = n => n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'k' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
-const fmtMs = ms => ms >= 1000 ? (ms / 1000).toFixed(1) + ' s' : ms + ' ms';
 function fmtCost(u) {
   if (!u.costKnown && !u.cost) return 'cost n/a';
   const c = u.cost;
@@ -6659,7 +6637,7 @@ function describeView() {
   if (!tab) return { chip: 'Overview', text: 'The user is on the overview page.' };
   if (tab.type === 'table') {
     const t = S.byKey[tab.key]; if (!t) return { chip: tab.key, text: '' };
-    const sel = [...tab.sel].slice(0, 15).map(r => Object.fromEntries(t.cols.map((c, i) => [c.name, tab.rows[r]?.[i + 1]])));
+    const sel = [...tab.sel].slice(0, 15).map(r => rowObj(t, tab.rows[r]?.slice(1)));
     const f = tab.focus && tab.rows[tab.focus.r] ? `Focused cell: ${t.cols[tab.focus.c]?.name} = ${JSON.stringify(tab.rows[tab.focus.r][tab.focus.c + 1])}.` : '';
     return {
       chip: `${t.key}${tab.filter ? ' · filtered' : ''}${tab.sel.size ? ` · ${tab.sel.size} selected` : ''}`,
@@ -6826,7 +6804,7 @@ function clerkMenu(e) {
   const quote = text => { const ta = $('clerkText'); if (!ta) return; ta.value = `> ${text.trim().replace(/\n/g, '\n> ')}\n\n${ta.value}`; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); ta.dispatchEvent(new Event('input')); };
   const cb = e.target.closest('.codeblock'), card = e.target.closest('.receipt'), msg = e.target.closest('.c-ai, .c-user-wrap');
   const target = cb || card || (msg && (msg.querySelector('.c-user') || msg));
-  const copy = (text, what = 'Copied', el = target) => { navigator.clipboard?.writeText(text); toast(what); el && flashCopied(el); };
+  const copy = (text, what = 'Copied', el = target) => { copyText(text, what); el && flashCopied(el); };
   const sqlItems = sql => [
     { label: 'Copy SQL', icon: 'copy', run: () => copy(sql, 'SQL copied') },
     { label: 'Open in editor', icon: 'query', run: () => openQuery(sql, { title: `Clerk ${hms(Date.now())}` }) }];
@@ -7076,7 +7054,7 @@ function wireCode(root) {
   root.querySelectorAll('.codeblock').forEach(cb => {
     const code = cb.querySelector('code').textContent;
     const sql = !cb.dataset.lang || /sql/i.test(cb.dataset.lang);
-    cb.append(h('button', { class: 'btn sm', onclick: () => sql ? openQuery(code, { title: `Clerk ${hms(Date.now())}` }) : (navigator.clipboard?.writeText(code), toast('Copied')) }, sql ? 'Open in editor' : 'Copy'));
+    cb.append(h('button', { class: 'btn sm', onclick: () => sql ? openQuery(code, { title: `Clerk ${hms(Date.now())}` }) : copyText(code) }, sql ? 'Open in editor' : 'Copy'));
   });
 }
 
@@ -7205,7 +7183,6 @@ async function clerkSend(text) {
   C.convo.push({ role: 'user', content });
   const turn = blankUsage();
   turn.steps = [];
-  const clip = (v, n) => { const str = String(v ?? ''); return str.length > n ? str.slice(0, n) + '…' : str; };
   try {
     let step = 0;
     for (; step < MAX_STEPS; step++) {
@@ -7231,7 +7208,7 @@ async function clerkSend(text) {
         const outStr = typeof out === 'string' ? out : JSON.stringify(out);
         stepRec.tools.push({ name: tc.function.name, args: clip(args, 600), result: clip(outStr.replace(/\s*\n\s*/g, ' ⏎ '), 300), ms: Math.round(performance.now() - t0),
           ok: !/^(ERROR|DECLINED|CANCELLED)/.test(outStr), status: /^DECLINED/.test(outStr) ? 'declined' : /^CANCELLED/.test(outStr) ? 'cancelled' : /^ERROR/.test(outStr) ? 'error' : 'ok' });
-        C.convo.push({ role: 'tool', tool_call_id: tc.id, content: typeof out === 'string' ? out : JSON.stringify(out) });
+        C.convo.push({ role: 'tool', tool_call_id: tc.id, content: outStr });
       }
       if (C.stop) break;
     }
@@ -7387,7 +7364,6 @@ function approve(it) {
 /* ==========================================================================
    Theme, keyboard, boot
    ========================================================================== */
-const app = $('app');
 /* Per-database colour: 40 hues spaced evenly round the wheel in OKLCH, so every colour has the same
    perceived lightness and weight (no washed-out yellows or near-black blues). Day = ink tones that sit on
    cream paper; night = lighter tones for the dark sheet. Stored per database as a hue in degrees. */
@@ -7469,10 +7445,11 @@ function setPrismFavicon(theme) {
     + (spine ? `<rect x='6' y='26' width='20' height='3' rx='1.5' fill='${spine}'/>` : '') + `</svg>`;
   $('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
+const paintThemeIcon = () => $('themeToggle').replaceChildren(ic(document.documentElement.dataset.theme === 'day' ? 'moon' : 'sun'));
 function toggleTheme() {
   const next = document.documentElement.dataset.theme === 'day' ? 'night' : 'day';
   document.documentElement.dataset.theme = next; store.set('theme', next); applyDbColor();
-  $('themeToggle').replaceChildren(ic(next === 'day' ? 'moon' : 'sun'));
+  paintThemeIcon();
 }
 /** Ledger or Prism. Day/night is separate, so both looks have both. */
 function setLook(look) {
@@ -7535,7 +7512,6 @@ $('shareBtn').onclick = () => S.db ? shareDialog() : toast('Open a database firs
    Hosted (e.g. GitHub Pages): the page can come from cache, so we fetch our own URL fresh, fingerprint
    it, and compare with what was served when this tab loaded. Reloading adds a throwaway ?_v= query
    to bypass any cached copy; it's removed again once the new version starts. */
-const HOSTED = /^https?:$/.test(location.protocol);
 const upd = { base: null, available: false, checkedAt: 0 };
 async function pageFingerprint() {
   const u = new URL(location.href); u.hash = ''; u.searchParams.delete('_v');
@@ -7586,7 +7562,7 @@ document.addEventListener('contextmenu', e => {
   if (e.defaultPrevented || e.target.closest?.('input, textarea, select, [contenteditable=""], [contenteditable=true], a[href]')) return;
   e.preventDefault();
   const sel = getSelection()?.toString() || '';
-  if (sel.trim()) return showMenu(e.clientX, e.clientY, [{ label: 'Copy', icon: 'copy', hint: 'Ctrl C', run: () => { navigator.clipboard?.writeText(sel); toast('Copied'); } }]);
+  if (sel.trim()) return showMenu(e.clientX, e.clientY, [{ label: 'Copy', icon: 'copy', hint: 'Ctrl C', run: () => { copyText(sel, 'Copied'); } }]);
   if (e.target.closest?.('.modal-bg, .menu')) return;
   showMenu(e.clientX, e.clientY, [
     { label: 'New query', icon: 'query', hint: 'Ctrl Alt N', disabled: !S.db, run: () => openQuery() },
@@ -7630,7 +7606,7 @@ document.body.append(
   catch (e) { kv.fallback = true; console.error(e); toast(`Couldn't open IndexedDB (${e.message}) — using limited browser storage for now.`, 'bad'); }
   const theme = store.get('theme', matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day');
   document.documentElement.dataset.theme = theme;
-  $('themeToggle').replaceChildren(ic(theme === 'day' ? 'moon' : 'sun'));
+  paintThemeIcon();
   // Clerk panel opens on first load so the key can be entered right away; it's never required.
   if (store.get('clerkOpen', true) === false || innerWidth < 980) app.classList.add('clerk-closed');
   const dbs = loadDbs();
