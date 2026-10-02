@@ -213,6 +213,7 @@ select.field { padding-right: 4px; }
 .index-list { flex: 1; overflow-y: auto; padding: 4px 8px 12px; }
 .index-group { margin: 10px 6px 4px; }
 .idx { display: flex; flex-direction: column; border-radius: 4px; animation: rise .35s both; }
+.index-list.settled .idx { animation: none; }       /* the entries rise in once per database; redraws after edits don't replay it */
 @keyframes rise { from { opacity: 0; transform: translateY(5px); } }
 .idx-row { display: flex; align-items: center; gap: 4px; padding: 4px 6px 4px 2px; border-radius: 4px; cursor: pointer; position: relative; }
 .idx-row:hover { background: var(--rule2); }
@@ -1619,35 +1620,43 @@ const fkLabel = f => `(${f.cols.join(', ')}) → ${f.ref}(${f.refCols.join(', ')
 const fkTitle = c => (c.fks || []).map(fkLabel).join('\n');
 const fkMark = c => (c.fks || []).length > 1 ? `FK${c.fks.length}` : 'FK';
 
-async function refreshSchema({ initial } = {}) {
+/** Re-read the tables and their row counts. rowsOnly (after grid edits, which can't change the schema): the counts alone. */
+async function refreshSchema({ initial, rowsOnly } = {}) {
+  const tables = rowsOnly && S.tables.length ? S.tables : await readCatalog();
+  const { counts, approx } = await countRows(tables);
+  if (!initial) for (const t of tables) if (counts[t.key] !== S.counts[t.key] || !S.byKey[t.key]) S.flash.add(t.key);
+  S.tables = tables; S.counts = counts; S.approx = approx;
+  S.byKey = Object.fromEntries(tables.map(t => [t.key, t]));
+}
+/** Every table and view with its columns, keys, constraints and triggers — plus the extensions, schemas and search
+ *  path — in one query (on a remote database each query is a round trip). Sets S.exts, S.schemas and S.schema. */
+async function readCatalog() {
   const relFilter = `c.relkind in ('r','v','m','p') and n.nspname <> 'information_schema' and n.nspname !~ '^pg_'`;
-  const rels = await q(`select c.oid::int as oid, n.nspname as schema, c.relname as name, c.relkind::text as kind
-    from pg_class c join pg_namespace n on n.oid = c.relnamespace where ${relFilter} order by n.nspname <> 'public', 2, 3`);
-  const cols = await q(`select a.attrelid::int as oid, a.attname as name, format_type(a.atttypid, a.atttypmod) as type,
-      t.typcategory::text as cat, a.attnotnull as notnull, pg_get_expr(d.adbin, d.adrelid) as def, a.attnum::int as num,
-      a.attidentity::text as ident, a.attgenerated::text as gen
-    from pg_attribute a join pg_type t on t.oid = a.atttypid
-    left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
-    where a.attrelid in (select c.oid from pg_class c join pg_namespace n on n.oid = c.relnamespace where ${relFilter})
-      and a.attnum > 0 and not a.attisdropped order by a.attrelid, a.attnum`);
-  const trg = await q(`select tgrelid::int as oid, array_agg(tgname::text order by tgname) as names from pg_trigger
-    where not tgisinternal and tgrelid in (select c.oid from pg_class c join pg_namespace n on n.oid = c.relnamespace where ${relFilter}) group by tgrelid`);
-  const cons = await q(`select conrelid::int as oid, contype::text as type, conname as name, conkey::int[] as keys,
-      confrelid::int as roid, confkey::int[] as rkeys, pg_get_constraintdef(oid) as def
-    from pg_constraint where conrelid in (select c.oid from pg_class c join pg_namespace n on n.oid = c.relnamespace where ${relFilter})
-    order by contype, conname`);
+  const [cat] = (await q(`with r as (select c.oid, n.nspname, c.relname, c.relkind from pg_class c join pg_namespace n on n.oid = c.relnamespace where ${relFilter})
+    select (select json_agg(json_build_object('oid', oid::int, 'schema', nspname, 'name', relname, 'kind', relkind::text) order by nspname <> 'public', nspname, relname) from r) as rels,
+      (select json_agg(json_build_object('oid', a.attrelid::int, 'name', a.attname, 'type', format_type(a.atttypid, a.atttypmod), 'cat', t.typcategory::text,
+          'notnull', a.attnotnull, 'def', pg_get_expr(d.adbin, d.adrelid), 'num', a.attnum::int, 'ident', a.attidentity::text, 'gen', a.attgenerated::text) order by a.attrelid, a.attnum)
+        from pg_attribute a join pg_type t on t.oid = a.atttypid left join pg_attrdef d on d.adrelid = a.attrelid and d.adnum = a.attnum
+        where a.attrelid in (select oid from r) and a.attnum > 0 and not a.attisdropped) as cols,
+      (select json_agg(json_build_object('oid', tgrelid::int, 'names', names)) from (select tgrelid, array_agg(tgname::text order by tgname) as names from pg_trigger
+        where not tgisinternal and tgrelid in (select oid from r) group by tgrelid) x) as trg,
+      (select json_agg(json_build_object('oid', conrelid::int, 'type', contype::text, 'name', conname, 'keys', conkey, 'roid', confrelid::int, 'rkeys', confkey,
+          'def', pg_get_constraintdef(oid)) order by contype, conname) from pg_constraint where conrelid in (select oid from r)) as cons,
+      (select json_agg(json_build_object('extname', extname, 'extversion', extversion) order by extname) from pg_extension where extname <> 'plpgsql') as exts,
+      (select json_agg(nspname::text order by nspname <> 'public', nspname) from pg_namespace where nspname !~ '^pg_' and nspname <> 'information_schema') as schemas,
+      current_schema() as cur, current_setting('search_path') as path, (select reset_val from pg_settings where name = 'search_path') as def`)).rows;
 
-  const byOid = {};
-  const tables = rels.rows.map(r => {
+  const byOid = {}, editable = /*remote:*/!readOnlyConn() && /*:remote*/true;
+  const tables = (cat.rels || []).map(r => {
     const key = r.schema === 'public' ? r.name : `${r.schema}.${r.name}`;
-    const t = { oid: r.oid, schema: r.schema, name: r.name, key, kind: r.kind, cols: [], pk: [], fks: [], cons: [], editable: (r.kind === 'r' || r.kind === 'p')/*remote:*/ && !readOnlyConn()/*:remote*/ };
+    const t = { oid: r.oid, schema: r.schema, name: r.name, key, kind: r.kind, cols: [], pk: [], fks: [], cons: [], refsIn: [], editable: (r.kind === 'r' || r.kind === 'p') && editable };
     byOid[r.oid] = t;
     return t;
   });
-  for (const r of trg.rows) if (byOid[r.oid]) byOid[r.oid].triggers = r.names;
-  for (const c of cols.rows) byOid[c.oid]?.cols.push({ name: c.name, type: c.type, cat: c.cat, notnull: c.notnull, def: c.def, num: c.num, ident: c.ident, gen: c.gen });
+  for (const r of cat.trg || []) if (byOid[r.oid]) byOid[r.oid].triggers = r.names;
+  for (const c of cat.cols || []) byOid[c.oid]?.cols.push({ name: c.name, type: c.type, cat: c.cat, notnull: c.notnull, def: c.def, num: c.num, ident: c.ident, gen: c.gen });
   const colAt = (t, num) => t?.cols.find(c => c.num === num)?.name;
-  for (const c of cons.rows) {
+  for (const c of cat.cons || []) {
     const t = byOid[c.oid]; if (!t) continue;
     t.cons.push({ name: c.name, type: c.type, def: c.def });
     const names = (c.keys || []).map(k => colAt(t, k));
@@ -1658,54 +1667,56 @@ async function refreshSchema({ initial } = {}) {
       t.fks.push({ name: c.name, cols: names, ref: rt?.key, refCols: (c.rkeys || []).map(k => colAt(rt, k)), def: c.def, onDelete: od ? od.toLowerCase() : 'no action' });
     }
   }
+  // The keys pointing at each table (for its menus, row panel and diagram), in table order.
+  const byKey = Object.fromEntries(tables.map(t => [t.key, t]));
+  for (const t of tables) for (const fk of t.fks) byKey[fk.ref]?.refsIn.push({ from: t, fk });
   for (const t of tables) for (const c of t.cols) {
     c.pk = t.pk.includes(c.name);
     c.fks = t.fks.filter(f => f.cols.includes(c.name));    // a column can sit in several (composite) keys
     c.fk = c.fks[0]?.ref || null;
   }
-
-  // Row counts for base tables (views may be expensive).
+  S.exts = cat.exts || [];
+  S.schemas = cat.schemas || [];
+  showSearchPath({ cur: cat.cur, path: cat.path, def: cat.def });
+  return tables;
+}
+/** Row counts of base tables (views may be expensive): { counts: key → n, approx: keys that are estimates }. */
+async function countRows(tables) {
   const counted = tables.filter(t => t.kind !== 'v');
   const counts = {}, approx = new Set();
+  // Many count(*)s per query: on a remote database each query is a round trip.
+  const exact = async list => {
+    const parts = list.map((t, i) => `select ${i} as i, count(*)::int as n from ${qt(t)}`);
+    for (let i = 0; i < parts.length; i += 250) for (const row of (await q(parts.slice(i, i + 250).join(' union all '))).rows) counts[list[row.i].key] = row.n;
+  };
   /* @remote { */
   if (counted.length && S.db.remote) {
     // A real server can hold huge tables: count small ones exactly, take the planner's estimate for the rest.
     const est = await q(`select c.oid::int as oid, pg_relation_size(c.oid) < 8388608 and c.relkind in ('r', 'm') as small,
         (case when c.relkind = 'p' then (select sum(greatest(ch.reltuples, 0)) from pg_inherits i join pg_class ch on ch.oid = i.inhrelid where i.inhparent = c.oid)
-              else coalesce(nullif(c.reltuples, -1), s.n_live_tup, 0) end)::bigint as n
-      from pg_class c left join pg_stat_all_tables s on s.relid = c.oid where c.oid = any($1::int[])`, [counted.map(t => t.oid)]);
+              else coalesce(nullif(c.reltuples, -1), pg_stat_get_live_tuples(c.oid), 0) end)::bigint as n   -- the function, not the pg_stat view: 10× faster
+      from pg_class c where c.oid = any($1::int[])`, [counted.map(t => t.oid)]);
     const byOid = new Map(counted.map(t => [t.oid, t]));
     const small = [];
     for (const r of est.rows) { const t = byOid.get(r.oid); if (!t) continue; if (r.small) small.push(t); else { counts[t.key] = r.n; approx.add(t.key); } }
-    const parts = small.map((t, i) => `select ${i} as i, count(*)::int as n from ${qt(t)}`);
-    for (let i = 0; i < parts.length; i += 60) {
-      const r = await q(parts.slice(i, i + 60).join(' union all '));
-      for (const row of r.rows) counts[small[row.i].key] = row.n;
-    }
-  } else if (counted.length) {
+    await exact(small);
+  } else
   /* } @remote */
-  // @pages: if (counted.length) {
-    const parts = counted.map((t, i) => `select ${i} as i, count(*)::int as n from ${qt(t)}`);
-    for (let i = 0; i < parts.length; i += 60) {
-      const r = await q(parts.slice(i, i + 60).join(' union all '));
-      for (const row of r.rows) counts[counted[row.i].key] = row.n;
-    }
-  }
-  if (!initial) for (const t of tables) if (counts[t.key] !== S.counts[t.key] || !S.byKey[t.key]) S.flash.add(t.key);
-  S.tables = tables; S.counts = counts; S.approx = approx;
-  S.exts = await installedExtensions(S.db).catch(() => []);
-  S.schemas = (await q(`select n.nspname as name from pg_namespace n where n.nspname !~ '^pg_' and n.nspname <> 'information_schema'
-    order by n.nspname <> 'public', 1`)).rows.map(r => r.name);
-  await readSearchPath();
-  S.byKey = Object.fromEntries(tables.map(t => [t.key, t]));
+  await exact(counted);
+  return { counts, approx };
 }
 /* ---------- the search path, shown in every query tab's toolbar ----------
    It belongs to the connection, so all query tabs show the same value, emphasised when it differs from the
    connection's default (reset_val: public in PGlite; usually "$user", public on servers, or a role's own).
    Read from Postgres rather than parsed from the SQL, so SET, SET LOCAL, RESET and set_config() all show. */
 async function readSearchPath() {
-  try { S.schema = (await q(`select current_schema() as cur, current_setting('search_path') as path, (select reset_val from pg_settings where name = 'search_path') as def`)).rows[0]; }
-  catch { S.schema = null; }                // e.g. inside a failed transaction: hide rather than guess
+  let sp = null;
+  try { sp = (await q(`select current_schema() as cur, current_setting('search_path') as path, (select reset_val from pg_settings where name = 'search_path') as def`)).rows[0]; }
+  catch {}                                  // e.g. inside a failed transaction: hide rather than guess
+  showSearchPath(sp);
+}
+function showSearchPath(sp) {
+  S.schema = sp;
   document.querySelectorAll('.schema-chip').forEach(paintSchemaChip);
   $('topSchema').hidden = !S.schema;
 }
@@ -1748,9 +1759,9 @@ function schemaPicker(initial) {
 function qt(t) { return `${qi(t.schema)}.${qi(t.name)}`; }
 
 /** After anything that might have changed data or schema. */
-async function afterWrite({ keepActive } = {}) {
+async function afterWrite({ keepActive, rowsOnly } = {}) {
   paintTx();
-  try { await refreshSchema(); }
+  try { await refreshSchema({ rowsOnly }); }
   catch (e) { toast(`Couldn't refresh the table list: ${e.message}`, 'bad'); }   // still redraw below
   for (const tab of S.tabs) if (tab.type === 'table') tab.dirty = true;
   // Close tabs for tables that vanished.
@@ -1822,7 +1833,7 @@ function openMap() {
   activate(tab.id);
 }
 /** After the open tabs or the active one changed: save them and redraw what shows them. */
-function tabsChanged() { persistTabs(); renderTabs(); renderIndex(); renderPane(); renderClerkCtx(); }
+function tabsChanged() { persistTabs(); renderTabs(); paintIndexActive(); renderPane(); renderClerkCtx(); }
 function activate(id) { S.active = id; tabsChanged(); closeIndexMobile(); }
 function closeTab(id) {
   const i = S.tabs.findIndex(t => t.id === id);
@@ -2074,12 +2085,14 @@ function renderIndex() {
   const total = Object.values(S.counts).reduce((a, b) => a + b, 0);
   $('idxSummary').textContent = S.tables.length ? `${S.tables.length} · ${S.approx?.size ? '~' : ''}${total.toLocaleString()} rows` : '';
   list.replaceChildren();
+  list.classList.toggle('settled', S.indexDrawn === S.id);
+  S.indexDrawn = S.id;
   if (!S.tables.length) list.append(h('div', { class: 'index-empty' }, 'No tables yet. Create one, import a CSV, or load the sample.'));
   let delay = 0;
   const logMax = Math.log10(Math.max(10, ...S.tables.map(t => S.counts[t.key] ?? 0)) + 1);   // prism: size bars, log scale
   const item = (t, label) => {
       const open = S.expanded.has(t.key) || (f && !t.key.toLowerCase().includes(f));
-      const el = h('div', { class: 'idx' + (isViewish(t) ? ' view' : '') + (act?.type === 'table' && act.key === t.key ? ' active' : '') + (open ? ' open' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms` },
+      const el = h('div', { class: 'idx' + (isViewish(t) ? ' view' : '') + (act?.type === 'table' && act.key === t.key ? ' active' : '') + (open ? ' open' : '') + (S.flash.has(t.key) ? ' flash' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms`, 'data-key': t.key },
         h('div', { class: 'idx-row', onclick: () => openTable(t.key), oncontextmenu: e => { e.preventDefault(); tableMenu(t, e.clientX, e.clientY); } },
           h('span', { class: 'idx-caret', onclick: e => { e.stopPropagation(); S.expanded.has(t.key) ? S.expanded.delete(t.key) : S.expanded.add(t.key); renderIndex(); } }, ic('caret', 'width:12px;height:12px')),
           h('span', { class: 'idx-name', title: t.key }, label),
@@ -2087,7 +2100,7 @@ function renderIndex() {
           h('span', { class: 'idx-count', title: S.approx?.has(t.key) ? 'estimated' : null }, t.kind === 'v' ? 'view' : (S.approx?.has(t.key) ? '~' : '') + (S.counts[t.key] ?? 0).toLocaleString())),
         !isViewish(t) && h('div', { class: 'idx-bar', style: `--hh:${nameHue(t.key)}`, title: 'Size relative to the largest table (log scale)' },
           h('i', { style: `width:${Math.max(2, Math.log10((S.counts[t.key] ?? 0) + 1) / logMax * 100).toFixed(1)}%` })),
-        h('div', { class: 'idx-cols' }, t.cols.map(c => h('div', { class: 'idx-col', title: `${c.name} ${c.type}` },
+        open && h('div', { class: 'idx-cols' }, t.cols.map(c => h('div', { class: 'idx-col', title: `${c.name} ${c.type}` },   // only when open: a big schema has thousands
           c.pk ? h('span', { class: 'k' }, 'PK') : c.fks?.length ? h('span', { class: 'k fk', title: fkTitle(c) }, fkMark(c)) : null,
           h('span', {}, c.name), h('span', { class: 't' }, c.type)))));
       return el;
@@ -2118,7 +2131,7 @@ function renderIndex() {
     list.append(h('div', { class: 'index-group smallcaps' }, 'Queries'));
     for (const sq of saved) {
       const key = 'q:' + sq.id, open = S.expanded.has(key);
-      list.append(h('div', { class: 'idx saved-q' + (act?.type === 'query' && act.savedId === sq.id ? ' active' : '') + (open ? ' open' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms` },
+      list.append(h('div', { class: 'idx saved-q' + (act?.type === 'query' && act.savedId === sq.id ? ' active' : '') + (open ? ' open' : ''), style: `animation-delay:${Math.min(delay++ * 25, 400)}ms`, 'data-saved': sq.id },
         h('div', { class: 'idx-row', title: 'Click to open · right-click for more', onclick: () => openSaved(sq), oncontextmenu: e => { e.preventDefault(); savedMenu(sq, e.clientX, e.clientY); } },
           h('span', { class: 'idx-caret', title: 'Preview SQL', onclick: e => { e.stopPropagation(); open ? S.expanded.delete(key) : S.expanded.add(key); renderIndex(); } }, ic('caret', 'width:12px;height:12px')),
           h('span', { class: 'idx-name', title: sq.title }, sq.title),
@@ -2146,6 +2159,12 @@ function renderIndex() {
   }
 }
 $('idxFilter').oninput = () => renderIndex();
+/** Mark the open tab's table or saved query in the Index, without redrawing it. */
+function paintIndexActive() {
+  const act = activeTab();
+  for (const el of $('idxList').querySelectorAll('.idx[data-key], .idx[data-saved]'))
+    el.classList.toggle('active', el.dataset.key != null ? act?.type === 'table' && act.key === el.dataset.key : act?.type === 'query' && act.savedId === el.dataset.saved);
+}
 
 function schemaHeadMenu(sc, x, y) {
   showMenu(x, y, [
@@ -2358,6 +2377,13 @@ async function loadRows(tab) {
   tab.sel = new Set([...tab.sel].filter(i => i < tab.rows.length));
 }
 
+/** loadRows, sharing a load already on its way for the same filter, sort and page — flicking between tabs while
+ *  they read doesn't queue copies (a database runs one query at a time). After a write, call loadRows itself. */
+function loadRowsOnce(tab) {
+  const sig = `${tab.filter}|${tab.sort?.col}|${tab.sort?.dir}|${tab.page}|${pageSize()}`;
+  if (tab._load?.sig !== sig) { const p = loadRows(tab).finally(() => { if (tab._load?.p === p) tab._load = null; }); tab._load = { sig, p }; }
+  return tab._load.p;
+}
 function renderTableTab(tab, pane) {
   const t = S.byKey[tab.key];
   if (!t) { pane.append(h('div', { class: 'placeholder' }, 'This table no longer exists.')); return; }
@@ -2443,7 +2469,7 @@ function renderTableTab(tab, pane) {
   tab._draw = draw;
   tab._wrap = wrap;
   wrap.addEventListener('keydown', e => gridKeys(e, tab, t, wrap));
-  if (tab.dirty) { wrap.append(h('div', { class: 'grid-empty' }, 'Reading…')); loadRows(tab).then(() => { if (activeTab() !== tab) return; draw(); const on = filterBox.querySelector('.fstate.on'); if (on) on.textContent = tab.error ? 'Error' : `Applied · ${tab.total.toLocaleString()}`; }); }
+  if (tab.dirty) { wrap.append(h('div', { class: 'grid-empty' }, 'Reading…')); loadRowsOnce(tab).then(() => { if (activeTab() !== tab) return; draw(); const on = filterBox.querySelector('.fstate.on'); if (on) on.textContent = tab.error ? 'Error' : `Applied · ${tab.total.toLocaleString()}`; }); }
   else draw();
 }
 
@@ -2484,7 +2510,7 @@ function relDraw(t, all) {
   add(t, 1);
   const parents = [...new Set(t.fks.map(f => f.ref))].filter(k => k !== t.key && S.byKey[k]).slice(0, REL.PER);
   for (const k of parents) add(S.byKey[k], 0);
-  const children = S.tables.filter(o => o !== t && o.fks.some(f => f.ref === t.key)).slice(0, REL.PER);
+  const children = [...new Set(t.refsIn.map(x => x.from))].filter(o => o !== t).slice(0, REL.PER);
   for (const o of children) add(o, 2);
   for (const o of children) for (const f of o.fks) if (!nodes.has(f.ref) && S.byKey[f.ref] && [...nodes.values()].filter(n => n.col === 3).length < REL.PER) add(S.byKey[f.ref], 3);
   for (const n of nodes.values()) for (const f of n.t.fks) {
@@ -2778,7 +2804,10 @@ function renderRowPanel(tab) {
   (async () => {
     const empty = [];
     rel.append(status);
+    // Wait a moment, and ask before every query, so arrowing through rows or flicking between tabs doesn't queue lookups.
+    await new Promise(r => setTimeout(r, 120));
     for (const fk of t.fks) {                                   // this row → the rows it references
+      if (panel._token !== token) return;
       const ref = S.byKey[fk.ref], vs = fk.cols.map(valOf);
       if (!ref || vs.some(v => v == null)) continue;
       let res;
@@ -2790,8 +2819,8 @@ function renderRowPanel(tab) {
       if (!hit) { body.append(h('div', { class: 'rp-note' }, 'No matching row — the key points at nothing.')); continue; }
       body.append(relItem(ref, hit, where(fk.refCols, vs), true));
     }
-    for (const o of S.tables) for (const fk of o.fks) {         // rows elsewhere → this row
-      if (fk.ref !== t.key) continue;
+    for (const { from: o, fk } of t.refsIn) {                  // rows elsewhere → this row
+      if (panel._token !== token) return;
       const vs = fk.refCols.map(valOf);
       if (vs.some(v => v == null)) continue;
       let res;
@@ -2912,7 +2941,7 @@ function undoCaveat(t, op) {
   const list = l => l.length > 3 ? `${l.slice(0, 3).join(', ')} and ${l.length - 3} more` : l.join(', ');
   const out = [];
   if (op === 'delete') {
-    const refs = S.tables.flatMap(o => o.fks.filter(f => f.ref === t.key).map(f => ({ o, rule: f.onDelete })));
+    const refs = t.refsIn.map(({ from, fk }) => ({ o: from, rule: fk.onDelete }));
     const cascade = [...new Set(refs.filter(x => x.rule === 'cascade').map(x => x.o.name))];
     const unlink = [...new Set(refs.filter(x => x.rule === 'set null' || x.rule === 'set default').map(x => x.o.name))];
     if (cascade.length) out.push(`Any rows in ${list(cascade)} that pointed to what you deleted were deleted too (ON DELETE CASCADE) — Undo won't bring those back.`);
@@ -2964,7 +2993,7 @@ async function undoLast() {
     journalAdd({ src: 'grid', sql: '-- undo\n' + u.stmts.map(s => inlineParams(s.sql, s.params)).join(';\n'), info: plural(n, 'row'), ms: Math.round(performance.now() - t0) });
     toast(n ? (u.done ? u.done(n) : `Undid: ${u.label}`) : `Couldn't undo "${u.label}" — the row has changed since.`, n ? null : 'bad');
   } catch (e) { toast('Undo failed: ' + e.message, 'bad'); }
-  await afterWrite();
+  await afterWrite({ rowsOnly: true });            // grid edits change rows, not the schema
 }
 
 async function updateCell(tab, t, r, c, val) {
@@ -2979,7 +3008,7 @@ async function updateCell(tab, t, r, c, val) {
       const w = t.pk.length ? t.pk.map((p, i) => `${qi(p)} = $${2 + i}`).join(' and ') : 'ctid = $2::tid';
       return [{ sql: `update ${qt(t)} set ${qi(col.name)} = $1 where ${w}`, params: [old, ...newIdent] }];
     });
-  if (res) { tab.markRow = r; await afterWrite(); }
+  if (res) { tab.markRow = r; await afterWrite({ rowsOnly: true }); }
   else tab._draw();
 }
 
@@ -3001,7 +3030,7 @@ async function deleteSelected(tab) {
       params: insertable.map(c => row[t.cols.indexOf(c) + 1]) });
   }
   const res = await gridWrite({ label: `Deleted ${plural(idxs.length, 'row')} from ${t.name}`, t, op: 'delete' }, stmts, undo.reverse());
-  if (res) { tab.sel.clear(); await afterWrite(); }
+  if (res) { tab.sel.clear(); await afterWrite({ rowsOnly: true }); }
 }
 
 function startDraft(tab) {
@@ -3023,7 +3052,7 @@ function draftRow(tab, t) {
     });
     if (res) {
       tab.draft = null;
-      await afterWrite();
+      await afterWrite({ rowsOnly: true });
       // Find & mark the new row if it's on this page.
       const ident = res[0].rows[0];
       const idx = tab.rows.findIndex(row => t.pk.length ? t.pk.every((p, i) => row[t.cols.findIndex(c => c.name === p) + 1] === ident[i]) : row[0] === ident[0]);
@@ -3058,8 +3087,8 @@ function cellMenu(tab, t, r, c, x, y) {
     items.push({ label: `Go to ${fk.ref} where ${shown(fk.refCols, vals)}`, icon: 'caret', run: () => openTable(fk.ref, { view: 'rows', filter: where(fk.refCols, vals) }) });
   }
   // Reverse references: rows elsewhere whose key points at this row.
-  for (const other of S.tables) for (const fk of other.fks) {
-    if (fk.ref !== t.key || !fk.refCols.includes(col.name)) continue;
+  for (const { from: other, fk } of t.refsIn) {
+    if (!fk.refCols.includes(col.name)) continue;
     const vals = fk.refCols.map(rowVal);
     if (vals.some(x => x == null)) continue;
     items.push({ label: `Find in ${other.key} (${fk.cols.join(', ')})`, icon: 'search', run: () => openTable(other.key, { view: 'rows', filter: where(fk.cols, vals) }) });
@@ -3124,7 +3153,7 @@ async function renderStructure(tab, t, pane) {
   if (t.editable) side.append(h('div', { class: 'card' },
     h('h3', {}, 'Indexes', h('span', { class: 'spacer' }), h('button', { class: 'btn sm ghost', onclick: () => openQuery(`create index on ${qt(t)} (${t.cols[0] ? qi(t.cols[0].name) : ''});`, { title: `index ${t.name}` }) }, ic('plus'), 'New')),
     idx.length ? idx.map(i => h('div', { class: 'idx-line' }, h('b', {}, i.indexname), i.indexdef.replace(/^CREATE (UNIQUE )?INDEX \S+ ON \S+ USING /, '$1'))) : h('div', { class: 'idx-line' }, 'No indexes.')));
-  const fksIn = S.tables.flatMap(o => o.fks.filter(f => f.ref === t.key).map(f => `${o.key}.${f.cols.join(',')}`));
+  const fksIn = t.refsIn.map(({ from, fk }) => `${from.key}.${fk.cols.join(',')}`);
   if (t.fks.length || fksIn.length) side.append(h('div', { class: 'card' }, h('h3', {}, 'Relationships'),
     t.fks.map(f => h('div', { class: 'idx-line' }, h('b', {}, `(${f.cols.join(', ')}) → ${f.ref}`), `references ${f.ref}(${f.refCols.join(', ')}) · on delete ${f.onDelete}`)),
     fksIn.map(s => h('div', { class: 'idx-line' }, h('b', {}, `← ${s}`), 'points here'))));
@@ -6712,7 +6741,7 @@ const tokRatio = () => store.get(`tokRatio:${C.model}`, null) || 1 / 3.6;
 function contextEstimate(mode) {
   const conv = curConv();
   const r = tokRatio();
-  const sys = systemPrompt().length, tools = JSON.stringify(TOOLS).length;
+  const sys = systemPrompt().length, tools = TOOLS_CHARS;
   // Include the message about to be sent: it starts a new turn, which can push an older one into compaction.
   const draftText = $('clerkText')?.value || '';
   const next = contextFor({ ctxMode: mode }, [...(C.convo || []), { role: 'user', content: draftText }]).msgs;
@@ -6721,13 +6750,19 @@ function contextEstimate(mode) {
   const tok = n => Math.round(n * r);
   return { total: tok(sys + tools + hist + draft), sys: tok(sys), tools: tok(tools), hist: tok(hist), draft: tok(draft), turns: (C.convo || []).filter(m => m.role === 'user').length };
 }
+/** The estimate next to the context mode. Skipped while the Clerk is closed (opening it redraws); the tooltip's
+ *  breakdown and the other mode's size are worked out when you point at it. */
 function renderCtxSize() {
-  const el = $('ctxSize'); if (!el || !clerkOn()) { if (el) el.textContent = ''; return; }
+  const el = $('ctxSize'); if (!el || !clerkOn() || app.classList.contains('clerk-closed')) { if (el) el.textContent = ''; return; }
   const mode = curConv()?.ctxMode === 'full' ? 'full' : 'compact';
-  const e = contextEstimate(mode), other = contextEstimate(mode === 'full' ? 'compact' : 'full');
+  const e = contextEstimate(mode);
   el.textContent = `≈${fmtTok(e.total)}`;
   el.classList.toggle('big', e.total > 60000);
-  el.title = `Estimated size of the next request (${mode}):\n`
+  el.onmouseenter = () => { el.title = ctxSizeTitle(mode, e); };
+}
+function ctxSizeTitle(mode, e) {
+  const other = contextEstimate(mode === 'full' ? 'compact' : 'full');
+  return `Estimated size of the next request (${mode}):\n`
     + `  system prompt (instructions, schema, current view)  ${fmtTok(e.sys)}\n`
     + `  tool definitions  ${fmtTok(e.tools)}\n`
     + `  history — ${plural(e.turns, 'turn')}  ${fmtTok(e.hist)}\n`
@@ -7067,7 +7102,14 @@ const TOOLS = [
   { type: 'function', function: { name: 'open_in_editor', description: "Put SQL into a new query-editor tab for the user to review and run themselves (not executed). Use for queries the user asked you to write, or fixes to their query.", parameters: { type: 'object', properties: { sql: { type: 'string' }, title: { type: 'string' } }, required: ['sql'] } } },
 ];
 
+/** The schema as the Clerk reads it; kept until the tables, counts or search path are read again. */
+const schemaMemo = {};
 function schemaText() {
+  const m = schemaMemo;
+  if (m.tables !== S.tables || m.counts !== S.counts || m.schema !== S.schema) Object.assign(m, { tables: S.tables, counts: S.counts, schema: S.schema, text: schemaTextNow() });
+  return m.text;
+}
+function schemaTextNow() {
   const sp = S.schema, schemas = S.schemas || [];
   const where = schemas.length > 1 || (sp && sp.path !== sp.def)
     ? `Schemas: ${schemas.join(', ')}. search_path = ${sp?.path ?? '(unknown)'}, so unqualified names resolve to ${sp?.cur ?? 'no schema'}. Tables below without a prefix are in public. Write schema-qualified names (schema.table) in SQL you run.\n\n`
@@ -7075,6 +7117,7 @@ function schemaText() {
   if (!S.tables.length) return where + '(empty — no tables yet)';
   return where + schemaTables();
 }
+const TOOLS_CHARS = JSON.stringify(TOOLS).length;
 function schemaTables() {
   // Keys are listed as whole constraints: a column can belong to several composite (tenant-guarded) keys.
   return S.tables.map(t => `${t.kind === 'v' ? 'view' : 'table'} ${t.key}${t.kind !== 'v' ? ` [${S.counts[t.key] ?? 0} rows]` : ''} (${t.cols.map(c => `${c.name} ${c.type}${c.pk ? ' PK' : ''}${c.notnull && !c.pk ? ' not null' : ''}${c.def ? ` default ${c.def}` : ''}`).join(', ')})`
