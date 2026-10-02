@@ -1376,17 +1376,24 @@ const kv = { db: null, cache: new Map(), dirty: new Map(), timer: null, failed: 
 const isKv = k => !kv.fallback && KV_PREFIXES.some(p => k.startsWith(p));
 let storageWarnAt = 0;
 const storageWarn = msg => { if (Date.now() - storageWarnAt > 20000) { storageWarnAt = Date.now(); toast(msg, 'bad'); } };
+/* Settings are read often (the database list on every currentDb()), so each is parsed once and kept;
+   another tab changing one drops the kept copy (the storage event). */
+const lsCache = new Map();
+addEventListener('storage', e => { if (e.key == null) lsCache.clear(); else if (e.key.startsWith('ledger:')) lsCache.delete(e.key.slice(7)); });
 const store = {
   get(k, d) {
     if (isKv(k)) return kv.cache.has(k) ? kv.cache.get(k) : d;
-    try { const v = localStorage.getItem('ledger:' + k); return v == null ? d : JSON.parse(v); } catch { return d; }
+    if (!lsCache.has(k)) { let v; try { v = JSON.parse(localStorage.getItem('ledger:' + k)); } catch { v = null; } lsCache.set(k, v); }
+    return lsCache.get(k) ?? d;
   },
   set(k, v) {
     if (isKv(k)) return kvPut(k, v);
-    try { localStorage.setItem('ledger:' + k, JSON.stringify(v)); }
+    const json = JSON.stringify(v);
+    lsCache.set(k, json === undefined ? null : JSON.parse(json));
+    try { localStorage.setItem('ledger:' + k, json); }
     catch (e) { storageWarn(`Couldn't save a setting — browser storage is full (${e.name}).`); }
   },
-  del(k) { if (isKv(k)) return kvPut(k, undefined); localStorage.removeItem('ledger:' + k); },
+  del(k) { if (isKv(k)) return kvPut(k, undefined); lsCache.delete(k); localStorage.removeItem('ledger:' + k); },
   keys: prefix => [...kv.cache.keys()].filter(k => k.startsWith(prefix)),
 };
 function kvPut(k, v) {
@@ -2551,6 +2558,7 @@ function setFocus(tab, wrap, r, c, noScroll) {
   wrap.querySelector('td.focus')?.classList.remove('focus');
   if (!tab.rows.length) return;
   const t = S.byKey[tab.key];
+  if (!t) return;                                              // e.g. another database opened meanwhile
   r = Math.max(0, Math.min(tab.rows.length - 1, r)); c = Math.max(0, Math.min(t.cols.length - 1, c));
   tab.focus = { r, c };
   const td = wrap.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
@@ -5312,7 +5320,8 @@ function buildOmni() {
   }
   const multi = new Set(S.tables.map(x => x.schema)).size > 1;
   const tables = S.tables.filter(x => !t || `${x.schema}.${x.name}`.toLowerCase().includes(t))
-    .sort((a, b) => !t ? 0 : (!a.name.toLowerCase().startsWith(t)) - (!b.name.toLowerCase().startsWith(t)))   // names starting with it first.slice(0, t ? 6 : 8);
+    .sort((a, b) => !t ? 0 : (!a.name.toLowerCase().startsWith(t)) - (!b.name.toLowerCase().startsWith(t)))   // names starting with it first
+    .slice(0, t ? 6 : 8);
   const sqs = loadSaved().filter(x => t && (x.title.toLowerCase().includes(t) || x.sql.toLowerCase().includes(t))).slice(0, 5);
   if (sqs.length && !looksSql) { items.push({ sep: 'Saved queries' }); for (const x of sqs) items.push({ kind: 'query', label: h('em', {}, x.title), hint: x.sql.replace(/\s+/g, ' ').slice(0, 40), run: () => openSaved(x) }); }
   if (tables.length) { items.push({ sep: 'Tables' }); for (const x of tables) items.push({ kind: x.kind === 'v' ? 'view' : 'table', label: h('em', {}, multi ? x.name : x.key), hint: [multi && x.schema, x.kind === 'v' ? '' : (S.approx?.has(x.key) ? '~' : '') + plural(S.counts[x.key] ?? 0, 'row')].filter(Boolean).join(' · '), run: () => openTable(x.key) }); }
