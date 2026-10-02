@@ -566,6 +566,20 @@ select.field { padding-right: 4px; }
 .remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; } /* @remote */
 .remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; } /* @remote */
 .remote-row .who { color: var(--ink3); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; } /* @remote */
+.copy-pick summary .sum { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; color: var(--ink2); } /* @remote */
+.copy-pick .bar { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--rule2); } /* @remote */
+.copy-pick .bar .field { flex: 1; height: 24px; } /* @remote */
+.copy-pick .bar label { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--ink2); white-space: nowrap; } /* @remote */
+.copy-pick .cp-list { max-height: 300px; overflow: auto; padding: 4px 0; } /* @remote */
+.cp-row { display: grid; grid-template-columns: 16px 1fr 96px 72px; gap: 8px; align-items: center; padding: 2px 10px; font-size: 12.5px; cursor: pointer; } /* @remote */
+.cp-row:hover { background: var(--hl-soft); } /* @remote */
+.cp-row[hidden] { display: none; } /* @remote */
+.cp-row.schema { font-weight: 600; margin-top: 4px; } /* @remote */
+.cp-row.table { padding-left: 30px; } /* @remote */
+.cp-row .nm { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* @remote */
+.cp-row .ref { color: var(--ink3); font: italic 11px var(--sans); margin-left: 6px; } /* @remote */
+.cp-row .n { text-align: right; color: var(--ink3); font: 11.5px var(--mono); font-variant-numeric: tabular-nums; } /* @remote */
+.cp-row.off .nm { color: var(--ink3); } /* @remote */
 .wordmark .ver { font: 600 9px var(--mono); font-style: normal; color: var(--red); letter-spacing: .08em; margin-left: 3px; align-self: flex-start; margin-top: 3px; }
 .clerk-title { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .clerk-title h2 { flex: none; }
@@ -4670,7 +4684,7 @@ const SESSION_PARTS = [
 const SETTING_KEYS = ['base', 'model', 'sysPrompt', 'theme', 'look', 'confirm', 'clerkW', 'split'];
 const gzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
 const gunzip = async bytes => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
-const fmtBytes = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
+const fmtBytes = n => n >= 1073741824 ? (n / 1073741824).toFixed(1) + ' GB' : n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
 
 async function dumpDatabase(id) {
   if (!dbCaps(id).dataDir) throw new Error('Exact copies are only possible for databases in this browser.'); // @remote
@@ -5219,22 +5233,22 @@ addEventListener('pagehide', () => { if (S.db?.remote && S.db.sid) fetch(`/api/s
    `only` (null = every table) lists the tables to copy by qualified name, as format('%I.%I') writes it;
    partitions come with their parent and a partition brings its parents. Foreign keys to tables left out,
    and views reading them, are dropped; schemas, types, sequences and functions are always copied. */
+const USER_NS = `n.nspname !~ '^pg_' and n.nspname <> 'information_schema'`;   // the user's schemas, aliased n
+const NOT_EXT = oid => `not exists (select 1 from pg_depend e where e.objid = ${oid} and e.deptype = 'e')`;   // not part of an extension
 async function remoteToSql(d, { rows = null, views = true, code = true, only = null } = {}, emit, progress) {
-  const USER = `n.nspname !~ '^pg_' and n.nspname <> 'information_schema'`;
-  const NOT_EXT = oid => `not exists (select 1 from pg_depend e where e.objid = ${oid} and e.deptype = 'e')`;
   const db = await new RemoteDb(d.profile, d.database).open();
   try {
     return await db.transaction(async tx => {
       await tx.exec('set transaction isolation level repeatable read, read only');
       const all = async (sql, params) => (await tx.query(sql, params)).rows;
       progress?.('Reading the schema…', { busy: true });
-      const schemas = await all(`select n.nspname as name from pg_namespace n where ${USER} and n.nspname <> 'public' and ${NOT_EXT('n.oid')} order by 1`);
+      const schemas = await all(`select n.nspname as name from pg_namespace n where ${USER_NS} and n.nspname <> 'public' and ${NOT_EXT('n.oid')} order by 1`);
       const exts = await all(`select extname as name from pg_extension where extname <> 'plpgsql' order by 1`);
       const enums = await all(`select format('%I.%I', n.nspname, t.typname) as qn, array(select e.enumlabel::text from pg_enum e where e.enumtypid = t.oid order by e.enumsortorder) as labels
-        from pg_type t join pg_namespace n on n.oid = t.typnamespace where t.typtype = 'e' and ${USER} and ${NOT_EXT('t.oid')} order by t.oid`);
+        from pg_type t join pg_namespace n on n.oid = t.typnamespace where t.typtype = 'e' and ${USER_NS} and ${NOT_EXT('t.oid')} order by t.oid`);
       const domains = await all(`select format('%I.%I', n.nspname, t.typname) as qn, format_type(t.typbasetype, t.typtypmod) as base, t.typnotnull as nn, t.typdefault as def,
           array(select pg_get_constraintdef(c.oid) from pg_constraint c where c.contypid = t.oid) as checks
-        from pg_type t join pg_namespace n on n.oid = t.typnamespace where t.typtype = 'd' and ${USER} and ${NOT_EXT('t.oid')} order by t.oid`);
+        from pg_type t join pg_namespace n on n.oid = t.typnamespace where t.typtype = 'd' and ${USER_NS} and ${NOT_EXT('t.oid')} order by t.oid`);
       // Sequences not generated for identity columns (those come back with their column).
       const seqs = await all(`select format('%I.%I', s.schemaname, s.sequencename) as qn, s.data_type::text as type, s.start_value::text as start, s.increment_by::text as inc,
           s.min_value::text as min, s.max_value::text as max, s.cycle, s.last_value::text as last,
@@ -5243,17 +5257,17 @@ async function remoteToSql(d, { rows = null, views = true, code = true, only = n
             where d.objid = c.oid and d.deptype = 'a' and d.refclassid = 'pg_class'::regclass limit 1) as owner,
           (select d.refobjid::int from pg_depend d where d.objid = c.oid and d.deptype = 'a' and d.refclassid = 'pg_class'::regclass limit 1) as owner_oid
         from pg_sequences s join pg_namespace n on n.nspname = s.schemaname join pg_class c on c.relnamespace = n.oid and c.relname = s.sequencename
-        where ${USER} and ${NOT_EXT('c.oid')} and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'i') order by c.oid`);
+        where ${USER_NS} and ${NOT_EXT('c.oid')} and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'i') order by c.oid`);
       const funcs = code ? await all(`select format('%I.%I', n.nspname, p.proname) as qn, pg_get_functiondef(p.oid) as def from pg_proc p
           join pg_namespace n on n.oid = p.pronamespace join pg_language l on l.oid = p.prolang
-        where p.prokind in ('f', 'p') and l.lanname not in ('c', 'internal') and ${USER} and ${NOT_EXT('p.oid')} order by p.oid`) : [];
+        where p.prokind in ('f', 'p') and l.lanname not in ('c', 'internal') and ${USER_NS} and ${NOT_EXT('p.oid')} order by p.oid`) : [];
       let tables = await all(`select c.oid::int as oid, format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind, c.reltuples::float8 as est,
           case when c.relkind = 'p' then pg_get_partkeydef(c.oid) end as partkey,
           case when c.relispartition then pg_get_expr(c.relpartbound, c.oid) end as bound,
           case when c.relispartition then (select format('%I.%I', pn.nspname, pc.relname) from pg_inherits i join pg_class pc on pc.oid = i.inhparent
             join pg_namespace pn on pn.oid = pc.relnamespace where i.inhrelid = c.oid) end as parent
         from pg_class c join pg_namespace n on n.oid = c.relnamespace
-        where c.relkind in ('r', 'p') and ${USER} and ${NOT_EXT('c.oid')} order by c.relispartition, c.oid`);
+        where c.relkind in ('r', 'p') and ${USER_NS} and ${NOT_EXT('c.oid')} order by c.relispartition, c.oid`);
       const dropped = new Set();   // oids of tables (and then views) left out
       if (only) {
         const keep = new Set(only), byQn = new Map(tables.map(t => [t.qn, t]));
@@ -5275,7 +5289,7 @@ async function remoteToSql(d, { rows = null, views = true, code = true, only = n
       let vws = views ? await all(`select c.oid::int as oid, format('%I.%I', n.nspname, c.relname) as qn, c.relkind::text as kind, pg_get_viewdef(c.oid, true) as def,
           array(select distinct dp.refobjid::int from pg_rewrite r join pg_depend dp on dp.classid = 'pg_rewrite'::regclass and dp.objid = r.oid
             where r.ev_class = c.oid and dp.refclassid = 'pg_class'::regclass and dp.refobjid <> c.oid) as uses
-        from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind in ('v', 'm') and ${USER} and ${NOT_EXT('c.oid')} order by c.oid`) : [];
+        from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind in ('v', 'm') and ${USER_NS} and ${NOT_EXT('c.oid')} order by c.oid`) : [];
       // Views reading a table left out (or a view that is) go too.
       if (dropped.size) {
         for (let grew = true; grew;) { grew = false; for (const x of vws) if (!dropped.has(x.oid) && x.uses.some(o => dropped.has(o))) dropped.add(x.oid), grew = true; }
@@ -5408,13 +5422,20 @@ async function copyToLocalDialog() {
   const [code, codeL] = box('Functions and triggers');
   const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, 'Copy');
-  const est = Object.values(S.counts || {}).reduce((a, b) => a + b, 0);
+  const allRows = n => `All${n ? ` (~${Math.round(n).toLocaleString()} rows)` : ''}`;
+  const allL = h('span', {}, allRows(Object.values(S.counts || {}).reduce((a, b) => a + b, 0)));
+  let picker = null;
+  const slot = h('div', { style: 'font-size:12px;color:var(--ink3)' }, 'Listing the tables…');
+  copyTablePicker(S.db, p => { allL.textContent = allRows(p.est); go.disabled = !p.count; })
+    .then(p => { picker = p; slot.replaceWith(p.el); })
+    .catch(e => { slot.textContent = `Couldn't list the tables (${e.message}), so all of them are copied.`; });
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Copy to a local database'), h('p', {}, `Makes an in-browser copy of “${d.name}” to experiment on freely. The remote database is only read.`)),
     h('div', { class: 'modal-b' },
       h('label', { class: 'lab' }, 'Name of the copy', name),
+      slot,
       h('div', {}, h('div', { class: 'smallcaps', style: 'margin:6px 0 4px' }, 'Rows per table'),
-        radio(100, '100'), radio(1000, '1,000 — recommended'), radio(10000, '10,000'), radio(null, `All${est ? ` (~${est.toLocaleString()} rows)` : ''}`)),
+        radio(100, '100'), radio(1000, '1,000 — recommended'), radio(10000, '10,000'), radio(null, allL)),
       h('div', {}, h('div', { class: 'smallcaps', style: 'margin:6px 0 4px' }, 'Also copy'), viewsL, codeL),
       h('p', { style: 'margin:0;font-size:12px;color:var(--ink3)' }, 'With a row limit, foreign keys are added NOT VALID, since sampled rows may point at rows that weren\'t copied. Anything the browser\'s Postgres can\'t run (for example an extension it doesn\'t have) is skipped and listed.')),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
@@ -5429,11 +5450,94 @@ async function copyToLocalDialog() {
           try { await inst.exec(st.sql); return true; }
           catch (e) { if (!st.quiet) failed.push({ what: [st.kind, st.name].filter(Boolean).join(' '), error: e.message }); return false; }
         };
-        result = await remoteToSql(d, { rows, views: views.checked, code: code.checked }, emit, status.set);
+        result = await remoteToSql(d, { rows, views: views.checked, code: code.checked, only: picker?.only() }, emit, status.set);
       } }, null);
       m.close();
       copyReport(meta, result, rows, failed);
     } catch (e) { status.fail(`Copy failed: ${e.message}`); go.disabled = false; }
+  };
+}
+/* Which tables a copy takes: the remote database's tables by schema, with the planner's row estimate and the
+   size on disk (partitions count into their table and come with it). With "tables they reference" on, tables
+   the chosen ones point at through foreign keys come too, so those keys survive. onChange({ count, est })
+   follows the choice; only() is null while everything is chosen. */
+async function copyTablePicker(db, onChange) {
+  const tables = (await db.query(`select n.nspname as schema, c.relname as name, format('%I.%I', n.nspname, c.relname) as qn, z.est, z.bytes
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    cross join lateral (select sum(pg_total_relation_size(pc.oid))::float8 as bytes,
+        case when bool_or(pc.reltuples < 0) filter (where pc.relkind = 'r') then null else coalesce(sum(pc.reltuples) filter (where pc.relkind = 'r'), 0) end::float8 as est
+      from (select c.oid as relid union select relid from pg_partition_tree(c.oid)) pt join pg_class pc on pc.oid = pt.relid) z
+    where c.relkind in ('r', 'p') and not c.relispartition and ${USER_NS} and ${NOT_EXT('c.oid')} order by 1, 2`)).rows;
+  // Foreign keys between top-level tables (a key on or to a partition counts as its root's).
+  const fks = (await db.query(`select distinct format('%I.%I', n.nspname, c.relname) as src, format('%I.%I', rn.nspname, rc.relname) as dst
+    from pg_constraint k
+    join pg_class c on c.oid = coalesce(pg_partition_root(k.conrelid), k.conrelid) join pg_namespace n on n.oid = c.relnamespace
+    join pg_class rc on rc.oid = coalesce(pg_partition_root(k.confrelid), k.confrelid) join pg_namespace rn on rn.oid = rc.relnamespace
+    where k.contype = 'f' and k.conparentid = 0`)).rows;
+  const refs = new Map();
+  for (const f of fks) if (f.src !== f.dst) { if (!refs.has(f.src)) refs.set(f.src, []); refs.get(f.src).push(f.dst); }
+  const picked = new Set(tables.map(t => t.qn));
+  const refBox = h('input', { type: 'checkbox', checked: true, onchange: () => paint() });
+  let need = new Map();      // tables in only because a chosen one references them → the one that does
+  const chosen = () => [...picked, ...need.keys()];
+  const num = n => n == null ? '?' : Math.round(n).toLocaleString();
+  const sumUp = list => ({ est: list.reduce((a, t) => a + (t.est || 0), 0), bytes: list.reduce((a, t) => a + (t.bytes || 0), 0) });
+  const byQn = new Map(tables.map(t => [t.qn, t]));
+
+  const row = (cls, box, name, est, bytes) => h('div', { class: 'cp-row ' + cls, onclick: e => { if (e.target !== box) box.click(); } },
+    box, name, h('span', { class: 'n' }, est), h('span', { class: 'n' }, bytes));
+  const groups = [...Map.groupBy(tables, t => t.schema)].map(([schema, list]) => {
+    const box = h('input', { type: 'checkbox', onchange: () => {
+      const vis = list.filter(t => !t.el.hidden), on = vis.some(t => !picked.has(t.qn));
+      for (const t of vis) on ? picked.add(t.qn) : picked.delete(t.qn);
+      paint();
+    } });
+    const tot = sumUp(list);
+    for (const t of list) {
+      t.box = h('input', { type: 'checkbox', onchange: () => { t.box.checked ? picked.add(t.qn) : picked.delete(t.qn); paint(); } });
+      t.ref = h('span', { class: 'ref' });
+      t.el = row('table', t.box, h('span', { class: 'nm', title: t.qn }, t.name, t.ref), num(t.est), fmtBytes(t.bytes || 0));
+    }
+    const el = row('schema', box, h('span', { class: 'nm' }, schema, h('span', { class: 'ref' }, plural(list.length, 'table'))), num(tot.est), fmtBytes(tot.bytes));
+    return { schema, list, box, el };
+  });
+  const search = h('input', { class: 'field', placeholder: 'Filter tables', spellcheck: false, oninput: () => {
+    const q = search.value.trim().toLowerCase();
+    for (const g of groups) { for (const t of g.list) t.el.hidden = !!q && !t.qn.toLowerCase().includes(q); g.el.hidden = g.list.every(t => t.el.hidden); }
+    paint();
+  } });
+  const setVisible = on => { for (const t of tables) if (!t.el.hidden) on ? picked.add(t.qn) : picked.delete(t.qn); paint(); };
+  const sum = h('span', { class: 'sum' });
+
+  function paint() {
+    need = new Map();
+    if (refBox.checked) {
+      const todo = [...picked];
+      while (todo.length) { const q = todo.pop(); for (const r of refs.get(q) || []) if (!picked.has(r) && !need.has(r)) { need.set(r, q); todo.push(r); } }
+    }
+    for (const t of tables) {
+      const by = need.get(t.qn);
+      t.box.checked = picked.has(t.qn) || need.has(t.qn);
+      t.box.disabled = !picked.has(t.qn) && need.has(t.qn);
+      t.ref.textContent = by ? `referenced by ${byQn.get(by).name}` : '';
+      t.el.classList.toggle('off', !t.box.checked);
+    }
+    for (const g of groups) {
+      const n = g.list.filter(t => t.box.checked).length;
+      g.box.checked = n === g.list.length; g.box.indeterminate = n > 0 && n < g.list.length;
+    }
+    const all = chosen(), tot = sumUp(all.map(q => byQn.get(q)));
+    sum.textContent = !tables.length ? 'none' : `${all.length === tables.length ? `all ${tables.length}` : `${all.length} of ${tables.length}`} · ~${num(tot.est)} rows · ${fmtBytes(tot.bytes)}`;
+    onChange?.({ count: all.length, est: tot.est });
+  }
+  paint();
+  return {
+    el: h('details', { class: 'prompt-box copy-pick' },
+      h('summary', {}, 'Tables', sum),
+      h('div', { class: 'bar' }, search, h('button', { class: 'btn sm ghost', onclick: () => setVisible(true) }, 'All'), h('button', { class: 'btn sm ghost', onclick: () => setVisible(false) }, 'None'),
+        h('label', { title: 'Also copy the tables the chosen ones point at through foreign keys, so those keys survive' }, refBox, 'Tables they reference')),
+      h('div', { class: 'cp-list' }, groups.map(g => [g.el, g.list.map(t => t.el)]))),
+    only: () => picked.size + need.size === tables.length ? null : chosen(),
   };
 }
 function copyReport(meta, result, rows, failed) {
