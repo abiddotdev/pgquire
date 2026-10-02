@@ -545,6 +545,24 @@ select.field { padding-right: 4px; }
 .conn-banner[hidden] { display: none; }
 .tx-banner { border-color: #d49a2a; gap: 8px; }
 .menu button:disabled { opacity: .5; cursor: default; }
+.st-meter, .st-keep { display: flex; flex-direction: column; gap: 6px; }
+.st-sum { font-size: 13.5px; } .st-sum small { color: var(--ink3); font-size: 12px; }
+.st-bar { height: 8px; background: var(--rule); border-radius: 4px; overflow: hidden; }
+.st-bar i { display: block; height: 100%; background: var(--ink2); }
+.st-bar.full i { background: var(--red); }
+.st-keep { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; margin-top: 4px; }
+.st-keep small { color: var(--ink3); font-size: 12px; flex: 1; }
+.st-list { display: flex; flex-direction: column; margin-top: 8px; max-height: 360px; overflow: auto; }
+.st-row { display: grid; grid-template-columns: 1fr 80px 110px 28px; gap: 10px; align-items: center; min-height: 30px; padding: 0 4px; border-bottom: 1px solid var(--rule); font-size: 13px; }
+.st-head { min-height: 22px; }
+.st-total { font-weight: 600; border-bottom: 0; border-top: 1px solid var(--ink3); }
+.st-name { display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-name small, .st-name em { color: var(--ink3); }
+.st-size { text-align: right; font: 12px var(--mono); }
+.st-when { color: var(--ink3); font-size: 12px; }
+.st-more.btn { padding: 0 4px; }
+.st-sort { cursor: pointer; user-select: none; white-space: nowrap; } .st-lab { position: relative; } .st-arrow { position: absolute; left: 100%; padding-left: 2px; font-style: normal; } .st-size .st-arrow { left: auto; right: 100%; padding: 0 2px 0 0; }   /* the arrow takes no width, so the label never moves; on its free side */ .st-sort:hover { color: var(--ink); } .st-sort.off { cursor: default; color: var(--ink3); opacity: .6; }
+.st-note { color: var(--ink3); font-size: 12px; margin-top: 8px; }
 .move-row { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; padding: 9px 10px; border: 1px solid var(--rule); border-radius: 6px; background: var(--paper); margin-top: 6px; }
 .move-row:hover { border-color: var(--ink3); background: var(--sheet); }
 .move-row .ic { margin-top: 2px; flex: none; }
@@ -730,7 +748,7 @@ select.field { padding-right: 4px; }
 .jrow.bad .ji { color: var(--red); }
 
 /* ---------- overlays ---------- */
-.menu { position: fixed; z-index: 200; min-width: 190px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; box-shadow: var(--shadow); padding: 5px; animation: drop .12s ease-out; }
+.menu { position: fixed; z-index: 350; min-width: 190px; background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; box-shadow: var(--shadow); padding: 5px; animation: drop .12s ease-out; }
 .menu button, .menu .mi { display: flex; width: 100%; align-items: center; gap: 9px; padding: 6px 10px; border-radius: 4px; text-align: left; font-size: 12.5px; white-space: nowrap; }
 .menu button:hover { background: var(--hl-soft); }
 .menu button.danger { color: var(--red); }
@@ -1251,6 +1269,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
   <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24"><path d="M20.5 9A8.5 8.5 0 0 0 5 6.2L3.5 8"/><path d="M3.5 3.5V8H8"/><path d="M3.5 15A8.5 8.5 0 0 0 19 17.8l1.5-1.8"/><path d="M20.5 20.5V16H16"/></symbol>
   <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></symbol>
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.4"/></symbol>
 </svg>
 
@@ -1466,6 +1485,7 @@ async function openDb(id, opts = {}) {
   persistTabs();
   if (S.db) { await S.db.close().catch(() => {}); S.db = null; }
   S.id = id; store.set('active', id);
+  saveDbs(loadDbs().map(d => d.id === id ? { ...d, opened: Date.now() } : d));
   S.tables = []; S.byKey = {}; S.counts = {}; S.undo = [];
   showDbKind();
   document.title = `${dbLabel(currentDb()) || 'pgquire'} · pgquire`;
@@ -3535,7 +3555,8 @@ async function pgVersion() {
 const PGLITE_VER = PGLITE_URL.match(/@([\d.]+)/)?.[1];
 /** About: the version, where it's running, the open database's Postgres, and where the source lives. */
 function aboutDialog() {
-  const pg = h('span', {}, S.db ? '…' : '—');
+  const pg = h('span', {}, S.db ? '…' : '—'), storage = h('span', {}, navigator.storage?.estimate ? '…' : 'unknown');
+  navigator.storage?.estimate?.().then(e => { storage.textContent = `${fmtBytes(e.usage)} used in this browser`; }).catch(() => { storage.textContent = 'unknown'; });
   const where = HOSTED ? 'the browser, from the web' : 'the browser, from a local file';
   const link = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text);
   const m = modal([
@@ -3544,6 +3565,7 @@ function aboutDialog() {
       h('span', { class: 'smallcaps' }, 'Running in'), h('span', {}, where),
       h('span', { class: 'smallcaps' }, 'Database'), h('span', {}, S.db ? dbLabel(currentDb()) : 'none open'),
       h('span', { class: 'smallcaps' }, 'Connected to'), pg,
+      h('span', { class: 'smallcaps' }, 'Storage'), h('span', {}, storage, ' · ', h('a', { href: '#', onclick: e => { e.preventDefault(); m.close(); storageDialog(); } }, 'See what\'s using it')),
       h('span', { class: 'smallcaps' }, 'Source'), h('span', {}, link('https://github.com/abiddotdev/pgquire', 'github.com/abiddotdev/pgquire')),
       h('span', { class: 'smallcaps' }, 'Releases'), h('span', {}, link('https://github.com/abiddotdev/pgquire/releases', 'Download the app'))),
     h('div', { class: 'modal-f' },
@@ -4295,12 +4317,13 @@ async function createDbFrom(name, { sql, dataDir, extensions, build }, onProgres
   return meta;
 }
 
-async function backupDb() {
+/** Download a database (the open one unless given) as a SQL dump. */
+async function backupDb(d = currentDb()) {
   try {
     toast('Dumping…');
-    const sql = await sqlDump(S.id);
-    const header = `-- pgquire v${APP_VERSION} SQL dump of "${currentDb().name}" · ${new Date().toISOString()}\n-- Load with: psql -d yourdb -f thisfile.sql   (or pgquire → New database from file)\n\n`;
-    downloadBlob(new Blob([header + sql], { type: 'application/sql' }), `${fileSafe(currentDb().name)}.sql`);
+    const sql = await sqlDump(d.id);
+    const header = `-- pgquire v${APP_VERSION} SQL dump of "${d.name}" · ${new Date().toISOString()}\n-- Load with: psql -d yourdb -f thisfile.sql   (or pgquire → New database from file)\n\n`;
+    downloadBlob(new Blob([header + sql], { type: 'application/sql' }), `${fileSafe(d.name)}.sql`);
     toast(`SQL dump downloaded · ${fmtBytes(sql.length)}`);
   } catch (e) { toast('Dump failed: ' + e.message, 'bad'); }
 }
@@ -4324,16 +4347,151 @@ function restoreDb() {
   };
   f.click();
 }
-async function deleteDb() {
-  const d = currentDb();
+/** Delete a database (the open one unless given) after a confirm. Resolves true if it went. */
+async function deleteDb(d = currentDb()) {
   if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
-  await S.db.close().catch(() => {}); S.db = null;
+  const open = d.id === S.id;
+  if (open) { await S.db?.close().catch(() => {}); S.db = null; }
   indexedDB.deleteDatabase(`/pglite/ledger-${d.id}`);
   for (const k of ['tabs', 'journal', 'map', 'clerk', 'clerkv2', 'saved']) store.del(`${k}:${d.id}`);
   for (const k of store.keys(`conv:${d.id}:`)) store.del(k);
   const rest = loadDbs().filter(x => x.id !== d.id);
   saveDbs(rest);
-  openDb((rest[0] || newDbMeta()).id);
+  if (open) openDb((rest[0] || newDbMeta()).id);
+  return true;
+}
+
+/* ==========================================================================
+   Storage — what this browser holds for pgquire, and room to free some
+   ========================================================================== */
+const PGLITE_IDB = id => `/pglite/ledger-${id}`;
+/** Bytes a database in this browser takes on disk. PGlite keeps its files in an IndexedDB database of their
+ *  own (Emscripten's IDBFS: store FILE_DATA, a record per file with its contents), so they can be added up
+ *  without starting Postgres. null if there's no such store. */
+function idbFileBytes(name) {
+  return new Promise(res => {
+    let r;
+    try { r = indexedDB.open(name); } catch { return res(null); }
+    r.onupgradeneeded = () => r.transaction.abort();             // it doesn't exist: don't make an empty one
+    r.onerror = () => res(null);
+    r.onsuccess = () => {
+      const db = r.result, done = n => { db.close(); res(n); };
+      if (!db.objectStoreNames.contains('FILE_DATA')) return done(null);
+      let n = 0;
+      const tx = db.transaction('FILE_DATA'), c = tx.objectStore('FILE_DATA').openCursor();
+      c.onsuccess = () => { const cur = c.result; if (!cur) return; n += cur.value?.contents?.byteLength || 0; cur.continue(); };
+      tx.oncomplete = () => done(n);
+      tx.onerror = tx.onabort = () => done(null);
+    };
+  });
+}
+/** Roughly what the app's own data takes: chats, journals, saved queries, tabs, layouts and settings. */
+function appDataBytes() {
+  let n = 0;
+  for (const v of kv.cache.values()) n += JSON.stringify(v ?? null).length;
+  for (const k of Object.keys(localStorage)) if (k.startsWith('ledger:')) n += k.length + (localStorage.getItem(k) || '').length;
+  return n;
+}
+const sinceDay = ts => {
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(ts).setHours(0, 0, 0, 0)) / 864e5);
+  return days <= 0 ? 'today' : days === 1 ? 'yesterday' : days < 30 ? `${days} days ago` : new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+};
+/** How much room pgquire's data takes in this browser against what the browser allows, whether the browser
+ *  keeps it when disk runs low, and each database's size, with Export and Delete to free space from here. */
+function storageDialog() {
+  const sizes = new Map(), orphans = [];                         // id → bytes measured now; stores no database points at
+  let est = null, kept = null, measuring = true, sort = null;      // sort: { by: 'size' | 'opened', desc }, once every size is read
+  const meter = h('div', { class: 'st-meter' }), keep = h('div', { class: 'st-keep' }), list = h('div', { class: 'st-list' });
+  const status = modalStatus();
+  const locals = () => loadDbs().filter(d => d.kind !== 'remote');
+  const sizeOf = d => sizes.get(d.id) ?? d.size;
+  const more = (e, d) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    showMenu(r.left, r.bottom + 4, [
+      d.id !== S.id && { label: 'Open', icon: 'play', run: () => { m.close(); openDb(d.id); } },
+      { label: 'Download SQL dump (.sql)', icon: 'download', run: () => backupDb(d) },
+      { label: 'Export session (.pgquire)', icon: 'download', hint: 'with its chats', run: () => { m.close(); exportSessionDialog(); } },
+      '-',
+      { label: 'Delete…', icon: 'trash', danger: true, run: async () => { if (await deleteDb(d)) { sizes.delete(d.id); deleted(); } } }]);
+  };
+  const draw = () => {
+    const usage = est?.usage, quota = est?.quota;
+    meter.replaceChildren(
+      h('div', { class: 'st-sum' }, h('b', {}, usage != null ? fmtBytes(usage) : '—'), quota ? ` of ${fmtBytes(quota)}, counted against this browser's limit for the site` : ' counted by this browser',
+        est?.usageDetails?.indexedDB != null && h('small', {}, ` · ${fmtBytes(est.usageDetails.indexedDB)} of it in databases`)),
+      quota ? h('div', { class: 'st-bar' + (usage / quota > .8 ? ' full' : '') }, h('i', { style: `width:${Math.max(.5, Math.min(100, usage / quota * 100)).toFixed(1)}%` })) : null);
+    keep.replaceChildren(
+      h('span', {}, 'Kept when disk runs low: ', h('b', {}, kept == null ? 'unknown' : kept ? 'yes' : 'no')),
+      h('small', {}, kept ? 'The browser won\'t delete these databases to make room.' : 'When disk runs low the browser may delete them without asking.'),
+      kept === false && h('button', { class: 'btn sm', onclick: async () => {
+        kept = await navigator.storage.persist().catch(() => false); draw();
+        if (!kept) toast('The browser said no. Chrome decides by how much you use the site (installing it or bookmarking it helps); Firefox asks.', 'bad');
+      } }, 'Keep my databases'));
+    // In the switcher's order while measuring, so rows don't move under the pointer; then sortable by size or last opened.
+    const key = d => sort.by === 'size' ? sizeOf(d) ?? -1 : d.id === S.id ? Infinity : d.opened ?? -1;
+    const dbs = sort && !measuring ? locals().sort((a, b) => (sort.desc ? key(b) - key(a) : key(a) - key(b))) : locals();
+    const sorter = (by, label, cls, title) => h('span', { class: `${cls} st-sort` + (measuring ? ' off' : ''), role: 'button',
+      title: measuring ? 'Sortable once every size is read' : title,
+      onclick: () => { if (measuring) return; sort = { by, desc: sort?.by === by ? !sort.desc : true }; draw(); } },
+      h('span', { class: 'st-lab' }, label, sort?.by === by && !measuring && h('i', { class: 'st-arrow' }, sort.desc ? '↓' : '↑')));
+    const total = dbs.reduce((n, d) => n + (sizeOf(d) || 0), 0);
+    const row = (name, size, when, extra) => h('div', { class: 'st-row' }, name, h('span', { class: 'st-size' }, size), h('span', { class: 'st-when' }, when), extra || h('span', { class: 'st-more' }));
+    list.replaceChildren(
+      h('div', { class: 'st-row st-head smallcaps' }, h('span', {}, `Databases (${dbs.length})`), sorter('size', 'files', 'st-size', 'The database\'s files; browsers compress what they store, so on disk it can take less. Click to sort.'), sorter('opened', 'last opened', 'st-when', 'Click to sort'), h('span', { class: 'st-more' })),
+      ...dbs.map(d => {
+        const sz = sizeOf(d), stale = !sizes.has(d.id) && sz != null;
+        return row(h('span', { class: 'st-name' }, h('span', { class: 'mdot', style: `--c:${dbColor(d)}` }), dbLabel(d)),
+          sz == null ? (measuring ? '…' : '—') : (stale ? '~' : '') + fmtBytes(sz),
+          d.id === S.id ? 'open now' : d.opened ? sinceDay(d.opened) : '—',
+          h('button', { class: 'btn sm ghost st-more', title: 'Export or delete', onclick: e => more(e, d) }, ic('more')));
+      }),
+      ...orphans.map(o => row(h('span', { class: 'st-name', title: o.name }, h('span', { class: 'mdot', style: '--c:var(--ink3)' }), h('em', {}, 'left over, no database uses it')),
+        o.size == null ? '—' : fmtBytes(o.size), '',
+        h('button', { class: 'btn sm ghost st-more', title: 'Delete what\'s left', onclick: async () => {
+          if (!(await confirmDlg({ title: 'Delete the leftover data?', body: `No database in pgquire uses ${o.name} — it's left from one that was deleted or failed to load. ${o.size == null ? '' : `It holds ${fmtBytes(o.size)} of files.`}`, ok: 'Delete', danger: true }))) return;
+          indexedDB.deleteDatabase(o.name); orphans.splice(orphans.indexOf(o), 1); deleted();
+        } }, ic('trash')))),
+      h('div', { class: 'st-row st-total' }, h('span', {}, 'All databases'), h('span', { class: 'st-size' }, fmtBytes(total)), h('span', { class: 'st-when' }), h('span', { class: 'st-more' })),
+      row(h('span', { class: 'st-name' }, 'App data ', h('small', {}, '(chats, journals, saved queries, tabs)')), '~' + fmtBytes(appDataBytes()), ''),
+      usage != null && total > usage && h('small', { class: 'st-note' }, 'These are the databases\' file sizes. Browsers store data compactly, so these usually add up to more than the bar shows, and don\'t rank exactly by space on disk.'));
+  };
+  // The browser's own figures, and each database measured one at a time (largest data reads take a moment).
+  let run = 0, after = '';
+  // The browser can take a while to give space back, so say so, and look at its figure again a few times.
+  const deleted = () => {
+    after = 'Deleted. The browser may take a little while to give the space back.';
+    refresh();
+    for (const ms of [3000, 15000, 60000]) setTimeout(() => m.bg.isConnected && navigator.storage?.estimate?.().then(e => { est = e; draw(); }).catch(() => {}), ms);
+  };
+  const refresh = async () => {
+    const me = ++run;
+    navigator.storage?.estimate?.().then(e => { est = e; draw(); }).catch(() => {});
+    navigator.storage?.persisted?.().then(p => { kept = p; draw(); }).catch(() => {});
+    measuring = true; draw();
+    const dbs = locals();
+    for (const [i, d] of dbs.entries()) {
+      status.set('Measuring', { lead: dbLabel(d), done: i, total: dbs.length, unit: 'database' });
+      const n = await idbFileBytes(PGLITE_IDB(d.id));
+      if (me !== run || !m.bg.isConnected) return;
+      if (n == null) continue;
+      sizes.set(d.id, n);
+      saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, size: n } : x));      // shown next time while it measures again
+      draw();
+    }
+    const known = new Set(loadDbs().map(d => PGLITE_IDB(d.id)));
+    const names = (await (indexedDB.databases?.() ?? Promise.resolve([])).catch(() => [])).map(x => x.name).filter(x => x?.startsWith('/pglite/ledger-') && !known.has(x));
+    orphans.length = 0;
+    for (const name of names) orphans.push({ name, size: await idbFileBytes(name) });
+    if (me !== run) return;
+    measuring = false; status.set(after); draw();
+  };
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Storage in this browser'),
+      h('p', {}, 'Your databases here and the app\'s own data. Free up room by exporting a database you\'re done with, then deleting it.')),
+    h('div', { class: 'modal-b' }, meter, keep, list),
+    h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }),
+      h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))], { wide: true });
+  refresh();
 }
 
 /* ==========================================================================
@@ -5130,6 +5288,7 @@ const COMMANDS = [
   { label: 'Open session file (.pgquire)', k: 'import open load session pgquire restore file', run: pickSessionFile },
   { label: 'Download SQL dump (.sql)', k: 'backup export download dump sql pg_dump', run: backupDb },
   { label: 'New database from .sql / .tar.gz', k: 'restore import load sql dump tar backup', run: restoreDb },
+  { label: 'Storage in this browser', k: 'storage space disk quota size full delete free persist', run: storageDialog },
   { label: 'Undo last grid change', k: 'undo revert', run: undoLast },
   { label: 'AI connection settings', k: 'clerk ai model key openrouter connect settings', run: () => { openClerk(); S.clerk.showConnect = true; renderClerk(); } },
 ];
@@ -6338,6 +6497,7 @@ document.addEventListener('contextmenu', e => {
     '-',
     { label: 'Reload', icon: 'update', run: reloadApp },
     { label: 'Help', icon: 'info', run: openReadme },
+    { label: 'Storage…', run: storageDialog },
     { label: 'About pgquire', run: aboutDialog }]);
 });
 $('newTableBtn').onclick = createTableDialog;
