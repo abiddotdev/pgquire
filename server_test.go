@@ -634,3 +634,13 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 		t.Fatalf("after forgetting: role still there=%v, profiles %d", left, len(list.Profiles))
 	}
 }
+
+func TestReadOnlyRolePlanListsNeverNull(t *testing.T) {
+	// Before PostgreSQL 14 there's no grant-all, and with no schemas no per-schema grants: both must
+	// still go out as [] — the page spreads them.
+	_, all, per := readOnlyRolePlan("ro", "db", "'x'", nil, false)
+	b, _ := json.Marshal(map[string]any{"grantAll": all, "perSchema": per})
+	if string(b) != `{"grantAll":[],"perSchema":[]}` {
+		t.Fatalf("got %s", b)
+	}
+}

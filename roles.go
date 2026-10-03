@@ -76,6 +76,7 @@ func quoteLit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") +
 // (before PostgreSQL 14, or without the right to grant pg_read_all_data).
 func readOnlyRolePlan(role, database, password string, schemas []string, v14 bool) (create, grantAll, perSchema []string) {
 	r := pgx.Identifier{role}.Sanitize()
+	grantAll, perSchema = []string{}, []string{} // never nil: the page reads them as lists, and nil goes out as JSON null
 	create = []string{
 		fmt.Sprintf("create role %s login password %s nosuperuser nocreatedb nocreaterole noreplication nobypassrls inherit", r, password),
 		fmt.Sprintf("alter role %s set default_transaction_read_only = on", r),

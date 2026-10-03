@@ -352,6 +352,7 @@ select.field { padding-right: 4px; }
 .editor-wrap textarea::selection { background: var(--hl-soft); color: transparent; }
 .editor-wrap .hl { color: var(--ink); pointer-events: none; overflow: hidden; }
 .editor-wrap .gutter { position: absolute; left: 0; top: 0; bottom: 0; width: 46px; padding-top: 14px; overflow: hidden; font: 11px/1.65 var(--mono); color: var(--red); text-align: right; padding-right: 8px; border-right: 3px double var(--red); opacity: .8; pointer-events: none; }
+.editor-wrap .gutter { z-index: 2; background: var(--sheet); opacity: 1; --gc: color-mix(in srgb, var(--red) 80%, var(--sheet)); color: var(--gc); border-right-color: var(--gc); }   /* opaque and above the text, so a line scrolled sideways passes under the numbers */
 .pane-error .err-stmt { margin: 6px 0 0; padding: 8px 10px; max-height: 160px; overflow: auto; font: 12px/1.5 var(--mono); background: var(--sheet); border: 1px solid var(--rule2); border-radius: 4px; white-space: pre-wrap; color: var(--ink); }
 .editor-wrap .gutter { white-space: pre; line-height: calc(13.5px * 1.65); }
 .editor-wrap.plain textarea { color: var(--ink); }
@@ -4232,10 +4233,11 @@ function flashCopied(el) {
   wash.animate([{ opacity: 1 }, { opacity: 1, offset: .25 }, { opacity: 0 }], { duration: 1100, easing: 'ease-out' }).onfinish = () => wash.remove();
 }
 
-function toast(msg, kind, action) {
-  const t = h('div', { class: 'toast' + (kind === 'bad' ? ' bad' : '') }, h('span', {}, msg), action && h('button', { onclick: () => { t.remove(); action.run(); } }, action.label));
+function toast(msg, kind, action) {                // action: { label, run }, or a list of them
+  const acts = [action].flat().filter(Boolean);
+  const t = h('div', { class: 'toast' + (kind === 'bad' ? ' bad' : '') }, h('span', {}, msg), acts.map(a => h('button', { onclick: () => { t.remove(); a.run(); } }, a.label)));
   $('toasts').append(t);
-  setTimeout(() => t.remove(), action ? (msg.length > 80 ? 11000 : 6000) : kind === 'bad' ? 6000 : 2600);
+  setTimeout(() => t.remove(), acts.length ? (msg.length > 80 ? 11000 : 6000) : kind === 'bad' ? 6000 : 2600);
 }
 
 /* ==========================================================================
@@ -6089,13 +6091,16 @@ Working style:
 - Use open_table to show the user relevant rows in their workspace, and open_in_editor to hand them SQL they asked for or a fixed query.
 - Be concise. Use Markdown sparingly: short paragraphs, a list when it helps.`;
 
-async function callModel(messages, signal) {
+/** One model call. lessThinking asks a reasoning model to keep its thinking short (OpenRouter's reasoning
+ *  setting, or OpenAI's reasoning_effort elsewhere); servers that don't know it may refuse the call. */
+async function callModel(messages, signal, { lessThinking } = {}) {
   const t0 = performance.now();
   const res = await fetch(`${C.base}/chat/completions`, {
     method: 'POST', signal,
     headers: { ...authHeaders(C.key), 'Content-Type': 'application/json', ...(isOpenRouter(C.base) ? { 'X-Title': 'pgquire' } : {}) },
     // OpenRouter reports the exact cost when asked; other servers still return token counts.
-    body: JSON.stringify({ model: C.model, messages, tools: TOOLS, tool_choice: 'auto', ...(isOpenRouter(C.base) ? { usage: { include: true } } : {}) }),
+    body: JSON.stringify({ model: C.model, messages, tools: TOOLS, tool_choice: 'auto', ...(isOpenRouter(C.base) ? { usage: { include: true } } : {}),
+      ...(lessThinking ? isOpenRouter(C.base) ? { reasoning: { effort: 'low' } } : { reasoning_effort: 'low' } : {}) }),
   });
   const ms = Math.round(performance.now() - t0);
   const data = await res.json().catch(() => ({}));
@@ -6107,7 +6112,7 @@ async function callModel(messages, signal) {
   }
   const m = data.choices?.[0]?.message;
   if (!m) throw new Error('The model returned nothing.');
-  return { msg: m, usage: { ...usageOf(data, ms), model: data.model || C.model } };
+  return { msg: m, finish: data.choices[0].finish_reason, usage: { ...usageOf(data, ms), model: data.model || C.model } };
 }
 
 function clerkAsk(text, { draft } = {}) {
@@ -6155,15 +6160,22 @@ async function clerkSend(text) {
       turn.ctx = { mode: ctx.mode, compacted: ctx.compacted };
       const payload = [{ role: 'system', content: systemPrompt() }, ...ctx.msgs];
       const sentChars = JSON.stringify(payload).length + JSON.stringify(TOOLS).length;
-      const { msg, usage } = await callModel(payload, C.abort.signal);
+      let r = await callModel(payload, C.abort.signal);
+      if (r.finish === 'length' && !r.msg.content?.trim() && !r.msg.tool_calls?.length) {
+        // Thinking used all the room the model had for a reply: ask once more for less of it. A server that refuses the setting keeps the first reply.
+        const again = await callModel(payload, C.abort.signal, { lessThinking: true }).catch(e => { if (e.name === 'AbortError') throw e; return null; });
+        if (again) { addUsage(turn, r.usage); addUsage(conv.usage, r.usage); r = again; }
+      }
+      const { msg, usage } = r, cut = r.finish === 'length';
       // Learn this model's characters-per-token from what the endpoint reports (smoothed).
       if (usage.in > 0) { const r = usage.in / sentChars, old = store.get(`tokRatio:${C.model}`, null); store.set(`tokRatio:${C.model}`, old ? old * 0.7 + r * 0.3 : r); }
       addUsage(turn, usage); addUsage(conv.usage, usage);
-      const calls = msg.tool_calls || [];
+      const calls = cut ? [] : msg.tool_calls || [];      // cut off mid-call, the arguments may be half-written: don't run them
       const stepRec = { model: usage.model, ms: usage.ms, in: usage.in, out: usage.out, cost: usage.cost, costKnown: usage.costKnown, text: clip(msg.content?.trim(), 220), tools: [] };
       turn.steps.push(stepRec);
       C.convo.push(calls.length ? { role: 'assistant', content: msg.content || '', tool_calls: calls } : { role: 'assistant', content: msg.content || '' });
       if (msg.content?.trim()) clerkPush({ k: 'ai', text: msg.content.trim(), model: usage.model, ms: usage.ms, tin: usage.in, tout: usage.out, cost: usage.cost, costKnown: usage.costKnown });
+      if (cut) { clerkPush({ k: 'note', paused: true, text: `Cut off — ${usage.model} ran out of room for its reply${msg.content?.trim() ? '' : ' while thinking'}. Continue, or pick a model that thinks less.` }); break; }
       if (!calls.length) break;
       for (const tc of calls) {
         const t0 = performance.now();
@@ -6378,9 +6390,8 @@ function recolorDb(id) {
   return dbColor(d);
 }
 
-/* Favicon: a ledger page whose spine is the open database's colour, with an ink "pg". */
+/* Favicon, the same in both looks: a ledger page whose spine is the open database's colour, with an ink "pg". */
 function setFavicon(theme) {
-  if (document.documentElement.dataset.look === 'prism') return setPrismFavicon(theme);
   const night = theme === 'night';
   const c = night ? { bg: '#1b1a14', edge: '#ece5d3', ink: '#ece5d3', rule: '#58534a' } : { bg: '#f7f3e8', edge: '#1d1b16', ink: '#1d1b16', rule: '#c9bfa6' };
   const spine = dbColor(currentDb(), theme) || (night ? '#ff6d55' : '#c8412c');
@@ -6390,15 +6401,6 @@ function setFavicon(theme) {
     + `<path d='M12 26.5h15.5' stroke='${c.rule}' stroke-width='1.3'/>`
     + `<text x='20.6' y='22' text-anchor='middle' font-family='Georgia,"Times New Roman",serif' font-style='italic' font-weight='700' font-size='16.5' fill='${c.ink}'>pg</text>`
     + `<rect x='1.5' y='1.5' width='29' height='29' rx='5' fill='none' stroke='${c.edge}' stroke-width='2'/></svg>`;
-  $('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
-}
-/* Favicon: the prism on a dark tile, with a bar in the open database's colour. */
-function setPrismFavicon(theme) {
-  const spine = dbColor(currentDb(), theme);
-  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'>`
-    + `<defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#ff5f6d'/><stop offset='.35' stop-color='#ffc371'/><stop offset='.65' stop-color='#47e891'/><stop offset='1' stop-color='#3b5bfd'/></linearGradient></defs>`
-    + `<rect width='32' height='32' rx='8' fill='#0d0e12'/><path d='M16 5 26.5 23H5.5z' fill='url(#g)'/>`
-    + (spine ? `<rect x='6' y='26' width='20' height='3' rx='1.5' fill='${spine}'/>` : '') + `</svg>`;
   $('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
 const paintThemeIcon = () => $('themeToggle').replaceChildren(ic(document.documentElement.dataset.theme === 'day' ? 'moon' : 'sun'));
