@@ -105,7 +105,7 @@ func (m *sessionManager) connConfig(p *Profile, database string) (*pgconn.Config
 		return nil, err
 	}
 	// Settings of pgx's own (statement caches, query mode), not the server's; pgquire doesn't use
-	// them, and the server would refuse them as unknown parameters.
+	// them, and the server would refuse them as unknown parameters. (pgx.ParseConfig strips the same.)
 	for _, k := range []string{"statement_cache_capacity", "description_cache_capacity", "default_query_exec_mode"} {
 		delete(cfg.RuntimeParams, k)
 	}
@@ -163,6 +163,13 @@ func (m *sessionManager) listDatabases(ctx context.Context, p *Profile) ([]strin
 	return firstColumn(rows), cfg.Database, err
 }
 
+// pgquire talks to Postgres through pgconn only; pgx's higher layer (QueryRow/Scan, CollectRows,
+// Identifier) is left out to keep the binary small (~2.8 MB). pgquire's own queries are few and
+// tiny, so they come back as text and are read by column position: keep column order in step
+// with the code that reads it. If the server grows many internal queries or needs typed results
+// (arrays, timestamps, JSON), switch to pgx.Conn (its PgConn() keeps the session code as is) and
+// drop queryText, firstColumn, isTrue, quoteIdent and the key-stripping in connConfig.
+//
 // queryText runs one statement with text parameters and returns its rows, values in text format
 // (nil = NULL). For pgquire's own small queries; the user's go through queryParams and execScript.
 func queryText(ctx context.Context, c *pgconn.PgConn, sql string, args ...string) ([][][]byte, error) {

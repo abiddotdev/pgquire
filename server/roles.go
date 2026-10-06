@@ -82,7 +82,8 @@ var roleName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,62}$`)
 
 func quoteLit(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-// quoteIdent quotes a name for SQL (NUL bytes dropped: Postgres names can't hold them).
+// quoteIdent quotes a name for SQL (NUL bytes dropped: Postgres names can't hold them); the same
+// rule as pgx.Identifier.Sanitize.
 func quoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(strings.ReplaceAll(s, "\x00", ""), `"`, `""`) + `"`
 }
