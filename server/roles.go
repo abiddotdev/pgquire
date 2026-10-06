@@ -165,11 +165,11 @@ func (s *server) readOnlyRole(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := queryText(ctx, conn, `select n.nspname from pg_namespace n where n.nspname !~ '^pg_' and n.nspname <> 'information_schema'
 		and not exists (select 1 from pg_depend d where d.objid = n.oid and d.deptype = 'e') order by 1`)
-	schemas := firstColumn(rows)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
 		return
 	}
+	schemas := firstColumn(rows)
 	who, err := checkRole(ctx, conn)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
@@ -210,7 +210,19 @@ func (s *server) readOnlyRole(w http.ResponseWriter, r *http.Request) {
 
 	password := randomHex(24)
 	create, all, per := readOnlyRolePlan(in.Role, db, quoteLit(scramVerifier(password)), schemas, ver >= 140000)
-	run := func(stmts []string) error {
+	grants, err := createRole(ctx, conn, create, all, per)
+	if err != nil {
+		writeRoleErr(w, err)
+		return
+	}
+	s.switchLogin(w, p, in.Role, db, password, in.Switch, map[string]any{"role": in.Role, "grants": grants, "schemas": schemas,
+		"database": db, "switched": in.Switch, "removeSQL": dropRoleSQL(in.Role)})
+}
+
+// createRole runs a readOnlyRolePlan in one transaction: the login, then pg_read_all_data or, if
+// that can't be granted, the per-schema grants. It says which grants it made.
+func createRole(ctx context.Context, conn *pgconn.PgConn, create, grantAll, perSchema []string) (string, error) {
+	run := func(stmts ...string) error {
 		for _, q := range stmts {
 			if _, err := conn.Exec(ctx, q).ReadAll(); err != nil {
 				return err
@@ -219,29 +231,27 @@ func (s *server) readOnlyRole(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 	grants := "pg_read_all_data"
-	err = run([]string{"begin"})
+	err := run("begin")
 	if err == nil {
-		err = run(create)
+		err = run(create...)
 	}
 	if err == nil {
-		if len(all) == 0 || run(append([]string{"savepoint grant_all"}, all...)) != nil {
+		if len(grantAll) == 0 || run(append([]string{"savepoint grant_all"}, grantAll...)...) != nil {
 			grants = "schemas"
-			if len(all) > 0 {
-				run([]string{"rollback to savepoint grant_all"})
+			if len(grantAll) > 0 {
+				run("rollback to savepoint grant_all")
 			}
-			err = run(per)
+			err = run(perSchema...)
 		}
 	}
 	if err == nil {
-		err = run([]string{"commit"})
+		err = run("commit")
 	}
 	if err != nil {
 		conn.Exec(context.Background(), "rollback").ReadAll()
-		writeRoleErr(w, err)
-		return
+		return "", err
 	}
-	s.switchLogin(w, p, in.Role, db, password, in.Switch, map[string]any{"role": in.Role, "grants": grants, "schemas": schemas,
-		"database": db, "switched": in.Switch, "removeSQL": dropRoleSQL(in.Role)})
+	return grants, nil
 }
 
 // switchLogin remembers the login on the connection (so forgetting it can offer to remove the login

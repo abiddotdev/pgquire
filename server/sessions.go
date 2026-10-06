@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -340,13 +341,8 @@ func readResult(rr *pgconn.ResultReader, max int) (result, error) {
 }
 
 func commandName(tag pgconn.CommandTag) string {
-	s := tag.String()
-	for i, c := range s {
-		if c == ' ' {
-			return s[:i]
-		}
-	}
-	return s
+	name, _, _ := strings.Cut(tag.String(), " ")
+	return name
 }
 
 // execScript runs one or more statements with the simple protocol, like PGlite's exec().

@@ -678,8 +678,13 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 		Create, GrantAll []string
 		CanCreate        bool
 	}
+	// pg_read_all_data is PostgreSQL 14+; before that, the grants go schema by schema.
+	wantAll, wantGrants := 1, "pg_read_all_data"
+	if adminValue(t, admin, "select current_setting('server_version_num')::int < 140000") == "t" {
+		wantAll, wantGrants = 0, "schemas"
+	}
 	c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role, "dryRun": true}, &plan)
-	if !plan.CanCreate || !strings.Contains(plan.Create[0], "'<choose a password>'") || len(plan.GrantAll) != 1 {
+	if !plan.CanCreate || !strings.Contains(plan.Create[0], "'<choose a password>'") || len(plan.GrantAll) != wantAll {
 		t.Fatalf("dry run: %+v", plan)
 	}
 	var bad apiErr
@@ -692,7 +697,7 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 		Grants           string
 		Switched, Reused bool
 	}
-	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role}, &made); code != 200 || made.Grants != "pg_read_all_data" || made.Switched {
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role}, &made); code != 200 || made.Grants != wantGrants || made.Switched {
 		t.Fatalf("create: %d %+v", code, made)
 	}
 	// 2c. later, switch to that same login: offered for reuse, not a second one
