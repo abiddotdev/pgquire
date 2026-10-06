@@ -50,13 +50,32 @@ Open the [live page](https://abiddotdev.github.io/pgquire/) or `index.html` dire
 
 To work with a real Postgres server, run pgquire through its small Go server. It serves the same page and lets it connect to remote databases, which show up in the database switcher next to your in-browser ones.
 
-Download a build for your system from [Releases](https://github.com/abiddotdev/pgquire/releases), or build it yourself:
+Download the build for your system from [Releases](https://github.com/abiddotdev/pgquire/releases) (about 4 MB), unpack it and run `pgquire`; it opens the workbench in your browser.
+
+| System | File |
+|---|---|
+| macOS, Apple silicon (M1 and later) | `pgquire_<version>_darwin_arm64.tar.gz` |
+| macOS, Intel | `pgquire_<version>_darwin_amd64.tar.gz` |
+| Windows | `pgquire_<version>_windows_amd64.zip` (`arm64` for ARM PCs) |
+| Linux | `pgquire_<version>_linux_amd64.tar.gz` (`arm64` for ARM, e.g. Raspberry Pi) |
+
+The builds aren't signed, so macOS refuses to open it the first time: run `xattr -d com.apple.quarantine pgquire` once, or allow it under System Settings → Privacy & Security. Windows SmartScreen may ask too (More info → Run anyway). `checksums.txt` on the release lets you verify the download.
+
+Or build it yourself:
 
 ```sh
 cd server
 go build -o pgquire .   # Go 1.22+
 ./pgquire               # opens http://127.0.0.1:8432/?t=<token>
 ```
+
+Or run it with Docker (`docker logs` shows the link; without `PGQUIRE_TOKEN` the token is new each start):
+
+```sh
+docker run -d -p 127.0.0.1:8432:8432 -v pgquire-config:/config -e PGQUIRE_TOKEN=<secret> ghcr.io/abiddotdev/pgquire
+```
+
+Keep the `127.0.0.1:` in `-p`: your saved connections are reachable through pgquire, so don't publish it to the network. `docker build -t pgquire .` builds the image from a clone.
 
 Then pick **Connect remote Postgres…** in the database switcher and paste a connection string (`postgres://user:password@host:5432/db`) or fill in separate fields. **Test** shows the server version and whether the connection is encrypted. If the server has several databases, you choose which ones to add; they're grouped under the server in the switcher, and **Other databases on this server…** adds more later.
 
@@ -91,7 +110,7 @@ A test fails when `index.html` is out of date.
 
 ### Releasing
 
-Bump `APP_VERSION` in `server/index-remote.html` and `Version` in `server/main.go` together (a test checks that they match), run `go generate`, then push a tag like `v1.1`. The release workflow builds Linux, macOS and Windows binaries (amd64 and arm64) and attaches them to a GitHub release.
+Bump `APP_VERSION` in `server/index-remote.html` and `Version` in `server/main.go` together (a test checks that they match), run `go generate`, then push a tag like `v1.1`. The release workflow builds Linux, macOS and Windows binaries (amd64 and arm64) with GoReleaser (`.goreleaser.yaml`), attaches them to a GitHub release, and publishes the Docker image to `ghcr.io/abiddotdev/pgquire` (amd64 and arm64). `goreleaser release --snapshot --clean` tries the build locally.
 
 ## License
 

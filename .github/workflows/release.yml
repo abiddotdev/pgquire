@@ -1,5 +1,6 @@
 # Push a tag like v1.0 (matching APP_VERSION in server/index-remote.html) to build the pgquire server for
-# Linux, macOS and Windows and attach the archives to a GitHub release.
+# Linux, macOS and Windows, attach the archives to a GitHub release (.goreleaser.yaml), and publish
+# the Docker image to ghcr.io/abiddotdev/pgquire.
 name: release
 
 on:
@@ -8,37 +9,51 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
       - name: Tag matches the app version
         run: |
-          page=$(grep -oP "const APP_VERSION = '\K[^']+" index-remote.html)
-          [ "v$page" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but index-remote.html says $page"; exit 1; }
+          page=$(grep -oP "const APP_VERSION = '\K[^']+" server/index-remote.html)
+          [ "v$page" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME but server/index-remote.html says $page"; exit 1; }
       - run: go test -count=1 ./...
-      - name: Build
-        run: |
-          ver="${GITHUB_REF_NAME#v}"
-          mkdir dist
-          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-            os="${target%/*}"; arch="${target#*/}"; ext=""; [ "$os" = windows ] && ext=".exe"
-            dir="pgquire_${ver}_${os}_${arch}"
-            mkdir "$dir"
-            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w -X main.Version=$ver" -o "$dir/pgquire$ext" .
-            cp ../README.md "$dir/"
-            if [ "$os" = windows ]; then zip -qr "dist/$dir.zip" "$dir"; else tar -czf "dist/$dir.tar.gz" "$dir"; fi
-          done
-          (cd dist && sha256sum * > checksums.txt)
-      - name: Publish
+        working-directory: server
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: release --clean
         env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "pgquire $GITHUB_REF_NAME" --generate-notes
+          GITHUB_TOKEN: ${{ github.token }}
+
+  docker:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        run: echo "v=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ steps.ver.outputs.v }}
+          push: true
+          tags: |
+            ghcr.io/abiddotdev/pgquire:${{ steps.ver.outputs.v }}
+            ghcr.io/abiddotdev/pgquire:latest
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
