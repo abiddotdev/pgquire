@@ -1,2 +1,10 @@
 .DS_Store
 Thumbs.db
+.claude/
+.tmp
+/pgquire
+/pgquire.exe
+/server/pgquire
+/server/pgquire.exe
+/server/dist/
+/dist/
