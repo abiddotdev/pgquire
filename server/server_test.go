@@ -20,7 +20,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/abiddotdev/pgquire/server/internal/pages"
 )
@@ -652,16 +652,16 @@ func TestRemoteTestConnectionAndCSVExport(t *testing.T) {
 func TestRemoteReadOnlyLogin(t *testing.T) {
 	dsn := os.Getenv("PGQUIRE_TEST_DSN")
 	c, sp := remote(t, 100, true) // marked read-only, but logs in as the superuser
-	admin, err := pgx.Connect(context.Background(), dsn)
+	admin, err := pgconn.Connect(context.Background(), dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer admin.Close(context.Background())
 	role := fmt.Sprintf("pgq_ro_%d", time.Now().UnixNano()%1e9)
-	admin.Exec(context.Background(), "drop table if exists pgq_ro_data; create table pgq_ro_data(a int); insert into pgq_ro_data values (1)")
+	admin.Exec(context.Background(), "drop table if exists pgq_ro_data; create table pgq_ro_data(a int); insert into pgq_ro_data values (1)").ReadAll()
 	defer func() {
-		admin.Exec(context.Background(), "drop table if exists pgq_ro_data")
-		admin.Exec(context.Background(), fmt.Sprintf("drop owned by %s; drop role if exists %s", role, role))
+		admin.Exec(context.Background(), "drop table if exists pgq_ro_data").ReadAll()
+		admin.Exec(context.Background(), fmt.Sprintf("drop owned by %s; drop role if exists %s", role, role)).ReadAll()
 	}()
 
 	// 1. the check: a superuser behind a read-only flag
@@ -678,8 +678,13 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 		Create, GrantAll []string
 		CanCreate        bool
 	}
+	// pg_read_all_data is PostgreSQL 14+; before that, the grants go schema by schema.
+	wantAll, wantGrants := 1, "pg_read_all_data"
+	if adminValue(t, admin, "select current_setting('server_version_num')::int < 140000") == "t" {
+		wantAll, wantGrants = 0, "schemas"
+	}
 	c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role, "dryRun": true}, &plan)
-	if !plan.CanCreate || !strings.Contains(plan.Create[0], "'<choose a password>'") || len(plan.GrantAll) != 1 {
+	if !plan.CanCreate || !strings.Contains(plan.Create[0], "'<choose a password>'") || len(plan.GrantAll) != wantAll {
 		t.Fatalf("dry run: %+v", plan)
 	}
 	var bad apiErr
@@ -692,7 +697,7 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 		Grants           string
 		Switched, Reused bool
 	}
-	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role}, &made); code != 200 || made.Grants != "pg_read_all_data" || made.Switched {
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role}, &made); code != 200 || made.Grants != wantGrants || made.Switched {
 		t.Fatalf("create: %d %+v", code, made)
 	}
 	// 2c. later, switch to that same login: offered for reuse, not a second one
@@ -736,13 +741,11 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 	// The guard-rail escape from before now fails on privileges.
 	var esc apiErr
 	code := c.do("POST", np+"/exec", map[string]any{"sql": "set transaction_read_only = off; set default_transaction_read_only = off; commit; insert into pgq_ro_data values (2)"}, &esc)
-	var n int
-	admin.QueryRow(context.Background(), "select count(*) from pgq_ro_data").Scan(&n)
-	if code != 400 || esc.Error["code"] != "42501" || n != 1 {
-		t.Fatalf("escape: %d %v, rows %d", code, esc.Error, n)
+	n := adminValue(t, admin, "select count(*) from pgq_ro_data")
+	if code != 400 || esc.Error["code"] != "42501" || n != "1" {
+		t.Fatalf("escape: %d %v, rows %s", code, esc.Error, n)
 	}
-	var stored string
-	admin.QueryRow(context.Background(), "select rolpassword from pg_authid where rolname = $1", role).Scan(&stored)
+	stored := adminValue(t, admin, "select rolpassword from pg_authid where rolname = $1", role)
 	if !strings.HasPrefix(stored, "SCRAM-SHA-256$4096:") {
 		t.Fatalf("password not stored as SCRAM: %q", stored)
 	}
@@ -763,8 +766,7 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 	if code := c.do("DELETE", "/api/profiles/test?dropRole=1", nil, nil); code != 200 {
 		t.Fatalf("forget with dropRole: %d", code)
 	}
-	var left bool
-	admin.QueryRow(context.Background(), "select exists (select 1 from pg_roles where rolname = $1)", role).Scan(&left)
+	left := adminValue(t, admin, "select exists (select 1 from pg_roles where rolname = $1)", role) == "t"
 	c.do("GET", "/api/profiles", nil, &list)
 	if left || len(list.Profiles) != 0 {
 		t.Fatalf("after forgetting: role still there=%v, profiles %d", left, len(list.Profiles))
@@ -779,4 +781,34 @@ func TestReadOnlyRolePlanListsNeverNull(t *testing.T) {
 	if string(b) != `{"grantAll":[],"perSchema":[]}` {
 		t.Fatalf("got %s", b)
 	}
+}
+
+func TestQuoteIdent(t *testing.T) {
+	for in, want := range map[string]string{`ro`: `"ro"`, `Mixed Case`: `"Mixed Case"`, `a"b`: `"a""b"`, "nul\x00": `"nul"`} {
+		if got := quoteIdent(in); got != want {
+			t.Errorf("quoteIdent(%q) = %s, want %s", in, got, want)
+		}
+	}
+}
+
+func TestConnConfigDropsPgxSettings(t *testing.T) {
+	// Connection strings written for pgx may carry its own settings; the server would refuse them.
+	m := newSessionManager(0, 0)
+	cfg, err := m.connConfig(&Profile{DSN: "postgres://u@h/db?statement_cache_capacity=0&default_query_exec_mode=simple_protocol&search_path=app"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.RuntimeParams["statement_cache_capacity"]; ok || cfg.RuntimeParams["default_query_exec_mode"] != "" || cfg.RuntimeParams["search_path"] != "app" {
+		t.Fatalf("runtime params: %v", cfg.RuntimeParams)
+	}
+}
+
+// adminValue is the first value a query returns, as text, on the test's own admin connection.
+func adminValue(t *testing.T, admin *pgconn.PgConn, sql string, args ...string) string {
+	t.Helper()
+	rows, err := queryText(context.Background(), admin, sql, args...)
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("%s: %v (%d rows)", sql, err, len(rows))
+	}
+	return string(rows[0][0])
 }

@@ -6,26 +6,25 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgconn/ctxwatch"
 )
 
 const maxSessions = 32
 
-type pgConn = *pgconn.PgConn
-
 // A session is one dedicated Postgres connection for one browser tab. PGlite is a single
 // connection too, so SET, temp tables and a BEGIN typed in the editor behave the same way.
 type session struct {
 	id       string
 	profile  string
-	database string // "" = the one in the profile's connection string
-	conn     *pgx.Conn
+	database string // as connected ("" = the server's default)
+	user     string
+	conn     *pgconn.PgConn
 
 	mu       sync.Mutex   // one request at a time on the connection
 	lastUsed atomic.Int64 // unix nanos
@@ -53,9 +52,8 @@ func (s *session) run(ctx context.Context, req uint64, fn func(context.Context, 
 	defer s.setCancel(nil, 0)
 	s.lastUsed.Store(time.Now().UnixNano())
 	defer s.lastUsed.Store(time.Now().UnixNano())
-	pc := s.conn.PgConn()
-	defer func() { s.txStatus.Store(int32(pc.TxStatus())) }()
-	return fn(ctx, pc)
+	defer func() { s.txStatus.Store(int32(s.conn.TxStatus())) }()
+	return fn(ctx, s.conn)
 }
 
 func (s *session) setCancel(c context.CancelFunc, req uint64) {
@@ -99,12 +97,17 @@ func newSessionManager(stmtTO, idleTO time.Duration) *sessionManager {
 	return m
 }
 
-// connConfig builds the pgx config for a profile: cancel-on-abort, app name, timeouts, read-only.
-// database, when set, replaces the one in the connection string (same server, same login).
-func (m *sessionManager) connConfig(p *Profile, database string) (*pgx.ConnConfig, error) {
-	cfg, err := pgx.ParseConfig(p.DSN)
+// connConfig builds the connection config for a profile: cancel-on-abort, app name, timeouts,
+// read-only. database, when set, replaces the one in the connection string (same server, same login).
+func (m *sessionManager) connConfig(p *Profile, database string) (*pgconn.Config, error) {
+	cfg, err := pgconn.ParseConfig(p.DSN)
 	if err != nil {
 		return nil, err
+	}
+	// Settings of pgx's own (statement caches, query mode), not the server's; pgquire doesn't use
+	// them, and the server would refuse them as unknown parameters. (pgx.ParseConfig strips the same.)
+	for _, k := range []string{"statement_cache_capacity", "description_cache_capacity", "default_query_exec_mode"} {
+		delete(cfg.RuntimeParams, k)
 	}
 	if database != "" {
 		cfg.Database = database
@@ -150,19 +153,43 @@ func (m *sessionManager) listDatabases(ctx context.Context, p *Profile) ([]strin
 	if err != nil {
 		return nil, "", err
 	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := pgconn.ConnectConfig(ctx, cfg)
 	if err != nil {
 		return nil, "", err
 	}
 	defer conn.Close(context.Background())
-	rows, err := conn.Query(ctx, `select datname from pg_database
+	rows, err := queryText(ctx, conn, `select datname from pg_database
 		where datallowconn and not datistemplate and has_database_privilege(datname, 'CONNECT') order by datname`)
-	if err != nil {
-		return nil, "", err
-	}
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	return names, cfg.Database, err
+	return firstColumn(rows), cfg.Database, err
 }
+
+// pgquire talks to Postgres through pgconn only; pgx's higher layer (QueryRow/Scan, CollectRows,
+// Identifier) is left out to keep the binary small (~2.8 MB). pgquire's own queries are few and
+// tiny, so they come back as text and are read by column position: keep column order in step
+// with the code that reads it. If the server grows many internal queries or needs typed results
+// (arrays, timestamps, JSON), switch to pgx.Conn (its PgConn() keeps the session code as is) and
+// drop queryText, firstColumn, isTrue, quoteIdent and the key-stripping in connConfig.
+//
+// queryText runs one statement with text parameters and returns its rows, values in text format
+// (nil = NULL). For pgquire's own small queries; the user's go through queryParams and execScript.
+func queryText(ctx context.Context, c *pgconn.PgConn, sql string, args ...string) ([][][]byte, error) {
+	params := make([][]byte, len(args))
+	for i, a := range args {
+		params[i] = []byte(a)
+	}
+	res := c.ExecParams(ctx, sql, params, nil, nil, nil).Read()
+	return res.Rows, res.Err
+}
+
+func firstColumn(rows [][][]byte) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = string(r[0])
+	}
+	return out
+}
+
+func isTrue(v []byte) bool { return string(v) == "t" }
 
 func (m *sessionManager) open(ctx context.Context, p *Profile, database string) (*session, error) {
 	m.mu.Lock()
@@ -175,11 +202,11 @@ func (m *sessionManager) open(ctx context.Context, p *Profile, database string) 
 	if err != nil {
 		return nil, err
 	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	conn, err := pgconn.ConnectConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	s := &session{id: randomHex(16), profile: p.Name, database: database, conn: conn}
+	s := &session{id: randomHex(16), profile: p.Name, database: cfg.Database, user: cfg.User, conn: conn}
 	s.lastUsed.Store(time.Now().UnixNano())
 	m.mu.Lock()
 	if n := len(m.byID); n >= maxSessions { // again: others may have opened while this one connected
@@ -321,13 +348,8 @@ func readResult(rr *pgconn.ResultReader, max int) (result, error) {
 }
 
 func commandName(tag pgconn.CommandTag) string {
-	s := tag.String()
-	for i, c := range s {
-		if c == ' ' {
-			return s[:i]
-		}
-	}
-	return s
+	name, _, _ := strings.Cut(tag.String(), " ")
+	return name
 }
 
 // execScript runs one or more statements with the simple protocol, like PGlite's exec().

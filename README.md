@@ -65,7 +65,7 @@ Or build it yourself:
 
 ```sh
 cd server
-go build -o pgquire .   # Go 1.22+
+go build -o pgquire .   # Go 1.27+
 ./pgquire               # opens http://127.0.0.1:8432/?t=<token>
 ```
 

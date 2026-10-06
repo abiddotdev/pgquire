@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // CSV exports stream every row with COPY, past the max-rows cap, on their own connection so the
@@ -66,7 +66,7 @@ func (s *server) prepareExport(w http.ResponseWriter, r *http.Request, sess *ses
 		writeErr(w, http.StatusBadRequest, "nothing to export")
 		return
 	}
-	err := sess.run(r.Context(), 0, func(ctx context.Context, c pgConn) error {
+	err := sess.run(r.Context(), 0, func(ctx context.Context, c *pgconn.PgConn) error {
 		// Extended protocol: one statement only, so a filter can't smuggle in "; delete …".
 		return c.ExecParams(ctx, "explain "+query, nil, nil, nil, nil).Read().Err
 	})
@@ -99,13 +99,12 @@ func (s *server) runExport(w http.ResponseWriter, r *http.Request) {
 	}
 	delete(cfg.RuntimeParams, "statement_timeout") // a big export may take a while; closing the download cancels it
 	ctx := r.Context()
-	conn, err := pgx.ConnectConfig(ctx, cfg)
+	pc, err := pgconn.ConnectConfig(ctx, cfg)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	defer conn.Close(context.Background())
-	pc := conn.PgConn()
+	defer pc.Close(context.Background())
 	if _, err := pc.Exec(ctx, "begin transaction isolation level repeatable read, read only").ReadAll(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

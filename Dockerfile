@@ -7,7 +7,7 @@
 # Publish on loopback only (-p 127.0.0.1:...): saved Postgres connections are reachable
 # through this server, so don't expose it to the network. Without PGQUIRE_TOKEN the token is
 # new each start; `docker logs` shows the link.
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS TARGETARCH VERSION
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
