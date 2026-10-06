@@ -37,6 +37,14 @@ type server struct {
 	sessions *sessionManager
 	mux      *http.ServeMux
 	exports  exportStore
+	startup  *startupOpen // the -dsn connection, set before serving
+}
+
+// startupOpen tells the page which connection to open; id is new each start, so each browser
+// jumps to it once and keeps its own choice after that.
+type startupOpen struct {
+	id      string
+	profile string
 }
 
 func newServer(cfg serverConfig) *server {
@@ -169,7 +177,50 @@ func (s *server) page(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"app": "pgquire", "version": Version, "authed": s.authed(r), "maxRows": s.cfg.maxRows})
+	out := map[string]any{"app": "pgquire", "version": Version, "authed": s.authed(r), "maxRows": s.cfg.maxRows}
+	if s.startup != nil && s.authed(r) {
+		if p := s.cfg.profiles.get(s.startup.profile); p != nil {
+			out["open"] = map[string]any{"id": s.startup.id, "profile": p.public()}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+// connectAtStart adds the -dsn connection for this run (or uses a saved one with the same string)
+// and tries it, so a bad one fails in the terminal. It returns a line saying where it connected.
+func (s *server) connectAtStart(dsn string) (string, error) {
+	dsn = strings.TrimSpace(dsn)
+	p := s.cfg.profiles.byDSN(dsn)
+	if p == nil {
+		c, err := pgconn.ParseConfig(dsn)
+		if err != nil {
+			return "", err
+		}
+		host := c.Host
+		if strings.HasPrefix(host, "/") {
+			host = "localhost" // a Unix socket
+		}
+		name := host
+		if c.Database != "" {
+			name = c.Database + " on " + host
+		}
+		p = &Profile{Name: s.cfg.profiles.freeName(name), DSN: dsn}
+	}
+	probe, err := s.probe(context.Background(), p)
+	if err != nil {
+		return "", err
+	}
+	if !p.saved {
+		if err := s.cfg.profiles.put(p); err != nil {
+			return "", err
+		}
+	}
+	s.startup = &startupOpen{id: randomHex(8), profile: p.Name}
+	enc := "not encrypted"
+	if probe["tls"] == true {
+		enc = "encrypted"
+	}
+	return fmt.Sprintf("%s (PostgreSQL %s, %s)", p.Name, probe["serverVersion"], enc), nil
 }
 
 /* ---------- connection profiles ---------- */

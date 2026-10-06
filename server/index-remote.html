@@ -5868,6 +5868,14 @@ function remoteEntry(p, database = p.database) {
   return d;
 }
 const openRemote = (p, database) => openDb(remoteEntry(p, database).id);
+/** The connection given to `pgquire -dsn`: its switcher entry, the first time this browser sees this
+ *  start of the server (after that, the database the user was in). */
+async function startupDb() {
+  const o = (await pgquireServer())?.open;
+  if (!o || store.get('startOpened', null) === o.id) return null;
+  store.set('startOpened', o.id);
+  return remoteEntry(o.profile);
+}
 
 /** Choose which of a server's databases appear in the switcher. Opens the first one added (or `open`). */
 async function pickDatabasesDialog(p, { intro, open } = {}) {
@@ -7670,7 +7678,8 @@ document.body.append(
   if (store.get('clerkOpen', true) === false || innerWidth < 980) app.classList.add('clerk-closed');
   const dbs = loadDbs();
   const saved = store.get('active', null);
-  await openDb((dbs.find(d => d.id === saved) || dbs[0] || newDbMeta()).id);
+  const start = await startupDb();   // @remote
+  await openDb((/*remote:*/start || /*:remote*/dbs.find(d => d.id === saved) || dbs[0] || newDbMeta()).id);
   openSharedLink();
 })();
 window.addEventListener('beforeunload', () => { persistTabs(); saveClerk(); kvFlush(); });

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -101,6 +102,26 @@ func (s *profileStore) get(name string) *Profile {
 		}
 	}
 	return nil
+}
+
+func (s *profileStore) byDSN(dsn string) *Profile {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, p := range s.list {
+		if p.DSN == dsn {
+			return p
+		}
+	}
+	return nil
+}
+
+// freeName is name, or name (2), (3)… if a connection already has it.
+func (s *profileStore) freeName(name string) string {
+	for i, n := 2, name; ; i, n = i+1, fmt.Sprintf("%s (%d)", name, i) {
+		if s.get(n) == nil {
+			return n
+		}
+	}
 }
 
 func (s *profileStore) all() []publicProfile {

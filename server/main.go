@@ -46,6 +46,7 @@ func main() {
 		idleTO   = flag.Duration("idle-timeout", 30*time.Minute, "close remote sessions idle this long")
 		token    = flag.String("token", "", "access token (default: random each start)")
 		domain   = flag.String("domain", "", "host name pgquire is reached by, e.g. behind a proxy; requests for other names are refused")
+		dsn      = flag.String("dsn", "", "connect to this Postgres at start and open it in the page, e.g. postgres://user@host/db (kept for this run only; a password can come from ~/.pgpass)")
 		showVer  = flag.Bool("version", false, "print the version and exit")
 	)
 	describeEnv(flag.CommandLine)
@@ -102,12 +103,23 @@ func main() {
 	})
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 
+	saved := profiles.count() // before -dsn adds its own, which isn't saved
+	var connected string
+	if *dsn != "" {
+		if connected, err = srv.connectAtStart(*dsn); err != nil {
+			log.Fatalf("-dsn: %v", err)
+		}
+	}
+
 	url := fmt.Sprintf("http://%s/?t=%s", browserHost(addr), *token)
 	fmt.Printf("pgquire %s\n  open: %s\n", Version, url)
 	if *domain != "" {
 		fmt.Printf("    or: https://%s/?t=%s\n", *domain, *token)
 	}
-	fmt.Printf("  connections: %s (%d saved)\n", *cfgPath, profiles.count())
+	if connected != "" {
+		fmt.Printf("  connected: %s\n", connected)
+	}
+	fmt.Printf("  connections: %s (%d saved)\n", *cfgPath, saved)
 	if !*noOpen {
 		openBrowser(url)
 	}
@@ -137,6 +149,7 @@ var envFlags = []struct{ flag, env string }{
 	{"idle-timeout", "PGQUIRE_IDLE_TIMEOUT"},
 	{"token", "PGQUIRE_TOKEN"},
 	{"domain", "PGQUIRE_DOMAIN"},
+	{"dsn", "PGQUIRE_DSN"},
 }
 
 // describeEnv names each option's variable in -h.

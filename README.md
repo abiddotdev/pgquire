@@ -77,7 +77,17 @@ docker run -d -p 127.0.0.1:8432:8432 -v pgquire-config:/config -e PGQUIRE_TOKEN=
 
 Keep the `127.0.0.1:` in `-p`: your saved connections are reachable through pgquire, so don't publish it to the network. `docker build -t pgquire .` builds the image from a clone.
 
-Then pick **Connect remote Postgres…** in the database switcher and paste a connection string (`postgres://user:password@host:5432/db`) or fill in separate fields. **Test** shows the server version and whether the connection is encrypted. If the server has several databases, you choose which ones to add; they're grouped under the server in the switcher, and **Other databases on this server…** adds more later.
+To open straight into a database, give it with `-dsn` (or `PGQUIRE_DSN`, which keeps the password out of your shell history). pgquire connects before it starts, so a wrong address or password stops it with the reason, and the page opens in that database:
+
+```sh
+./pgquire -dsn postgres://me@db.example.com:5432/shop        # password from ~/.pgpass
+./pgquire -dsn "postgres://me@db.example.com/shop?sslmode=require"
+PGQUIRE_DSN=postgres://me:secret@db.example.com/shop ./pgquire
+```
+
+It's kept for this run only. To keep it, add it once through **Connect remote Postgres…** with **Remember on the server** ticked; from then on `-dsn` with the same string uses that remembered connection (its name, production tag and read-only setting). Each start opens it once; after that the page stays wherever you go. In Docker, `localhost` is the container itself: use `host.docker.internal` for a database on your machine.
+
+Otherwise pick **Connect remote Postgres…** in the database switcher and paste a connection string (`postgres://user:password@host:5432/db`) or fill in separate fields. **Test** shows the server version and whether the connection is encrypted. If the server has several databases, you choose which ones to add; they're grouped under the server in the switcher, and **Other databases on this server…** adds more later.
 
 **Credentials and access**
 - Passwords stay with the server. Connections are kept in its memory until it stops, unless you tick **Remember on the server**. Remembered ones go in `pgquire/connections.json` in your OS config folder (`~/.config` on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows; change it with `-config`), readable only by you, and never reach the browser.
@@ -100,13 +110,14 @@ Then pick **Connect remote Postgres…** in the database switcher and paste a co
 
 **Options**
 
-Each can be given on the command line or as an environment variable (handy for Docker); the command line wins. `./pgquire -h` lists them.
+Options are `-name value`, in any order; each can also be an environment variable (handy for Docker), and the command line wins. `./pgquire -h` lists them.
 
 | Option | Variable | Default |
 |---|---|---|
 | `-listen` | `PGQUIRE_LISTEN` | `127.0.0.1:8432`; e.g. `-listen 127.0.0.1:9000` for another port |
 | `-token` | `PGQUIRE_TOKEN` | new each start |
 | `-domain` | `PGQUIRE_DOMAIN` | none |
+| `-dsn` | `PGQUIRE_DSN` | none; a database to connect to and open at start |
 | `-config` | `PGQUIRE_CONFIG` | `pgquire/connections.json` in your OS config folder |
 | `-no-open` | `PGQUIRE_NO_OPEN` | opens a browser |
 | `-max-rows` | `PGQUIRE_MAX_ROWS` | `50000` |

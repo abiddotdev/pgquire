@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +29,7 @@ type client struct {
 	t    *testing.T
 	base string
 	hc   *http.Client
+	mu   sync.Mutex  // do is called from several goroutines in the cancel tests
 	last http.Header // the last response's headers
 }
 
@@ -68,7 +70,9 @@ func (c *client) do(method, path string, body any, out any) int {
 		c.t.Fatal(err)
 	}
 	defer resp.Body.Close()
+	c.mu.Lock()
 	c.last = resp.Header
+	c.mu.Unlock()
 	b, _ := io.ReadAll(resp.Body)
 	if out != nil {
 		if err := json.Unmarshal(b, out); err != nil {
@@ -277,6 +281,64 @@ func remote(t *testing.T, maxRows int, readOnly bool) (*client, string) {
 	return c, "/api/sessions/" + s.ID
 }
 
+// -dsn: connected before serving, kept for this run, and opened by a signed-in page (once per start).
+func TestConnectAtStart(t *testing.T) {
+	dsn := os.Getenv("PGQUIRE_TEST_DSN")
+	if dsn == "" {
+		t.Skip("set PGQUIRE_TEST_DSN to run against a real Postgres")
+	}
+	c, srv := newTestServer(t, 100, true)
+	if _, err := srv.connectAtStart("postgres://postgres:nope@127.0.0.1:1/x?connect_timeout=2"); err == nil || srv.cfg.profiles.count() != 0 || srv.startup != nil {
+		t.Fatalf("a bad -dsn: err %v, %d connections", err, srv.cfg.profiles.count())
+	}
+	line, err := srv.connectAtStart(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var h struct {
+		Open struct {
+			ID      string
+			Profile struct {
+				Name  string
+				Saved bool
+			}
+		}
+	}
+	c.do("GET", "/api/health", nil, &h)
+	name := h.Open.Profile.Name
+	if h.Open.ID == "" || name == "" || h.Open.Profile.Saved || !strings.HasPrefix(line, name+" (PostgreSQL ") {
+		t.Fatalf("health open = %+v, line %q", h.Open, line)
+	}
+	var s struct{ ID string }
+	if code := c.do("POST", "/api/sessions", map[string]any{"profile": name}, &s); code != 200 {
+		t.Fatalf("open a session on it: %d", code)
+	}
+	// Not for a page that hasn't signed in.
+	anon := &client{t: t, base: c.base, hc: &http.Client{}}
+	var raw json.RawMessage
+	anon.do("GET", "/api/health", nil, &raw)
+	if bytes.Contains(raw, []byte(`"open"`)) {
+		t.Fatalf("anonymous health names the connection: %s", raw)
+	}
+	// The same string again (a saved one, say) is the same connection, not a second.
+	first := srv.startup.id
+	if _, err := srv.connectAtStart(dsn); err != nil || srv.cfg.profiles.count() != 1 || srv.startup.profile != name || srv.startup.id == first {
+		t.Fatalf("again: err %v, %d connections, startup %+v", err, srv.cfg.profiles.count(), srv.startup)
+	}
+}
+
+func TestFreeName(t *testing.T) {
+	ps, _ := loadProfiles(filepath.Join(t.TempDir(), "connections.json"))
+	ps.put(&Profile{Name: "shop on db", DSN: "a"})
+	ps.put(&Profile{Name: "shop on db (2)", DSN: "b"})
+	if n := ps.freeName("shop on db"); n != "shop on db (3)" {
+		t.Fatalf("freeName = %q", n)
+	}
+	if n := ps.freeName("other"); n != "other" {
+		t.Fatalf("freeName = %q", n)
+	}
+}
+
 func TestRemoteProfileHidesDSN(t *testing.T) {
 	c, _ := remote(t, 100, false)
 	var buf json.RawMessage
@@ -479,6 +541,7 @@ func TestOptionsFromEnv(t *testing.T) {
 		fs.Duration("idle-timeout", 30*time.Minute, "")
 		fs.String("token", "", "")
 		fs.String("domain", "", "")
+		fs.String("dsn", "", "")
 		describeEnv(fs)
 		if err := fs.Parse(args); err != nil {
 			t.Fatal(err)
