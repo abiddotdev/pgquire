@@ -30,7 +30,7 @@ import (
 )
 
 // Version is the pgquire release; keep it in step with APP_VERSION in index-remote.html.
-var Version = "1.0"
+var Version = "1.0.0"
 
 //go:embed index-remote.html
 var indexHTML []byte

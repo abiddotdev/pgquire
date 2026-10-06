@@ -1,4 +1,4 @@
-# Push a tag like v1.0 (matching APP_VERSION in server/index-remote.html) to build the pgquire server for
+# Push a tag like v1.0.0 (v + APP_VERSION in server/index-remote.html) to build the pgquire server for
 # Linux, macOS and Windows, attach the archives to a GitHub release (.goreleaser.yaml), and publish
 # the Docker image to ghcr.io/abiddotdev/pgquire.
 name: release
