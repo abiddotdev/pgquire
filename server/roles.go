@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/hmac"
+	"crypto/pbkdf2"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"golang.org/x/crypto/pbkdf2"
 )
 
 // pgquire's read-only setting is a guard rail: SQL can switch it off. A login without write
@@ -57,7 +57,10 @@ func scramVerifier(password string) string {
 		panic(err)
 	}
 	const iter = 4096
-	salted := pbkdf2.Key([]byte(password), salt, iter, 32, sha256.New)
+	salted, err := pbkdf2.Key(sha256.New, password, salt, iter, 32)
+	if err != nil {
+		panic(err)
+	}
 	mac := func(key []byte, msg string) []byte {
 		h := hmac.New(sha256.New, key)
 		h.Write([]byte(msg))
