@@ -30,3 +30,38 @@ jobs:
       - run: go test -race -count=1 ./...
         env:
           PGQUIRE_TEST_DSN: postgres://postgres:secret@127.0.0.1:5432/postgres?sslmode=disable
+
+  # Browser tests (e2e/): the built server, this Postgres, and the page in Chromium.
+  e2e:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 20
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+        env:
+          PGQUIRE_E2E_PG: postgres://postgres:secret@127.0.0.1:5432/postgres?sslmode=disable
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
