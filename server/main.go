@@ -44,11 +44,15 @@ func main() {
 		maxRows  = flag.Int("max-rows", 50000, "most rows returned per result; the rest are counted but not sent")
 		stmtTO   = flag.Duration("statement-timeout", 5*time.Minute, "statement_timeout for remote sessions (0 = server default)")
 		idleTO   = flag.Duration("idle-timeout", 30*time.Minute, "close remote sessions idle this long")
-		token    = flag.String("token", os.Getenv("PGQUIRE_TOKEN"), "access token (default: random each start; env PGQUIRE_TOKEN)")
-		domain   = flag.String("domain", os.Getenv("PGQUIRE_DOMAIN"), "host name pgquire is reached by, e.g. behind a proxy; requests for other names are refused (env PGQUIRE_DOMAIN)")
+		token    = flag.String("token", "", "access token (default: random each start)")
+		domain   = flag.String("domain", "", "host name pgquire is reached by, e.g. behind a proxy; requests for other names are refused")
 		showVer  = flag.Bool("version", false, "print the version and exit")
 	)
+	describeEnv(flag.CommandLine)
 	flag.Parse()
+	if err := applyEnv(flag.CommandLine, os.Getenv); err != nil {
+		log.Fatal(err)
+	}
 	if *showVer {
 		fmt.Println("pgquire", Version)
 		return
@@ -120,6 +124,41 @@ func main() {
 		log.Fatal(err)
 	}
 	srv.sessions.closeAll()
+}
+
+// envFlags: options that can also come from the environment (Docker, services). A flag on the
+// command line wins over its variable.
+var envFlags = []struct{ flag, env string }{
+	{"listen", "PGQUIRE_LISTEN"},
+	{"no-open", "PGQUIRE_NO_OPEN"},
+	{"config", "PGQUIRE_CONFIG"},
+	{"max-rows", "PGQUIRE_MAX_ROWS"},
+	{"statement-timeout", "PGQUIRE_STATEMENT_TIMEOUT"},
+	{"idle-timeout", "PGQUIRE_IDLE_TIMEOUT"},
+	{"token", "PGQUIRE_TOKEN"},
+	{"domain", "PGQUIRE_DOMAIN"},
+}
+
+// describeEnv names each option's variable in -h.
+func describeEnv(fs *flag.FlagSet) {
+	for _, e := range envFlags {
+		f := fs.Lookup(e.flag)
+		f.Usage += " (env " + e.env + ")"
+	}
+}
+
+// applyEnv sets, from the environment, the options not given on the command line.
+func applyEnv(fs *flag.FlagSet, getenv func(string) string) error {
+	given := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { given[f.Name] = true })
+	for _, e := range envFlags {
+		if v := getenv(e.env); v != "" && !given[e.flag] {
+			if err := fs.Set(e.flag, v); err != nil {
+				return fmt.Errorf("%s=%q: %v", e.env, v, err)
+			}
+		}
+	}
+	return nil
 }
 
 func browserHost(a *net.TCPAddr) string {

@@ -22,5 +22,6 @@ COPY --from=build /out/pgquire /pgquire
 COPY --from=build --chown=65532:65532 /out/config /config
 VOLUME /config
 EXPOSE 8432
+# Defaults as variables, so `docker run -e PGQUIRE_LISTEN=0.0.0.0:9000 ...` can change them.
+ENV PGQUIRE_LISTEN=0.0.0.0:8432 PGQUIRE_NO_OPEN=1 PGQUIRE_CONFIG=/config/connections.json
 ENTRYPOINT ["/pgquire"]
-CMD ["-listen", "0.0.0.0:8432", "-no-open", "-config", "/config/connections.json"]

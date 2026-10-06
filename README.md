@@ -98,7 +98,24 @@ Then pick **Connect remote Postgres…** in the database switcher and paste a co
   - Session export, and importing files.
 - The browser keeps in-browser databases per address, so ones made on the live page don't appear at `127.0.0.1:8432`, and the other way round. Move them with **Export session / Open session file**.
 
-`./pgquire -h` lists the options. Tests (in `server/`): `PGQUIRE_TEST_DSN=postgres://… go test ./...`
+**Options**
+
+Each can be given on the command line or as an environment variable (handy for Docker); the command line wins. `./pgquire -h` lists them.
+
+| Option | Variable | Default |
+|---|---|---|
+| `-listen` | `PGQUIRE_LISTEN` | `127.0.0.1:8432`; e.g. `-listen 127.0.0.1:9000` for another port |
+| `-token` | `PGQUIRE_TOKEN` | new each start |
+| `-domain` | `PGQUIRE_DOMAIN` | none |
+| `-config` | `PGQUIRE_CONFIG` | `pgquire/connections.json` in your OS config folder |
+| `-no-open` | `PGQUIRE_NO_OPEN` | opens a browser |
+| `-max-rows` | `PGQUIRE_MAX_ROWS` | `50000` |
+| `-statement-timeout` | `PGQUIRE_STATEMENT_TIMEOUT` | `5m` |
+| `-idle-timeout` | `PGQUIRE_IDLE_TIMEOUT` | `30m` |
+
+In Docker, change the port with both: `-e PGQUIRE_LISTEN=0.0.0.0:9000 -p 127.0.0.1:9000:9000`.
+
+Tests (in `server/`): `PGQUIRE_TEST_DSN=postgres://… go test ./...`
 
 ### Editing the page
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -463,6 +464,50 @@ func TestVersionMatchesPage(t *testing.T) {
 	}
 	if string(m[1]) != Version {
 		t.Fatalf("index-remote.html APP_VERSION %q, server Version %q: bump both", m[1], Version)
+	}
+}
+
+// Options come from PGQUIRE_* variables unless given on the command line; a bad value is an error.
+func TestOptionsFromEnv(t *testing.T) {
+	parse := func(env map[string]string, args ...string) (*flag.FlagSet, error) {
+		fs := flag.NewFlagSet("pgquire", flag.ContinueOnError)
+		fs.String("listen", "127.0.0.1:8432", "")
+		fs.Bool("no-open", false, "")
+		fs.String("config", "", "")
+		fs.Int("max-rows", 50000, "")
+		fs.Duration("statement-timeout", 5*time.Minute, "")
+		fs.Duration("idle-timeout", 30*time.Minute, "")
+		fs.String("token", "", "")
+		fs.String("domain", "", "")
+		describeEnv(fs)
+		if err := fs.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		return fs, applyEnv(fs, func(k string) string { return env[k] })
+	}
+	get := func(fs *flag.FlagSet, name string) string { return fs.Lookup(name).Value.String() }
+
+	fs, err := parse(map[string]string{
+		"PGQUIRE_LISTEN": "0.0.0.0:9000", "PGQUIRE_NO_OPEN": "1", "PGQUIRE_MAX_ROWS": "10",
+		"PGQUIRE_IDLE_TIMEOUT": "1h", "PGQUIRE_TOKEN": "env-token",
+	}, "-token", "flag-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"listen": "0.0.0.0:9000", "no-open": "true", "max-rows": "10", "idle-timeout": "1h0m0s",
+		"token": "flag-token", "statement-timeout": "5m0s", "config": "",
+	} {
+		if got := get(fs, name); got != want {
+			t.Errorf("-%s = %q, want %q", name, got, want)
+		}
+	}
+	if u := fs.Lookup("listen").Usage; !strings.Contains(u, "PGQUIRE_LISTEN") {
+		t.Errorf("-h doesn't name the variable: %q", u)
+	}
+
+	if _, err := parse(map[string]string{"PGQUIRE_MAX_ROWS": "lots"}); err == nil || !strings.Contains(err.Error(), "PGQUIRE_MAX_ROWS") {
+		t.Fatalf("bad value: err = %v", err)
 	}
 }
 
