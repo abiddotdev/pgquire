@@ -4,3 +4,6 @@ Thumbs.db
 .tmp
 /pgquire
 /pgquire.exe
+/server/pgquire
+/server/pgquire.exe
+/server/dist/

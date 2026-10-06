@@ -20,7 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/abiddotdev/pgquire/internal/pages"
+	"github.com/abiddotdev/pgquire/server/internal/pages"
 )
 
 type client struct {
@@ -468,7 +468,7 @@ func TestVersionMatchesPage(t *testing.T) {
 
 // index.html (GitHub Pages) is generated from index-remote.html; a stale copy fails here and in CI.
 func TestPagesCopyUpToDate(t *testing.T) {
-	gen, err := os.ReadFile("index.html")
+	gen, err := os.ReadFile("../index.html")
 	if err != nil {
 		t.Fatal(err)
 	}

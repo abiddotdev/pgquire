@@ -53,6 +53,7 @@ To work with a real Postgres server, run pgquire through its small Go server. It
 Download a build for your system from [Releases](https://github.com/abiddotdev/pgquire/releases), or build it yourself:
 
 ```sh
+cd server
 go build -o pgquire .   # Go 1.22+
 ./pgquire               # opens http://127.0.0.1:8432/?t=<token>
 ```
@@ -78,11 +79,11 @@ Then pick **Connect remote Postgres…** in the database switcher and paste a co
   - Session export, and importing files.
 - The browser keeps in-browser databases per address, so ones made on the live page don't appear at `127.0.0.1:8432`, and the other way round. Move them with **Export session / Open session file**.
 
-`./pgquire -h` lists the options. Tests: `PGQUIRE_TEST_DSN=postgres://… go test ./...`
+`./pgquire -h` lists the options. Tests (in `server/`): `PGQUIRE_TEST_DSN=postgres://… go test ./...`
 
 ### Editing the page
 
-Edit `index-remote.html`: it's the page the server embeds. `index.html` (the GitHub Pages copy, PGlite only) is generated from it by `go generate`. Generation:
+Edit `server/index-remote.html`: it's the page the server embeds. `index.html` at the root (the GitHub Pages copy, PGlite only) is generated from it by `go generate` in `server/`. Generation:
 - drops everything marked remote-only: `/* @remote */`, `// @remote` or `<!-- @remote -->` at the end of a line, `/* @remote { */ … /* } @remote */` blocks, and inline `/*remote:*/ … /*:remote*/` in JS and CSS;
 - switches on `// @pages:` lines.
 
@@ -90,7 +91,7 @@ A test fails when `index.html` is out of date.
 
 ### Releasing
 
-Bump `APP_VERSION` in `index-remote.html` and `Version` in `main.go` together (a test checks that they match), run `go generate`, then push a tag like `v1.1`. The release workflow builds Linux, macOS and Windows binaries (amd64 and arm64) and attaches them to a GitHub release.
+Bump `APP_VERSION` in `server/index-remote.html` and `Version` in `server/main.go` together (a test checks that they match), run `go generate`, then push a tag like `v1.1`. The release workflow builds Linux, macOS and Windows binaries (amd64 and arm64) and attaches them to a GitHub release.
 
 ## License
 

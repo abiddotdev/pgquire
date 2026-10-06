@@ -1,4 +1,4 @@
-module github.com/abiddotdev/pgquire
+module github.com/abiddotdev/pgquire/server
 
 go 1.22.10
 
