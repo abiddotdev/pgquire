@@ -1,0 +1,13 @@
+{
+  "name": "pgquire-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests for pgquire: the server binary, a real Postgres, and the page in Chromium",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "pg": "8.23.1"
+  }
+}

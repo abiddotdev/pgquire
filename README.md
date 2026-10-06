@@ -128,6 +128,8 @@ In Docker, change the port with both: `-e PGQUIRE_LISTEN=0.0.0.0:9000 -p 127.0.0
 
 Tests (in `server/`): `PGQUIRE_TEST_DSN=postgres://… go test ./...`
 
+Browser tests (in `e2e/`, needs Go, Node and Docker): `npm ci && npx playwright install chromium && npm test`. They build the server, start a throwaway Postgres container and run the page in Chromium: connecting, queries, editing tables, read-only logins, `-dsn`, and PGlite (from its CDN) in the app and the Pages copy. To use a Postgres of your own instead of the container, set `PGQUIRE_E2E_PG=postgres://user:pass@host/postgres` (it creates the `e2e_shop` database and the `pgquire_e2e_ro` login, and drops them first if they're there). The remote tests build on each other, so run `tests/remote.spec.js` whole rather than one test with `-g`.
+
 ### Editing the page
 
 Edit `server/index-remote.html`: it's the page the server embeds. `index.html` at the root (the GitHub Pages copy, PGlite only) is generated from it by `go generate` in `server/`. Generation:
