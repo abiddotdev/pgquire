@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 import { readFileSync, statSync } from 'node:fs';
 import { DB, ROLE, admin, connect, download, dsn, env, openApp, openDb, runSQL, text, watchErrors, watchSessions } from './helpers.js';
 
-test.describe.configure({ mode: 'serial' });
+test.describe.configure({ mode: 'serial', retries: 0 }); // the steps share server state, so a retry can't start clean
 
 let ctx, page, errors, sessions;
 const savedConnections = () => JSON.parse(readFileSync(env('CONFIG'), 'utf8')).connections;
@@ -79,7 +79,9 @@ test('queries: values, errors, the row cap, Stop, transactions', async () => {
   await page.locator('#pane textarea').first().fill('select pg_sleep(30)');
   await page.locator('#pane textarea').first().press('Control+Enter');
   await expect(page.locator('#pane button:has-text("Stop")')).toBeVisible();
-  await page.waitForTimeout(1000); // let it reach the server: Stop cancels what's running there
+  // Stop cancels what's running on the server, so wait until Postgres is running it
+  await expect.poll(async () => (await admin(
+    "select count(*)::int n from pg_stat_activity where query = 'select pg_sleep(30)' and state = 'active'", [], 'postgres'))[0].n).toBe(1);
   await page.locator('#pane button:has-text("Stop")').click();
   await expect(page.locator('#pane .pane-error')).toContainText('canceling statement due to user request', { timeout: 5000 });
   r = await runSQL(page, 'select count(*) from orders');

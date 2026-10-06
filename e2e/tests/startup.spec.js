@@ -21,7 +21,8 @@ function start(args, extraEnv = {}) {
 test('a wrong password stops it with the reason', async () => {
   const bad = new URL(dsn());
   bad.password = 'wrong';
-  const { code, out } = await start(['-dsn', bad.toString(), '-config', path.join(env('TMP'), 'start-bad.json')]);
+  const { srv, code, out } = await start(['-dsn', bad.toString(), '-config', path.join(env('TMP'), 'start-bad.json')]);
+  if (code === null) srv.kill(); // it should have refused to start
   expect(code).toBe(1);
   expect(out).toContain('-dsn:');
   expect(out).toContain('password authentication failed');
