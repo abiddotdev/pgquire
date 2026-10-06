@@ -1562,7 +1562,9 @@ function bootMsg(msg, show, error) {
 async function q(sql, params = [], array = false) {
   return S.db.query(sql, params, array ? { rowMode: 'array' } : undefined);
 }
-const isReadish = sql => /^\s*(select|explain|show|values|table)\b/i.test(sql) && !/;\s*\S/.test(sql.replace(/;\s*$/, '')) && !/\binto\b/i.test(sql);
+// EXPLAIN ANALYZE runs the statement, so it counts as a write.
+const isReadish = sql => /^\s*(select|explain|show|values|table)\b/i.test(sql) && !/;\s*\S/.test(sql.replace(/;\s*$/, '')) && !/\binto\b/i.test(sql)
+  && !/^\s*explain\b[\s\S]*\banaly[sz]e\b/i.test(sql);
 
 function journalAdd(e) {
   S.journal.push({ ts: Date.now(), ...e });

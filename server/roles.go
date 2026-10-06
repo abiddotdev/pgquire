@@ -133,10 +133,19 @@ func (s *server) readOnlyRole(w http.ResponseWriter, r *http.Request) {
 
 	var ver int
 	var db string
-	var exists bool
+	var exists, prior bool
 	if err := conn.QueryRow(ctx, `select current_setting('server_version_num')::int, current_database(),
-		exists (select 1 from pg_roles where rolname = $1)`, in.Role).Scan(&ver, &db, &exists); err != nil {
+		exists (select 1 from pg_roles where rolname = $1), exists (select 1 from pg_roles where rolname = $2)`,
+		in.Role, p.CreatedRole).Scan(&ver, &db, &exists, &prior); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
+		return
+	}
+	// The connection remembers one created login (so forgetting it can drop it). While that one is still
+	// there it's reused — a new password, then switch — since a second would leave it behind with a
+	// password nobody knows.
+	reuse := prior && in.Role == p.CreatedRole
+	if prior && !reuse && !in.DryRun {
+		writeErr(w, http.StatusConflict, fmt.Sprintf("this connection already has %s, a login pgquire created: switch to that one, or remove it first (forget the connection, or run %s)", p.CreatedRole, strings.Join(dropRoleSQL(p.CreatedRole), "; ")))
 		return
 	}
 	rows, _ := conn.Query(ctx, `select n.nspname from pg_namespace n where n.nspname !~ '^pg_' and n.nspname <> 'information_schema'
@@ -154,8 +163,29 @@ func (s *server) readOnlyRole(w http.ResponseWriter, r *http.Request) {
 
 	if in.DryRun { // the SQL to show, with a placeholder where the password goes
 		create, all, per := readOnlyRolePlan(in.Role, db, "'<choose a password>'", schemas, ver >= 140000)
+		if reuse {
+			create, all, per = []string{rolePasswordSQL(in.Role, "'<choose a password>'")}, []string{}, []string{}
+		}
+		created := ""
+		if prior {
+			created = p.CreatedRole
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"create": create, "grantAll": all, "perSchema": per, "exists": exists,
-			"canCreate": who.Superuser || who.CreateRole, "user": who.User, "database": db})
+			"created": created, "reuse": reuse, "canCreate": who.Superuser || who.CreateRole, "user": who.User, "database": db})
+		return
+	}
+	if reuse {
+		if !in.Switch {
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("pgquire already created %s for this connection — switch to it instead", in.Role))
+			return
+		}
+		password := randomHex(24)
+		if _, err := conn.Exec(ctx, rolePasswordSQL(in.Role, quoteLit(scramVerifier(password)))); err != nil {
+			writeRoleErr(w, err)
+			return
+		}
+		s.switchLogin(w, p, in.Role, db, password, true, map[string]any{"role": in.Role, "reused": true, "schemas": schemas,
+			"database": db, "switched": true, "removeSQL": dropRoleSQL(in.Role)})
 		return
 	}
 	if exists {
@@ -193,31 +223,43 @@ func (s *server) readOnlyRole(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		pc.Exec(context.Background(), "rollback").ReadAll()
-		code := http.StatusBadGateway
-		var pe *pgconn.PgError
-		if errors.As(err, &pe) && pe.Code == "42501" { // insufficient_privilege
-			code = http.StatusForbidden
-		}
-		writeJSON(w, code, map[string]any{"error": pgErrorJSON(err)})
+		writeRoleErr(w, err)
 		return
 	}
+	s.switchLogin(w, p, in.Role, db, password, in.Switch, map[string]any{"role": in.Role, "grants": grants, "schemas": schemas,
+		"database": db, "switched": in.Switch, "removeSQL": dropRoleSQL(in.Role)})
+}
 
-	// Remember the login on the connection (so forgetting it can offer to remove the login too), and
-	// switch the connection to it if asked.
+// switchLogin remembers the login on the connection (so forgetting it can offer to remove the login
+// too), switches the connection to it if asked, and replies with out.
+func (s *server) switchLogin(w http.ResponseWriter, p *Profile, role, db, password string, switchTo bool, out map[string]any) {
 	np := *p // copy: sessions may be reading the current one
-	np.CreatedRole, np.CreatedRoleDB = in.Role, db
-	if in.Switch {
-		np.User, np.Password = in.Role, password
+	np.CreatedRole, np.CreatedRoleDB = role, db
+	if switchTo {
+		np.User, np.Password = role, password
 	}
 	if err := s.cfg.profiles.put(&np); err != nil {
-		writeErr(w, http.StatusInternalServerError, "created the login, but couldn't save the connection: "+err.Error())
+		writeErr(w, http.StatusInternalServerError, "set up the login, but couldn't save the connection: "+err.Error())
 		return
 	}
-	if in.Switch {
+	if switchTo {
 		s.sessions.closeProfile(p.Name) // open tabs reconnect with the new login
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"role": in.Role, "grants": grants, "schemas": schemas, "database": db, "switched": in.Switch,
-		"removeSQL": dropRoleSQL(in.Role)})
+	writeJSON(w, http.StatusOK, out)
+}
+
+func writeRoleErr(w http.ResponseWriter, err error) {
+	code := http.StatusBadGateway
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "42501" { // insufficient_privilege
+		code = http.StatusForbidden
+	}
+	writeJSON(w, code, map[string]any{"error": pgErrorJSON(err)})
+}
+
+// rolePasswordSQL gives a login pgquire created a new password (a SCRAM verifier, or a placeholder).
+func rolePasswordSQL(role, password string) string {
+	return "alter role " + pgx.Identifier{role}.Sanitize() + " password " + password
 }
 
 // dropRoleSQL removes a login pgquire created: DROP OWNED BY revokes its grants (in that database and

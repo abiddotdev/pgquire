@@ -640,6 +640,13 @@ func TestRemoteTestConnectionAndCSVExport(t *testing.T) {
 	if !strings.Contains(string(body), "read-only transaction") || *n.Rows[0][0] != "0" {
 		t.Fatalf("export wrote data: %q, rows %s", body, *n.Rows[0][0])
 	}
+	// A second statement can't ride along in the up-front check either.
+	var two apiErr
+	code := c.do("POST", sp+"/exports", map[string]any{"sql": "select 1; insert into pgq_export_ro values (1)"}, &two)
+	c.do("POST", sp+"/query", map[string]any{"sql": "select count(*) from pgq_export_ro"}, &n)
+	if code != 400 || *n.Rows[0][0] != "0" {
+		t.Fatalf("export check ran a second statement: %d, rows %s", code, *n.Rows[0][0])
+	}
 }
 
 func TestRemoteReadOnlyLogin(t *testing.T) {
@@ -680,13 +687,34 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 		t.Fatalf("bad name accepted: %d", code)
 	}
 
-	// 2b. create it and switch the connection over
+	// 2b. create it without switching: the password isn't kept, so pgquire can't connect with it yet
 	var made struct {
-		Grants   string
-		Switched bool
+		Grants           string
+		Switched, Reused bool
 	}
-	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role, "switch": true}, &made); code != 200 || made.Grants != "pg_read_all_data" || !made.Switched {
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role}, &made); code != 200 || made.Grants != "pg_read_all_data" || made.Switched {
 		t.Fatalf("create: %d %+v", code, made)
+	}
+	// 2c. later, switch to that same login: offered for reuse, not a second one
+	var again struct {
+		Create  []string
+		Created string
+		Reuse   bool
+	}
+	c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": "pgquire_ro_other", "dryRun": true}, &again)
+	if again.Created != role || again.Reuse {
+		t.Fatalf("dry run, other name: %+v", again)
+	}
+	c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role, "dryRun": true}, &again)
+	if !again.Reuse || len(again.Create) != 1 || !strings.HasPrefix(again.Create[0], "alter role") {
+		t.Fatalf("dry run, reuse: %+v", again)
+	}
+	var other apiErr
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role + "_2"}, &other); code != http.StatusConflict {
+		t.Fatalf("created a second login: %d %v", code, other.Error)
+	}
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role, "switch": true}, &made); code != 200 || !made.Reused || !made.Switched {
+		t.Fatalf("reuse: %d %+v", code, made)
 	}
 	var e apiErr
 	if code := c.do("POST", sp+"/query", map[string]any{"sql": "select 1"}, &e); code != http.StatusGone {
@@ -719,10 +747,10 @@ func TestRemoteReadOnlyLogin(t *testing.T) {
 		t.Fatalf("password not stored as SCRAM: %q", stored)
 	}
 
-	// Without the right to create logins: refused, the page shows the SQL instead.
+	// A second login while the first is still there: refused, or the first would be left behind.
 	var deny apiErr
-	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role + "_2"}, &deny); code != http.StatusForbidden {
-		t.Fatalf("read-only login created another login: %d %v", code, deny.Error)
+	if code := c.do("POST", "/api/profiles/test/readonly-role", map[string]any{"role": role + "_2"}, &deny); code != http.StatusConflict {
+		t.Fatalf("created a second login: %d %v", code, deny.Error)
 	}
 
 	// The connection remembers the login it created, and forgetting it can remove the login —

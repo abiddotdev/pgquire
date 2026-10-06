@@ -67,8 +67,8 @@ func (s *server) prepareExport(w http.ResponseWriter, r *http.Request, sess *ses
 		return
 	}
 	err := sess.run(r.Context(), 0, func(ctx context.Context, c pgConn) error {
-		_, e := c.Exec(ctx, "explain "+query).ReadAll()
-		return e
+		// Extended protocol: one statement only, so a filter can't smuggle in "; delete …".
+		return c.ExecParams(ctx, "explain "+query, nil, nil, nil, nil).Read().Err
 	})
 	if err != nil {
 		s.reply(w, sess, nil, err)

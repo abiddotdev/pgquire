@@ -1605,7 +1605,9 @@ function bootMsg(msg, show, error) {
 async function q(sql, params = [], array = false) {
   return S.db.query(sql, params, array ? { rowMode: 'array' } : undefined);
 }
-const isReadish = sql => /^\s*(select|explain|show|values|table)\b/i.test(sql) && !/;\s*\S/.test(sql.replace(/;\s*$/, '')) && !/\binto\b/i.test(sql);
+// EXPLAIN ANALYZE runs the statement, so it counts as a write.
+const isReadish = sql => /^\s*(select|explain|show|values|table)\b/i.test(sql) && !/;\s*\S/.test(sql.replace(/;\s*$/, '')) && !/\binto\b/i.test(sql)
+  && !/^\s*explain\b[\s\S]*\banaly[sz]e\b/i.test(sql);
 
 function journalAdd(e) {
   S.journal.push({ ts: Date.now(), ...e });
@@ -4437,7 +4439,7 @@ async function readOnlyLoginDialog() {
   const d = currentDb();
   if (d?.kind !== 'remote') return;
   const path = `/api/profiles/${encodeURIComponent(d.profile)}/readonly-role`;
-  const name = h('input', { class: 'field', value: 'pgquire_ro', spellcheck: false, style: 'font-family:var(--mono)' });
+  const name = h('input', { class: 'field', value: d.remote?.createdRole || 'pgquire_ro', spellcheck: false, style: 'font-family:var(--mono)' });
   let typed = false, bump = 1;          // until you type a name, a taken default moves on: pgquire_ro_2, _3…
   const sw = h('input', { type: 'checkbox', checked: true });
   const pre = h('pre', { class: 'sqlpreview', style: 'max-height:240px' });
@@ -4447,15 +4449,21 @@ async function readOnlyLoginDialog() {
   const load = async () => {
     try {
       const p = await api('POST', path, { role: name.value.trim(), database: remoteDbOf(d), dryRun: true });
-      if (p.exists && !typed && bump < 20) { name.value = `pgquire_ro_${++bump}`; return load(); }
+      if (p.created && p.created !== name.value.trim() && !typed) { name.value = p.created; return load(); } // reuse this connection's own
+      if (p.exists && !p.reuse && !typed && bump < 20) { name.value = `pgquire_ro_${++bump}`; return load(); }
       p.grantAll ??= []; p.perSchema ??= [];                      // older servers sent null for an empty list
       sql = [...p.create, ...p.grantAll, ...(p.perSchema.length ? [`-- ${p.grantAll.length ? 'if that grant isn\'t allowed' : 'before PostgreSQL 14'}: read access per schema instead`, ...p.perSchema] : [])]
         .map(x => x.startsWith('--') ? x : x + ';').join('\n');
       pre.innerHTML = highlightSQL(sql);
-      go.disabled = !p.canCreate || p.exists;
-      (p.canCreate && !p.exists ? status.set : status.fail)(p.exists ? 'A login with that name already exists — pick another.'
-        : !p.canCreate ? `${p.user} isn't allowed to create logins. Copy the SQL for an admin (they choose the password), then connect with that login.`
-        : `Runs as ${p.user} on ${p.database}.`);
+      const taken = p.created && !p.reuse ? `pgquire already created ${p.created} for this connection — switch to that one, or remove it first.`
+        : p.exists && !p.reuse ? 'A login with that name already exists — pick another.' : '';
+      go.disabled = !p.canCreate || !!taken;
+      go.textContent = p.reuse ? 'Switch to login' : 'Create login';
+      sw.checked ||= p.reuse; sw.disabled = p.reuse;
+      (p.canCreate && !taken ? status.set : status.fail)(taken
+        || (!p.canCreate ? `${p.user} isn't allowed to ${p.reuse ? 'change logins' : 'create logins'}. Copy the SQL for an admin (they choose the password), then connect with that login.`
+        : p.reuse ? `pgquire created ${p.created} for this connection. Switching gives it a new password (pgquire keeps it) and connects with it.`
+        : `Runs as ${p.user} on ${p.database}.`));
     } catch (e) { go.disabled = true; status.fail(e.message); }
   };
   name.oninput = () => { typed = true; clearTimeout(timer); timer = setTimeout(load, 300); };
@@ -4470,7 +4478,7 @@ async function readOnlyLoginDialog() {
       h('button', { class: 'btn ghost', onclick: () => { copyText(sql, 'SQL copied — replace the password placeholder'); } }, ic('copy'), 'Copy SQL'),
       h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   go.onclick = async () => {
-    go.disabled = true; status.set('Creating the login…', { busy: true });
+    go.disabled = true; status.set(sw.disabled ? 'Switching…' : 'Creating the login…', { busy: true });
     try {
       const r = await api('POST', path, { role: name.value.trim(), database: remoteDbOf(d), switch: sw.checked });
       m.close();
@@ -4479,7 +4487,7 @@ async function readOnlyLoginDialog() {
         saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, remote: { ...S.db.info.profile, database: S.db.info.database } } : x));
         showDbKind(); renderAll();
       }
-      const how = r.grants === 'pg_read_all_data' ? 'read all data' : `read the ${plural(r.schemas.length, 'schema')} of ${r.database}`;
+      const how = r.reused ? 'read what it was granted' : r.grants === 'pg_read_all_data' ? 'read all data' : `read the ${plural(r.schemas.length, 'schema')} of ${r.database}`;
       const removal = r.removeSQL.map(x => x + ';').join('\n');
       toast(`${r.switched ? `Now connected as ${r.role}: it can ${how}, and can't change anything.` : `Created ${r.role}: it can ${how}. Connect with it to use it.`} To remove it later, forget this connection (pgquire offers to drop it) or run the removal SQL on ${r.database}.`,
         null, { label: 'Copy removal SQL', run: () => { copyText(removal, 'Removal SQL copied'); } });
