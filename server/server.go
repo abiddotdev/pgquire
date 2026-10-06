@@ -268,22 +268,31 @@ func (s *server) addProfile(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, probe)
 }
 
-// probe connects once and reports the server version and whether the link is encrypted.
+// probe connects once, on a connection of its own (not a session), and describes it.
 func (s *server) probe(ctx context.Context, p *Profile) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	sess, err := s.sessions.open(ctx, p, "")
+	cfg, err := s.sessions.connConfig(p, "")
 	if err != nil {
 		return nil, err
 	}
-	defer s.sessions.close(sess.id)
-	pc := sess.conn.PgConn()
-	_, encrypted := pc.Conn().(*tls.Conn)
-	out := map[string]any{"serverVersion": pc.ParameterStatus("server_version"), "tls": encrypted, "database": sess.conn.Config().Database, "user": sess.conn.Config().User}
-	if ri, err := checkRole(ctx, sess.conn); err == nil {
+	conn, err := pgconn.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close(context.Background())
+	return describeConn(ctx, conn, cfg.Database, cfg.User), nil
+}
+
+// describeConn reports the server version, whether the link is encrypted, where it's connected,
+// and what the login may actually do (the page warns when "read-only" is only a guard rail).
+func describeConn(ctx context.Context, conn *pgconn.PgConn, database, user string) map[string]any {
+	_, encrypted := conn.Conn().(*tls.Conn)
+	out := map[string]any{"serverVersion": conn.ParameterStatus("server_version"), "tls": encrypted, "database": database, "user": user}
+	if ri, err := checkRole(ctx, conn); err == nil {
 		out["role"] = ri
 	}
-	return out, nil
+	return out
 }
 
 // testProfile tries a connection string without keeping anything.
@@ -365,17 +374,8 @@ func (s *server) openSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": pgErrorJSON(err)})
 		return
 	}
-	pc := sess.conn.PgConn()
-	_, encrypted := pc.Conn().(*tls.Conn)
-	out := map[string]any{
-		"tls": encrypted,
-		"id":  sess.id, "profile": p.public(), "readOnly": p.ReadOnly, "database": sess.conn.Config().Database,
-		"serverVersion": pc.ParameterStatus("server_version"), "maxRows": s.cfg.maxRows,
-	}
-	// What this login may actually do — the page warns when "read-only" is only a guard rail.
-	if ri, err := checkRole(r.Context(), sess.conn); err == nil {
-		out["role"] = ri
-	}
+	out := describeConn(r.Context(), sess.conn, sess.database, sess.user)
+	out["id"], out["profile"], out["readOnly"], out["maxRows"] = sess.id, p.public(), p.ReadOnly, s.cfg.maxRows
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -420,7 +420,7 @@ func (s *server) query(w http.ResponseWriter, r *http.Request, sess *session) {
 		return
 	}
 	var res result
-	err = sess.run(r.Context(), in.Req, func(ctx context.Context, c pgConn) error {
+	err = sess.run(r.Context(), in.Req, func(ctx context.Context, c *pgconn.PgConn) error {
 		var e error
 		res, e = queryParams(ctx, c, in.SQL, params, s.cfg.maxRows)
 		return e
@@ -437,7 +437,7 @@ func (s *server) exec(w http.ResponseWriter, r *http.Request, sess *session) {
 		return
 	}
 	var res []result
-	err := sess.run(r.Context(), in.Req, func(ctx context.Context, c pgConn) error {
+	err := sess.run(r.Context(), in.Req, func(ctx context.Context, c *pgconn.PgConn) error {
 		var e error
 		res, e = execScript(ctx, c, in.SQL, s.cfg.maxRows)
 		return e
