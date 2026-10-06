@@ -19,33 +19,12 @@ const maxSessions = 32
 
 type pgConn = *pgconn.PgConn
 
-// listDatabases returns the databases this profile's login may connect to, via a short-lived connection.
-func (m *sessionManager) listDatabases(ctx context.Context, p *Profile) ([]string, string, error) {
-	cfg, err := m.connConfig(p, "")
-	if err != nil {
-		return nil, "", err
-	}
-	conn, err := pgx.ConnectConfig(ctx, cfg)
-	if err != nil {
-		return nil, "", err
-	}
-	defer conn.Close(context.Background())
-	rows, err := conn.Query(ctx, `select datname from pg_database
-		where datallowconn and not datistemplate and has_database_privilege(datname, 'CONNECT') order by datname`)
-	if err != nil {
-		return nil, "", err
-	}
-	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	return names, cfg.Database, err
-}
-
 // A session is one dedicated Postgres connection for one browser tab. PGlite is a single
 // connection too, so SET, temp tables and a BEGIN typed in the editor behave the same way.
 type session struct {
 	id       string
 	profile  string
 	database string // "" = the one in the profile's connection string
-	readOnly bool
 	conn     *pgx.Conn
 
 	mu       sync.Mutex   // one request at a time on the connection
@@ -165,6 +144,26 @@ func (m *sessionManager) connConfig(p *Profile, database string) (*pgx.ConnConfi
 	return cfg, nil
 }
 
+// listDatabases returns the databases this profile's login may connect to, via a short-lived connection.
+func (m *sessionManager) listDatabases(ctx context.Context, p *Profile) ([]string, string, error) {
+	cfg, err := m.connConfig(p, "")
+	if err != nil {
+		return nil, "", err
+	}
+	conn, err := pgx.ConnectConfig(ctx, cfg)
+	if err != nil {
+		return nil, "", err
+	}
+	defer conn.Close(context.Background())
+	rows, err := conn.Query(ctx, `select datname from pg_database
+		where datallowconn and not datistemplate and has_database_privilege(datname, 'CONNECT') order by datname`)
+	if err != nil {
+		return nil, "", err
+	}
+	names, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	return names, cfg.Database, err
+}
+
 func (m *sessionManager) open(ctx context.Context, p *Profile, database string) (*session, error) {
 	m.mu.Lock()
 	n := len(m.byID)
@@ -180,9 +179,14 @@ func (m *sessionManager) open(ctx context.Context, p *Profile, database string) 
 	if err != nil {
 		return nil, err
 	}
-	s := &session{id: randomHex(16), profile: p.Name, database: database, readOnly: p.ReadOnly, conn: conn}
+	s := &session{id: randomHex(16), profile: p.Name, database: database, conn: conn}
 	s.lastUsed.Store(time.Now().UnixNano())
 	m.mu.Lock()
+	if n := len(m.byID); n >= maxSessions { // again: others may have opened while this one connected
+		m.mu.Unlock()
+		conn.Close(context.Background())
+		return nil, fmt.Errorf("too many open sessions (%d); close some pgquire tabs", n)
+	}
 	m.byID[s.id] = s
 	m.mu.Unlock()
 	return s, nil
@@ -376,10 +380,8 @@ func encodeParams(raw []json.RawMessage) ([][]byte, error) {
 			} else {
 				out[i] = []byte("f")
 			}
-		case float64:
-			out[i] = []byte(string(r)) // keep the exact digits as sent
 		default:
-			out[i] = []byte(r) // objects and arrays go in as JSON text
+			out[i] = []byte(r) // numbers keep the exact digits as sent; objects and arrays go in as JSON text
 		}
 	}
 	return out, nil

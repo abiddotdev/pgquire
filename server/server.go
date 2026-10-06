@@ -312,12 +312,7 @@ func (s *server) deleteProfile(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("dropRole") == "1" {
 		if p := s.cfg.profiles.get(r.PathValue("name")); p != nil && p.CreatedRole != "" {
 			if err := s.dropCreatedRole(r.Context(), p); err != nil {
-				code := http.StatusBadGateway
-				var pe *pgconn.PgError
-				if errors.As(err, &pe) && pe.Code == "42501" {
-					code = http.StatusForbidden
-				}
-				writeJSON(w, code, map[string]any{"error": pgErrorJSON(err)})
+				writeRoleErr(w, err)
 				return
 			}
 		}
