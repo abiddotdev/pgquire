@@ -1,10 +1,24 @@
 # pgquire: inquire into Postgres
 
-A single-file Postgres workbench with a clean, ledger-inspired interface. On its own it runs a real PostgreSQL (PGlite) entirely in your browser; with its small optional server it also works on your real Postgres servers.
+A single-file Postgres workbench with a clean interface in two looks, Ledger and Prism. On its own it runs a real PostgreSQL (PGlite) entirely in your browser; with its small optional server it also works on your real Postgres servers.
+
+[![pgquire: a two-minute tour. Click to play.](docs/assets/pgquire-tour.webp)](docs/assets/pgquire-tour.mp4)
+
+▶ [Watch the tour](docs/assets/pgquire-tour.mp4) (2 minutes)
 
 ## Live Demo
 
 **https://abiddotdev.github.io/pgquire/**
+
+## What makes it different
+
+- **Real Postgres in a tab, from one HTML file.** PGlite runs PostgreSQL in your browser: no install, no account, no server.
+- **Share a whole database as a link.** The data rides after the `#`, which browsers never send to a server; add a passphrase to encrypt it.
+- **Copy a slice of production into your browser.** A sample of each table, with the rows they reference, to break freely. The server is only read.
+- **An AI that asks before it writes.** The Clerk reads your schema and runs queries; every change waits for your approval.
+- **Production guardrails.** Production connections are red and start read-only, and pgquire can create a login that really can't write.
+
+<table><tr><td width="50%"><img src="docs/assets/share.webp" alt="Share as link, with a passphrase"></td><td width="50%"><img src="docs/assets/copy-to-local.webp" alt="Copy to a local database: rows per table, and the room it needs in the browser"></td></tr></table>
 
 ## Features
 
@@ -14,21 +28,32 @@ A single-file Postgres workbench with a clean, ledger-inspired interface. On its
 - Row details: the whole row, the rows it points to and the rows that point at it; right-click a cell to follow a key
 - Structure view: columns, indexes, constraints and the table's `CREATE` statement
 
+![A table with the diagram of its relations above the grid, and a row's details beside it](docs/assets/table.webp)
+
 **Query**
 - SQL editor with highlighting; every statement's result is kept, and results download as CSV or copy for a spreadsheet
 - Open `.sql` files or save to them; big scripts and `pg_dump` output run in chunks with progress and Stop
 - A `BEGIN` stays open across runs, with a banner to commit or roll back
 - Saved queries, and a journal of every statement run (yours, the grid's and the Clerk's)
 
+<table><tr><td width="50%"><img src="docs/assets/query.webp" alt="The SQL editor with a query and its results"></td><td width="50%"><img src="docs/assets/journal.webp" alt="The journal: every statement run, by you, the grid or the Clerk, with timings"></td></tr></table>
+
 **Design**
 - Create tables visually and import CSVs, with types inferred
 - An ERD of the whole schema, filtered by schema, plus a relations diagram above each table; export as SVG or PNG, or copy as Mermaid, DBML or text
 - 33 extensions load on demand in the browser: fuzzy search, UUIDs, crypto, vectors, PostGIS and more
 
+<table>
+<tr><td width="50%"><img src="docs/assets/create-table.webp" alt="A new table: columns, keys and defaults, with the exact SQL it will run"></td><td width="50%"><img src="docs/assets/erd.webp" alt="The ERD of the sample bookstore"></td></tr>
+<tr><td colspan="2" align="center"><img src="docs/assets/extensions.webp" alt="The Extensions dialog, with pg_trgm and vector added" width="50%"></td></tr>
+</table>
+
 **The Clerk (optional AI)**
 - Any OpenAI-compatible endpoint (OpenRouter, OpenAI, Groq, Ollama, LM Studio); your key stays in the tab's memory and is never saved
 - It reads the schema, runs queries and writes SQL into the editor; changes wait for your approval
 - Several conversations per database, with token and cost tracking; export them as JSON or Markdown
+
+![The Clerk has run a query and proposes a view, waiting for approval](docs/assets/clerk.webp)
 
 **Move data**
 - Many databases, each with its own colour, tabs, saved queries and chats
@@ -40,7 +65,9 @@ A single-file Postgres workbench with a clean, ledger-inspired interface. On its
 - "Ledger" (ink on paper) or "Prism" (crisp, with column profiles in the grid), each in day and night; switch from the top-right Appearance menu
 - Right-click menus throughout; the in-app **README** tab lists every feature
 
-Zero build step: one self-contained HTML file.
+![The same table in all four looks: Ledger and Prism, by day and by night](docs/assets/looks.webp)
+
+No build step: one HTML file. PGlite and the extensions download from a CDN the first time, then the browser caches them.
 
 ## Usage
 
@@ -50,7 +77,7 @@ Open the [live page](https://abiddotdev.github.io/pgquire/) or `index.html` dire
 
 To work with a real Postgres server, run pgquire through its small Go server. It serves the same page and lets it connect to remote databases, which show up in the database switcher next to your in-browser ones.
 
-Download the build for your system from [Releases](https://github.com/abiddotdev/pgquire/releases) (about 4 MB), unpack it and run `pgquire`; it opens the workbench in your browser.
+It's a single binary under 10 MB with the page built in, and nothing else to install. Download the build for your system from [Releases](https://github.com/abiddotdev/pgquire/releases) (about 4 MB), unpack it and run `pgquire`; it opens the workbench in your browser.
 
 | System | File |
 |---|---|
@@ -64,7 +91,8 @@ The builds aren't signed, so macOS refuses to open it the first time: run `xattr
 Or build it yourself:
 
 ```sh
-cd server
+git clone https://github.com/abiddotdev/pgquire.git
+cd pgquire/server
 go build -o pgquire .   # Go 1.27+
 ./pgquire               # opens http://127.0.0.1:8432/?t=<token>
 ```
@@ -99,6 +127,8 @@ Otherwise pick **Connect remote Postgres…** in the database switcher and paste
 - Read-only is a guard rail (SQL can switch it off), so pgquire checks what the login can really do. If a "read-only" connection's login can write, it says so and offers **Create a read-only login…**. That creates a login that can read everything and change nothing (`pg_read_all_data`, or per-schema grants before PostgreSQL 14), switches the connection to it, and keeps its generated password on the server. If your login can't create logins, **Copy SQL** gives your admin the statements. The login is named `pgquire_ro` by default; forgetting the connection offers to remove it again (`drop owned by …; drop role …`).
 - Statements stop after 5 minutes (`-statement-timeout`), a transaction left idle for 2 minutes is rolled back, and sessions idle for 30 minutes are closed (`-idle-timeout`). Running queries can be stopped.
 - The green dot next to the database name shows the connection is up (its tooltip says whether it's encrypted). It turns red with a **Reconnect** banner if the pgquire server stops.
+
+<table><tr><td width="50%"><img src="docs/assets/remote.webp" alt="A production connection: the red PROD · RO marker, a refused delete, and a warning that the login can still write"></td><td width="50%"><img src="docs/assets/readonly-login.webp" alt="Create a read-only login: the grants it runs, with a generated password kept on the server"></td></tr></table>
 
 **Data**
 - Big tables show estimated row counts (`~`). Results in the page are capped at 50,000 rows (`-max-rows`); **CSV (all)** and table **Export CSV** stream every row.
