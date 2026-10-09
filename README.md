@@ -1,4 +1,4 @@
-# pgquire — inquire into Postgres
+# pgquire: inquire into Postgres
 
 A single-file Postgres workbench with a clean, ledger-inspired interface. On its own it runs a real PostgreSQL (PGlite) entirely in your browser; with its small optional server it also works on your real Postgres servers.
 
