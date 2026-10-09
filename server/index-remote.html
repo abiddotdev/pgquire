@@ -583,9 +583,9 @@ select.field { padding-right: 4px; }
 .db-kind.prod { color: #fff; background: var(--red); border-color: var(--red); } /* @remote */
 .db-kind.warn { border-style: dashed; } /* @remote */
 .db-kind.prod.warn { outline: 1px dashed var(--red); outline-offset: 2px; } /* @remote */
-.remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; } /* @remote */
-.remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; } /* @remote */
-.remote-row .who { color: var(--ink3); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; } /* @remote */
+.remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
+.remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; }
+.remote-row .who { color: var(--ink3); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .copy-pick summary .sum { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; color: var(--ink2); } /* @remote */
 .copy-pick .bar { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--rule2); } /* @remote */
 .copy-pick .bar .field { flex: 1; height: 24px; } /* @remote */
@@ -696,40 +696,10 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .idx.ext .idx-name { font: 500 12.5px var(--mono); }
 .idx-hint { font: italic 12.5px var(--serif); color: var(--ink3); padding: 2px 10px 8px 28px; cursor: pointer; }
 .idx-hint:hover { color: var(--blue); }
-.ext-modal { width: min(920px, 100%); }
-.ext-bar { display: flex; flex-direction: column; gap: 8px; padding: 0 22px 10px 34px; position: sticky; top: 0; background: var(--sheet); z-index: 2; border-bottom: 1px solid var(--rule2); }
-.ext-bar .field { height: 34px; font-size: 13.5px; }
-.ext-chips { display: flex; flex-wrap: wrap; gap: 5px; }
-.ext-chips button { font-size: 12px; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--rule); color: var(--ink2); }
-.ext-chips button:hover { border-color: var(--ink3); }
-.ext-chips button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.ext-chips button small { opacity: .65; margin-left: 3px; }
-.ext-body { padding: 12px 22px 6px 34px; }
-.ext-cat { font: italic 500 15px var(--serif); color: var(--ink2); margin: 10px 0 6px; }
-.ext-cat:first-child { margin-top: 0; }
-.ext-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
-.ext-card { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px 8px; background: var(--sheet); display: flex; flex-direction: column; gap: 5px; transition: border-color .15s, box-shadow .15s, background .15s; }
-.ext-card.on { border-color: var(--ink3); background: color-mix(in srgb, var(--blue-soft) 60%, var(--sheet)); }
-.ext-card.changed { border-style: dashed; border-color: var(--blue); }
-.ext-card.focus { box-shadow: 0 0 0 3px var(--hl-soft); }
-.ext-top { display: flex; align-items: center; gap: 8px; }
-.ext-top code { font: 600 13px var(--mono); color: var(--ink); }
-.ext-size { font: 10.5px var(--mono); color: var(--ink3); margin-left: auto; }
+.ext-size { font: 11px var(--mono); color: var(--ink3); }
 .ext-size.heavy { color: var(--red); font-weight: 600; }
-.ext-card p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink2); }
-.ext-foot { display: flex; align-items: center; gap: 6px; min-height: 24px; font-size: 11.5px; color: var(--ink3); }
-.ext-foot .st { font: 600 9.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
-.ext-foot .st.installed { color: var(--green); }
-.ext-foot .st.add { color: var(--blue); }
-.ext-foot .st.remove { color: var(--red); }
-.switch { width: 34px; height: 19px; border-radius: 10px; background: var(--rule); position: relative; flex-shrink: 0; transition: background .15s; }
-.switch::after { content: ""; position: absolute; left: 2px; top: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--sheet); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
-.switch.on { background: var(--blue); }
-.switch.on::after { transform: translateX(15px); }
-.switch:disabled { opacity: .5; cursor: not-allowed; }
-.ext-summary { font-size: 12.5px; color: var(--ink2); line-height: 1.5; }
-.ext-summary b { font-family: var(--mono); font-weight: 500; }
-.ext-summary .plus { color: var(--blue); } .ext-summary .minus { color: var(--red); }
+.remote-row.focus { box-shadow: 0 0 0 3px var(--hl-soft); }
+.remote-row .who.ext-desc { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-family: inherit; color: var(--ink2); font-size: 12.5px; line-height: 1.4; }
 
 .clerk-opts .ctx-mode { margin-left: auto; font-size: 11px; color: var(--ink2); border: 1px solid var(--rule); border-radius: 10px; padding: 1px 9px; }
 .clerk-opts .ctx-mode:hover { border-color: var(--blue); color: var(--blue); }
@@ -920,7 +890,6 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 [data-look=prism] .turn-pop .pop-h,
 [data-look=prism] .turn-pop .pop-f,
 [data-look=prism] .idx-hint,
-[data-look=prism] .ext-cat,
 [data-look=prism] .journal-head h2,
 [data-look=prism] .boot b,
 [data-look=prism] .boot .tagline,
@@ -1128,8 +1097,6 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 [data-look=prism] .att-tag { border-radius: 5px; }
 
 /* extensions, journal, overlays */
-[data-look=prism] .ext-cat { font: 600 13px var(--sans); }
-[data-look=prism] .ext-card { border-radius: 12px; }
 [data-look=prism] .journal { border-top: 1px solid var(--rule); }
 [data-look=prism] .journal-head h2 { font: 600 13.5px var(--sans); }
 [data-look=prism] .jrow .js { border-radius: 5px; }
@@ -1139,7 +1106,7 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 [data-look=prism] .modal-bg { background: rgba(13,14,18,.32); backdrop-filter: blur(4px); }
 [data-look=prism] .modal { border-color: var(--rule); border-radius: 16px; box-shadow: 0 30px 80px -24px rgba(13,14,18,.45); }
 [data-look=prism] .modal::before { display: none; }
-[data-look=prism] .modal-h, [data-look=prism] .modal-b, [data-look=prism] .modal-f, [data-look=prism] .ext-bar, [data-look=prism] .ext-body { padding-left: 22px; }
+[data-look=prism] .modal-h, [data-look=prism] .modal-b, [data-look=prism] .modal-f { padding-left: 22px; }
 [data-look=prism] .modal-h { padding-top: 20px; }
 [data-look=prism] .modal-h h2 { font: 700 20px/1.2 var(--sans); letter-spacing: -.02em; }
 [data-look=prism] .modal-h p { font: 13.5px/1.55 var(--sans); }
@@ -6155,79 +6122,48 @@ function extensionFixButton(err, retry) {
 /* ---------- the Extensions dialog ---------- */
 function extensionsDialog(focusId) {
   if (!dbCaps().wasmExt) return remoteExtensionsDialog(); // @remote
-  const installed = new Map((S.exts || []).map(x => [x.extname, x.extversion]));
-  const isOn = id => installed.has(extSql(EXT_BY[id]));
-  const was = new Set(EXT.filter(e => isOn(e.id)).map(e => e.id));
-  const want = new Set(was);
-  let query = '', cat = 'all';
-  const search = h('input', { class: 'field', placeholder: 'Search — e.g. fuzzy, uuid, vector, geo…', spellcheck: false });
-  const chips = h('div', { class: 'ext-chips' });
-  const body = h('div', { class: 'ext-body' });
-  const summary = h('div', { class: 'ext-summary' });
-  const apply = h('button', { class: 'btn ink' }, 'Apply');
-  const matches = e => (cat === 'all' || (cat === 'on' ? want.has(e.id) : e.cat === cat)) &&
-    (!query || `${e.id} ${extSql(e)} ${e.desc} ${EXT_CATS[e.cat]}`.toLowerCase().includes(query));
-  const card = e => {
-    const on = want.has(e.id), changed = on !== was.has(e.id);
-    const neededBy = [...want].filter(w => (EXT_BY[w].needs || []).includes(e.id));
-    const sw = h('button', { class: 'switch' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(on), 'aria-label': `Enable ${e.id}`,
-      disabled: on && neededBy.length > 0, title: on && neededBy.length ? `Needed by ${neededBy.join(', ')}` : on ? 'Turn off' : 'Turn on',
-      onclick: () => { if (on) want.delete(e.id); else { want.add(e.id); (e.needs || []).forEach(n => want.add(n)); } draw(); } });
-    const st = changed ? (on ? h('span', { class: 'st add' }, 'will enable') : h('span', { class: 'st remove' }, 'will remove'))
-      : on ? h('span', { class: 'st installed' }, `installed ${installed.get(extSql(e)) || ''}`) : null;
-    return h('div', { class: 'ext-card' + (on ? ' on' : '') + (changed ? ' changed' : '') + (e.id === focusId ? ' focus' : ''), id: 'ext-' + e.id },
-      h('div', { class: 'ext-top' }, h('code', {}, extSql(e)), h('span', { class: 'ext-size' + (e.kb >= 1000 ? ' heavy' : ''), title: 'One-time download, then cached by the browser' }, extKb(e.kb)), sw),
-      h('p', {}, e.desc, e.needs && h('span', { style: 'color:var(--ink3)' }, ` Uses ${e.needs.join(', ')}.`)),
-      h('div', { class: 'ext-foot' }, st, h('span', { class: 'spacer', style: 'flex:1' }),
-        was.has(e.id) && !changed && h('button', { class: 'btn sm ghost', title: 'Open a working example in a new query tab', onclick: () => { m.close(); openQuery(e.try, { title: `try ${e.id}`, run: true }); } }, ic('play'), 'Try it'),
-        !was.has(e.id) && on && h('span', {}, 'Try it after applying')));
+  const filter = h('input', { class: 'field', placeholder: 'filter — e.g. fuzzy, uuid, vector, geo', spellcheck: false });
+  const list = h('div', { class: 'remote-list', style: 'max-height:420px' });
+  let busy = null;
+  const neededBy = id => EXT.filter(e => e.id !== id && extEnabled(e.id) && (e.needs || []).includes(id)).map(e => e.id);
+  // Adding or removing reopens the database for a moment, so one change at a time; the list stays open.
+  const change = async (e, add) => {
+    if (!add && !(await confirmDlg({ title: `Remove extension ${e.id}?`, body: `It's dropped from “${currentDb()?.name}”. If anything uses it (types, functions, indexes), you're asked before those go too.`, ok: 'Remove', danger: true }))) return;
+    busy = e.id; draw();
+    try {
+      const r = await applyExtensionChanges(add ? [...(e.needs || []).filter(n => !extEnabled(n)), e.id] : [], add ? [] : [e.id]);
+      if (r.added.length || r.removed.length) toast(add ? `Enabled ${r.added.join(', ')}` : `Removed ${e.id}`, null, add && e.try ? { label: `Try ${e.id}`, run: () => { m.close(); openQuery(e.try, { title: `try ${e.id}`, run: true }); } } : null);
+    } catch (err) { toast(err.message, 'bad'); }
+    busy = null; draw();
   };
   const draw = () => {
-    const counts = EXT_CATS.map((_, i) => EXT.filter(e => e.cat === i).length);
-    chips.replaceChildren(
-      h('button', { class: cat === 'all' ? 'on' : '', onclick: () => { cat = 'all'; draw(); } }, 'All', h('small', {}, EXT.length)),
-      h('button', { class: cat === 'on' ? 'on' : '', onclick: () => { cat = 'on'; draw(); } }, 'Enabled', h('small', {}, want.size)),
-      ...EXT_CATS.map((c, i) => h('button', { class: cat === i ? 'on' : '', onclick: () => { cat = i; draw(); } }, c, h('small', {}, counts[i]))));
-    body.replaceChildren();
-    let any = false;
-    for (const [i, name] of EXT_CATS.entries()) {
-      const list = EXT.filter(e => e.cat === i && matches(e));
-      if (!list.length) continue;
-      any = true;
-      body.append(h('div', { class: 'ext-cat' }, name), h('div', { class: 'ext-grid' }, list.map(card)));
-    }
-    if (!any) body.append(h('div', { class: 'placeholder', style: 'padding:30px' }, cat === 'on' ? 'Nothing enabled yet.' : 'No extension matches that.'));
-    const adds = [...want].filter(x => !was.has(x)), rems = [...was].filter(x => !want.has(x));
-    const dl = adds.reduce((a, x) => a + EXT_BY[x].kb, 0);
-    summary.replaceChildren(...(adds.length || rems.length ? [
-      adds.length ? h('span', { class: 'plus' }, '+ ', ...adds.flatMap((x, i) => [i ? ', ' : '', h('b', {}, x)])) : '',
-      adds.length && rems.length ? ' · ' : '',
-      rems.length ? h('span', { class: 'minus' }, '− ', ...rems.flatMap((x, i) => [i ? ', ' : '', h('b', {}, x)])) : '',
-      h('br'),
-      h('span', { style: 'color:var(--ink3)' }, [adds.length ? `Downloads ${extKb(dl)} (once)` : '', adds.length ? 'the database reopens for a moment' : '', rems.length ? 'removal drops the extension from this database' : ''].filter(Boolean).join(' · '))]
-      : [h('span', { style: 'color:var(--ink3)' }, `${plural(was.size, 'extension')} enabled for “${currentDb()?.name}”. Toggle to change; nothing happens until you apply.`)]));
-    apply.disabled = !adds.length && !rems.length;
+    const f = filter.value.trim().toLowerCase();
+    const shown = EXT.filter(e => !f || `${e.id} ${extSql(e)} ${e.desc} ${EXT_CATS[e.cat]}`.toLowerCase().includes(f))
+      .sort((a, b) => extEnabled(b.id) - extEnabled(a.id));
+    list.replaceChildren(...shown.map(e => {
+      const on = extEnabled(e.id), by = on ? neededBy(e.id) : [];
+      const ver = on && (S.exts || []).find(x => x.extname === extSql(e))?.extversion;
+      return h('div', { class: 'remote-row' + (e.id === focusId ? ' focus' : ''), id: 'ext-' + e.id },
+        h('b', { style: 'font-family:var(--mono)' }, extSql(e)),
+        h('span', { class: 'who ext-desc', title: `${e.desc}${e.needs ? ` Uses ${e.needs.join(', ')}.` : ''} (${EXT_CATS[e.cat]})` }, e.desc, e.needs && h('span', { style: 'color:var(--ink3)' }, ` Uses ${e.needs.join(', ')}.`)),
+        on ? h('span', { class: 'db-kind', title: 'installed' }, ver || 'on')
+          : h('span', { class: 'ext-size' + (e.kb >= 1000 ? ' heavy' : ''), title: 'One-time download, then cached by the browser' }, extKb(e.kb)),
+        busy === e.id ? h('span', { class: 'ext-size' }, on ? 'removing…' : 'loading…')
+          : on ? [e.try && h('button', { class: 'btn sm ghost', title: 'Open a working example in a new query tab', disabled: !!busy, onclick: () => { m.close(); openQuery(e.try, { title: `try ${e.id}`, run: true }); } }, 'Try'),
+                  h('button', { class: 'btn sm ghost', disabled: !!busy || by.length > 0, title: by.length ? `Needed by ${by.join(', ')}` : '', onclick: () => change(e, false) }, 'Remove…')]
+          : h('button', { class: 'btn sm', disabled: !!busy, onclick: () => change(e, true) }, 'Add'));
+    }));
+    if (!shown.length) list.append(h('div', { class: 'placeholder', style: 'padding:20px' }, 'No extension matches that.'));
   };
-  search.oninput = () => { query = search.value.trim().toLowerCase(); draw(); };
-  apply.onclick = async () => {
-    const adds = [...want].filter(x => !was.has(x)), rems = [...was].filter(x => !want.has(x));
-    m.close();
-    try {
-      const r = await applyExtensionChanges(adds, rems);
-      const first = r.added.find(x => EXT_BY[x].try);
-      toast([r.added.length && `Enabled ${r.added.join(', ')}`, r.removed.length && `Removed ${r.removed.join(', ')}`].filter(Boolean).join(' · ') || 'No changes',
-        null, first ? { label: `Try ${first}`, run: () => openQuery(EXT_BY[first].try, { title: `try ${first}`, run: true }) } : null);
-    } catch (e) { toast(e.message, 'bad'); }
-  };
+  filter.oninput = draw;
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, 'Extensions'), h('p', {}, `Add Postgres superpowers to “${currentDb()?.name}”. Each database keeps its own set; they download once and load whenever it opens.`)),
-    h('div', { class: 'ext-bar' }, search, chips),
-    body,
-    h('div', { class: 'modal-f', style: 'position:sticky;bottom:0;background:var(--sheet);border-top:1px solid var(--rule2)' }, summary, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), apply)], { wide: true });
-  m.box.classList.add('ext-modal');
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Extensions'),
+      h('p', {}, `${EXT.length} extensions for “${currentDb()?.name}”, loaded into this browser on demand. Each downloads once and loads whenever this database opens.`)),
+    h('div', { class: 'modal-b' }, filter, list),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))], { wide: true });
   draw();
   if (focusId) requestAnimationFrame(() => $('ext-' + focusId)?.scrollIntoView({ block: 'center' }));
-  else search.focus();
+  else filter.focus();
 }
 
 /* ==========================================================================
