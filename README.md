@@ -97,13 +97,19 @@ go build -o pgquire .   # Go 1.27+
 ./pgquire               # opens http://127.0.0.1:8432/?t=<token>
 ```
 
-Or run it with Docker (`docker logs` shows the link; without `PGQUIRE_TOKEN` the token is new each start):
+Or run it with Docker. To try it, this prints the link to open; Ctrl+C stops it and removes the container:
 
 ```sh
-docker run -d -p 127.0.0.1:8432:8432 -v pgquire-config:/config -e PGQUIRE_TOKEN=<secret> ghcr.io/abiddotdev/pgquire
+docker run --rm -p 127.0.0.1:8432:8432 ghcr.io/abiddotdev/pgquire
 ```
 
-Keep the `127.0.0.1:` in `-p`: your saved connections are reachable through pgquire, so don't publish it to the network. `docker build -t pgquire .` builds the image from a clone.
+To keep it running, give it a volume for remembered connections and a fixed token, so the link stays the same across restarts (`docker logs pgquire` shows it):
+
+```sh
+docker run -d --name pgquire -p 127.0.0.1:8432:8432 -v pgquire-config:/config -e PGQUIRE_TOKEN=<secret> ghcr.io/abiddotdev/pgquire
+```
+
+Keep the `127.0.0.1:` in `-p`: your saved connections are reachable through pgquire, so don't publish it to the network. pgquire warns at start that it's listening beyond loopback; inside the container it has to, and the `127.0.0.1:` is what keeps it on your machine. `docker build -t pgquire .` builds the image from a clone.
 
 To open straight into a database, give it with `-dsn` (or `PGQUIRE_DSN`, which keeps the password out of your shell history). pgquire connects before it starts, so a wrong address or password stops it with the reason, and the page opens in that database:
 
@@ -113,7 +119,7 @@ To open straight into a database, give it with `-dsn` (or `PGQUIRE_DSN`, which k
 PGQUIRE_DSN=postgres://me:secret@db.example.com/shop ./pgquire
 ```
 
-It's kept for this run only. To keep it, add it once through **Connect remote Postgres…** with **Remember on the server** ticked; from then on `-dsn` with the same string uses that remembered connection (its name, production tag and read-only setting). Each start opens it once; after that the page stays wherever you go. In Docker, `localhost` is the container itself: use `host.docker.internal` for a database on your machine.
+It's kept for this run only. To keep it, add it once through **Connect remote Postgres…** with **Remember on the server** ticked; from then on `-dsn` with the same string uses that remembered connection (its name, production tag and read-only setting). Each start opens it once; after that the page stays wherever you go. In Docker, `localhost` is the container itself: use `host.docker.internal` for a database on your machine (on Linux, add `--add-host=host.docker.internal:host-gateway` to `docker run`).
 
 Otherwise pick **Connect remote Postgres…** in the database switcher and paste a connection string (`postgres://user:password@host:5432/db`) or fill in separate fields. **Test** shows the server version and whether the connection is encrypted. If the server has several databases, you choose which ones to add; they're grouped under the server in the switcher, and **Other databases on this server…** adds more later.
 
