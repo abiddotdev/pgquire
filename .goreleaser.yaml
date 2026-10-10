@@ -21,11 +21,18 @@ archives:
         formats: [zip]
     files: [README.md]
 
+# The page on its own (the GitHub Pages copy, PGlite only): a pinned version to open from disk or host anywhere.
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: ./index.html
+      name_template: "{{ .ProjectName }}_{{ .Version }}.html"
 
 changelog:
   use: github-native
 
 release:
   name_template: "pgquire {{ .Tag }}"
+  extra_files:
+    - glob: ./index.html
+      name_template: "{{ .ProjectName }}_{{ .Version }}.html"
