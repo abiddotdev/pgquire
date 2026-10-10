@@ -583,9 +583,9 @@ select.field { padding-right: 4px; }
 .db-kind.prod { color: #fff; background: var(--red); border-color: var(--red); } /* @remote */
 .db-kind.warn { border-style: dashed; } /* @remote */
 .db-kind.prod.warn { outline: 1px dashed var(--red); outline-offset: 2px; } /* @remote */
-.remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; } /* @remote */
-.remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; } /* @remote */
-.remote-row .who { color: var(--ink3); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; } /* @remote */
+.remote-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
+.remote-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 6px; font-size: 13px; }
+.remote-row .who { color: var(--ink3); font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
 .copy-pick summary .sum { margin-left: auto; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 12px; color: var(--ink2); } /* @remote */
 .copy-pick .bar { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--rule2); } /* @remote */
 .copy-pick .bar .field { flex: 1; height: 24px; } /* @remote */
@@ -696,40 +696,10 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .idx.ext .idx-name { font: 500 12.5px var(--mono); }
 .idx-hint { font: italic 12.5px var(--serif); color: var(--ink3); padding: 2px 10px 8px 28px; cursor: pointer; }
 .idx-hint:hover { color: var(--blue); }
-.ext-modal { width: min(920px, 100%); }
-.ext-bar { display: flex; flex-direction: column; gap: 8px; padding: 0 22px 10px 34px; position: sticky; top: 0; background: var(--sheet); z-index: 2; border-bottom: 1px solid var(--rule2); }
-.ext-bar .field { height: 34px; font-size: 13.5px; }
-.ext-chips { display: flex; flex-wrap: wrap; gap: 5px; }
-.ext-chips button { font-size: 12px; padding: 3px 10px; border-radius: 12px; border: 1px solid var(--rule); color: var(--ink2); }
-.ext-chips button:hover { border-color: var(--ink3); }
-.ext-chips button.on { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.ext-chips button small { opacity: .65; margin-left: 3px; }
-.ext-body { padding: 12px 22px 6px 34px; }
-.ext-cat { font: italic 500 15px var(--serif); color: var(--ink2); margin: 10px 0 6px; }
-.ext-cat:first-child { margin-top: 0; }
-.ext-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
-.ext-card { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px 8px; background: var(--sheet); display: flex; flex-direction: column; gap: 5px; transition: border-color .15s, box-shadow .15s, background .15s; }
-.ext-card.on { border-color: var(--ink3); background: color-mix(in srgb, var(--blue-soft) 60%, var(--sheet)); }
-.ext-card.changed { border-style: dashed; border-color: var(--blue); }
-.ext-card.focus { box-shadow: 0 0 0 3px var(--hl-soft); }
-.ext-top { display: flex; align-items: center; gap: 8px; }
-.ext-top code { font: 600 13px var(--mono); color: var(--ink); }
-.ext-size { font: 10.5px var(--mono); color: var(--ink3); margin-left: auto; }
+.ext-size { font: 11px var(--mono); color: var(--ink3); }
 .ext-size.heavy { color: var(--red); font-weight: 600; }
-.ext-card p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--ink2); }
-.ext-foot { display: flex; align-items: center; gap: 6px; min-height: 24px; font-size: 11.5px; color: var(--ink3); }
-.ext-foot .st { font: 600 9.5px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
-.ext-foot .st.installed { color: var(--green); }
-.ext-foot .st.add { color: var(--blue); }
-.ext-foot .st.remove { color: var(--red); }
-.switch { width: 34px; height: 19px; border-radius: 10px; background: var(--rule); position: relative; flex-shrink: 0; transition: background .15s; }
-.switch::after { content: ""; position: absolute; left: 2px; top: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--sheet); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform .15s; }
-.switch.on { background: var(--blue); }
-.switch.on::after { transform: translateX(15px); }
-.switch:disabled { opacity: .5; cursor: not-allowed; }
-.ext-summary { font-size: 12.5px; color: var(--ink2); line-height: 1.5; }
-.ext-summary b { font-family: var(--mono); font-weight: 500; }
-.ext-summary .plus { color: var(--blue); } .ext-summary .minus { color: var(--red); }
+.remote-row.focus { box-shadow: 0 0 0 3px var(--hl-soft); }
+.remote-row .who.ext-desc { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-family: inherit; color: var(--ink2); font-size: 12.5px; line-height: 1.4; }
 
 .clerk-opts .ctx-mode { margin-left: auto; font-size: 11px; color: var(--ink2); border: 1px solid var(--rule); border-radius: 10px; padding: 1px 9px; }
 .clerk-opts .ctx-mode:hover { border-color: var(--blue); color: var(--blue); }
@@ -920,7 +890,6 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 [data-look=prism] .turn-pop .pop-h,
 [data-look=prism] .turn-pop .pop-f,
 [data-look=prism] .idx-hint,
-[data-look=prism] .ext-cat,
 [data-look=prism] .journal-head h2,
 [data-look=prism] .boot b,
 [data-look=prism] .boot .tagline,
@@ -1128,8 +1097,6 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 [data-look=prism] .att-tag { border-radius: 5px; }
 
 /* extensions, journal, overlays */
-[data-look=prism] .ext-cat { font: 600 13px var(--sans); }
-[data-look=prism] .ext-card { border-radius: 12px; }
 [data-look=prism] .journal { border-top: 1px solid var(--rule); }
 [data-look=prism] .journal-head h2 { font: 600 13.5px var(--sans); }
 [data-look=prism] .jrow .js { border-radius: 5px; }
@@ -1139,7 +1106,7 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 [data-look=prism] .modal-bg { background: rgba(13,14,18,.32); backdrop-filter: blur(4px); }
 [data-look=prism] .modal { border-color: var(--rule); border-radius: 16px; box-shadow: 0 30px 80px -24px rgba(13,14,18,.45); }
 [data-look=prism] .modal::before { display: none; }
-[data-look=prism] .modal-h, [data-look=prism] .modal-b, [data-look=prism] .modal-f, [data-look=prism] .ext-bar, [data-look=prism] .ext-body { padding-left: 22px; }
+[data-look=prism] .modal-h, [data-look=prism] .modal-b, [data-look=prism] .modal-f { padding-left: 22px; }
 [data-look=prism] .modal-h { padding-top: 20px; }
 [data-look=prism] .modal-h h2 { font: 700 20px/1.2 var(--sans); letter-spacing: -.02em; }
 [data-look=prism] .modal-h p { font: 13.5px/1.55 var(--sans); }
@@ -1372,7 +1339,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
    localStorage prefix so they carry over.
    (Visual language: a ledger book. Storage keys keep the 'ledger:' prefix for continuity.)
    ========================================================================== */
-const APP_VERSION = '1.0.0';                                                                    // bump on each release
+const APP_VERSION = '1.0.1';                                                                    // bump on each release
 const PGLITE_VER = '0.5.8';
 const PG_CDN = 'https://cdn.jsdelivr.net/npm/@electric-sql/';
 const PGLITE_URL = `${PG_CDN}pglite@${PGLITE_VER}/dist/index.js`;
@@ -1461,7 +1428,7 @@ const store = {
     const json = JSON.stringify(v);
     lsCache.set(k, json === undefined ? null : JSON.parse(json));
     try { localStorage.setItem('ledger:' + k, json); }
-    catch (e) { storageWarn(`Couldn't save a setting — browser storage is full (${e.name}).`); }
+    catch (e) { storageWarn(`Couldn't save a setting. Browser storage is full (${e.name}).`); }
   },
   del(k) { if (isKv(k)) return kvPut(k, undefined); lsCache.delete(k); localStorage.removeItem('ledger:' + k); },
   keys: prefix => [...kv.cache.keys()].filter(k => k.startsWith(prefix)),
@@ -1481,7 +1448,7 @@ function kvFlush() {
     const fail = err => {
       for (const [k, v] of batch) if (!kv.dirty.has(k)) kv.dirty.set(k, v);   // keep for retry
       kv.failed = true;
-      storageWarn(`Couldn't save to browser storage (${err?.name || 'error'}). Your work is still on screen — export a session to be safe.`);
+      storageWarn(`Couldn't save to browser storage (${err?.name || 'error'}). Your work is still on screen; export a session to be safe.`);
       kv.timer = setTimeout(kvFlush, 5000);
       res(false);
     };
@@ -1589,7 +1556,7 @@ async function openDb(id, opts = {}) {
       return openDb((local || newDbMeta()).id);
     }
     /* } @remote */
-    bootMsg(navigator.onLine ? `Couldn't open the database: ${e.message}` : 'Offline — the Postgres engine needs to download once.', true, true);
+    bootMsg(navigator.onLine ? `Couldn't open the database: ${e.message}` : 'You\'re offline. The Postgres engine has to download once first.', true, true);
   }
 }
 
@@ -1731,7 +1698,7 @@ function paintSchemaChip(el) {
   const sp = S.schema;
   el.replaceChildren(...(sp ? [h('span', { class: 'sc-lbl' }, 'schema: '), h('span', { class: 'sc-name' }, sp.cur ?? 'none')] : []));
   el.classList.toggle('custom', searchPathCustom());
-  el.title = sp ? `search_path = ${sp.path}${sp.cur ? '' : ' — none of these schemas exist'}\nUnqualified table names resolve here. Click to change.` : '';
+  el.title = sp ? `search_path = ${sp.path}${sp.cur ? '' : ' (none of these schemas exist)'}\nUnqualified table names resolve here. Click to change.` : '';
 }
 $('topSchema').onclick = schemaMenu;
 function schemaMenu(e) {
@@ -1876,7 +1843,7 @@ async function closeTabs(ids) {
   const set = new Set(ids), list = S.tabs.filter(t => set.has(t.id));
   if (!list.length) return;
   const unsaved = list.filter(t => t.type === 'query' && t.sql.trim() && savedOf(t)?.sql !== t.sql).length;
-  if (unsaved && !(await confirmDlg({ title: `Close ${plural(list.length, 'tab')}?`, body: `${plural(unsaved, 'query tab')} with unsaved SQL will be closed — anything you ran is still in the journal.`, ok: 'Close' }))) return;
+  if (unsaved && !(await confirmDlg({ title: `Close ${plural(list.length, 'tab')}?`, body: `${plural(unsaved, 'query tab')} with unsaved SQL will be closed. Anything you ran stays in the journal.`, ok: 'Close' }))) return;
   const i = S.tabs.findIndex(t => t.id === S.active);
   S.tabs = S.tabs.filter(t => !set.has(t.id));
   if (set.has(S.active)) S.active = (S.tabs.find((t, j) => j >= i) || S.tabs.at(-1))?.id || null;   // the next tab that's left, else the last
@@ -1928,7 +1895,7 @@ $('tabs').addEventListener('wheel', e => {
 async function closeAllTabs() {
   if (!S.tabs.length) return;
   const q = S.tabs.filter(t => t.type === 'query' && t.sql.trim()).length;
-  if (!(await confirmDlg({ title: `Close all ${plural(S.tabs.length, 'tab')}?`, body: q ? `${plural(q, 'query tab')} with SQL will be closed too — anything you ran is still in the journal.` : 'Tables and the chart can be reopened from the index.', ok: 'Close all' }))) return;
+  if (!(await confirmDlg({ title: `Close all ${plural(S.tabs.length, 'tab')}?`, body: q ? `${plural(q, 'query tab')} with SQL will be closed too. Anything you ran stays in the journal.` : 'Tables and the chart can be reopened from the index.', ok: 'Close all' }))) return;
   S.tabs = []; S.active = null;
   tabsChanged();
 }
@@ -1989,7 +1956,7 @@ function renderTabs() {
         ic(tabIcon(t)), h('span', { class: 'tt' }, label),
         t.type === 'query' && (() => {
           const sq = savedOf(t), changed = sq && sq.sql !== t.sql;
-          return h('button', { class: 'sv' + (sq ? (changed ? ' changed' : ' saved') : ''), title: sq ? (changed ? 'Save changes (Ctrl+S)' : 'Saved — click to save again') : 'Save query (Ctrl+S)',
+          return h('button', { class: 'sv' + (sq ? (changed ? ' changed' : ' saved') : ''), title: sq ? (changed ? 'Save changes (Ctrl+S)' : 'Saved. Click to save again') : 'Save query (Ctrl+S)',
             onclick: e => { e.stopPropagation(); saveQueryTab(t); } }, ic('save', 'width:12px;height:12px'));
         })(),
         h('button', { class: 'x', title: 'Close', onclick: e => { e.stopPropagation(); closeTab(t.id); } }, ic('x', 'width:12px;height:12px')));
@@ -2007,7 +1974,7 @@ function renderTabs() {
       el.onauxclick = e => { if (e.button === 1) closeTab(t.id); };
       el.oncontextmenu = e => { e.preventDefault(); tabMenu(t, e.clientX, e.clientY); };
       el.dataset.tab = t.id;
-      if (t.type === 'query') el.title = `${label} — double-click to rename`;
+      if (t.type === 'query') el.title = `${label} (double-click to rename)`;
       return el;
     }),
     h('button', { class: 'tab-new', title: 'New query (Ctrl+Alt+N)', onclick: () => openQuery() }, ic('plus')),
@@ -2151,7 +2118,7 @@ function renderIndex() {
     for (const x of exts) {
       const e = EXT_BY_SQL[x.extname];
       list.append(h('div', { class: 'idx ext', style: `animation-delay:${Math.min(delay++ * 25, 400)}ms` },
-        h('div', { class: 'idx-row', title: (e?.desc || x.extname) + ' — click for details', onclick: () => extensionsDialog(e?.id),
+        h('div', { class: 'idx-row', title: (e?.desc || x.extname) + ' (click for details)', onclick: () => extensionsDialog(e?.id),
           oncontextmenu: ev => { ev.preventDefault(); e && showMenu(ev.clientX, ev.clientY, [
             { label: 'Try it', icon: 'play', run: () => openQuery(e.try, { title: `try ${e.id}`, run: true }) },
             { label: 'Details…', icon: 'puzzle', run: () => extensionsDialog(e.id) }]); } },
@@ -2160,7 +2127,7 @@ function renderIndex() {
           h('span', { class: 'idx-leader' }),
           h('span', { class: 'idx-count' }, x.extversion))));
     }
-    if (!exts.length && !f) list.append(h('div', { class: 'idx-hint', onclick: () => extensionsDialog() }, 'None yet — fuzzy search, UUIDs, vectors, maps…'));
+    if (!exts.length && !f) list.append(h('div', { class: 'idx-hint', onclick: () => extensionsDialog() }, 'None yet. Add fuzzy search, UUIDs, vectors, maps…'));
   }
 }
 $('idxFilter').oninput = () => renderIndex();
@@ -2186,7 +2153,7 @@ function tableMenu(t, x, y) {
     { label: 'Structure', icon: 'pen', run: () => openTable(t.key, { view: 'structure' }) },
     { label: 'Query this table', icon: 'query', run: () => openQuery(`select *\n  from ${qt(t)}\n limit 100;`, { title: t.name, run: true }) },
     { label: 'Export CSV', icon: 'download', run: () => exportTableCsv(t) },
-    { label: 'Ask the Clerk about it', icon: 'quill', run: () => clerkAsk(`Tell me about the ${t.key} ${t.kind === 'v' ? 'view' : 'table'} — what it holds and anything notable in the data.`) },
+    { label: 'Ask the Clerk about it', icon: 'quill', run: () => clerkAsk(`Tell me about the ${t.key} ${t.kind === 'v' ? 'view' : 'table'}: what it holds, and anything notable in the data.`) },
     { label: C.attach.has(t.key) ? 'Attached to next message ✓' : 'Attach to Clerk message', icon: 'plus', run: () => { C.attach.add(t.key); openClerk(); $('clerkText')?.focus(); } },
   ];
   if (t.editable) items.push('-',
@@ -2211,8 +2178,8 @@ function renderHome(pane) {
     { icon: 'upload', t: 'Import a CSV', s: 'Types are inferred; you can adjust before loading.', run: importCsvDialog },
     empty/*remote:*/ && !isRemote(S.id)/*:remote*/ ? { icon: 'sample', t: 'Load the sample', s: 'A small bookstore: authors, books, customers, orders.', run: loadSample }
           : { icon: 'map', t: 'Open the ERD', s: 'Entity-relationship diagram: every table and how they reference each other.', run: openMap },
-    { icon: 'quill', t: 'Ask the Clerk', s: 'An AI that can read, query and change this database — with your approval.', blue: true, run: () => { openClerk(); $('clerkText')?.focus(); } },
-    { icon: 'book', t: 'What pgquire can do', s: 'The README: tables, queries, the Clerk, moving data — every feature in one place.', run: openReadme },
+    { icon: 'quill', t: 'Ask the Clerk', s: 'An AI that can read and query this database, and change it when you approve.', blue: true, run: () => { openClerk(); $('clerkText')?.focus(); } },
+    { icon: 'book', t: 'What pgquire can do', s: 'The README: tables, queries, the Clerk, moving data.', run: openReadme },
   ];
   pane.append(h('div', { class: 'home' },
     h('div', { class: 'home-hero' },
@@ -2220,7 +2187,7 @@ function renderHome(pane) {
       h('h1', { html: empty ? 'An empty ledger,<br><em>ready for entries.</em>' : `${plural(S.tables.length, 'table')}, <em>${plural(total, 'row')}.</em>` }),
       /* @remote { */
       h('p', {}, isRemote(S.id)
-        ? `Connected to ${d.remote?.database || d.name} on ${d.remote?.host || 'a remote server'}${isProd() ? ' — a production database' : ''}. Changes here affect the real server${readOnlyConn() ? ', though this connection is read-only' : ''}; to experiment freely, use Copy to a local database in the switcher.`
+        ? `Connected to ${d.remote?.database || d.name} on ${d.remote?.host || 'a remote server'}${isProd() ? ', a production database' : ''}. Changes here affect the real server${readOnlyConn() ? ', though this connection is read-only' : ''}; to experiment freely, use Copy to a local database in the switcher.`
         : empty
       /* } @remote */
       // @pages: h('p', {}, empty
@@ -2229,7 +2196,7 @@ function renderHome(pane) {
     /* @remote { */
     guardOnly() && h('div', { class: 'origin-note', style: 'border-color:var(--red)' },
       h('b', {}, 'This read-only connection can still write'),
-      h('p', {}, `It logs in as ${roleWho()}, which is allowed to change data. pgquire's read-only setting is a guard rail — SQL can switch it off. A login that isn't allowed to write can't be talked around, here or in any other tool.`),
+      h('p', {}, `It logs in as ${roleWho()}, which is allowed to change data. pgquire's read-only setting is a guard rail, and SQL can switch it off. A login that isn't allowed to write can't be talked around, here or in any other tool.`),
       h('button', { class: 'btn sm', onclick: readOnlyLoginDialog }, 'Create a read-only login…')),
     S.server && !store.get('originNote', false) && (() => {
       const card = h('div', { class: 'origin-note' },
@@ -2272,7 +2239,7 @@ function readmeSections() {
       ['Servers in the switcher', 'Server databases sit next to the in-browser ones; several databases on one server are grouped under it.'], // @remote
     ] },
     { t: 'Safety on server databases', items: [ // @remote
-      ['Production', 'Connections tagged production are red everywhere and ask before every write — grid edits, structure changes, imports, Undo, the editor and the Clerk.'], // @remote
+      ['Production', 'Connections tagged production are red everywhere and ask before every write: grid edits, structure changes, imports, Undo, the editor and the Clerk.'], // @remote
       ['Read-only connections', 'Tables open non-editable and writes are refused. It\'s a guard rail, not a lock: pgquire can create a login that truly can\'t write.'], // @remote
       ['Connection status', 'The dot next to the database name is green when connected (the tooltip says whether it\'s encrypted), pulses while working, and turns red with a Reconnect banner if the pgquire server stops.'], // @remote
       ['Timeouts', 'Statements stop after the server\'s statement timeout (5 minutes by default). A transaction left idle for 2 minutes is rolled back, and pgquire says so.'], // @remote
@@ -2289,28 +2256,28 @@ function readmeSections() {
       ['SQL editor', 'Highlighting and line numbers; Ctrl+Enter runs everything or just the selection. Every statement\'s result is kept and you can flip between them.'],
       ['Results', 'Download as CSV or copy for a spreadsheet.'],
       ['Full results from a server', 'Results past the display cap (50,000 rows by default) still download in full: the rows stream straight from the server into the CSV.'], // @remote
-      ['Big scripts', 'Past 100 KB — or with pg_dump\'s COPY … FROM stdin — a script runs in chunks with progress and Stop, as one transaction unless it manages its own; an error names the statement and line. SQL file… in the database menu opens one in the editor or runs it straight from disk.'],
+      ['Big scripts', 'Past 100 KB, or with pg_dump\'s COPY … FROM stdin, a script runs in chunks with progress and Stop, as one transaction unless it manages its own; an error names the statement and line. SQL file… in the database menu opens one in the editor or runs it straight from disk.'],
       ['Transactions', 'BEGIN in the editor stays open across runs. A banner says so, with Commit and Roll back; edits in the grid meanwhile become part of it.'],
-      ['Saved queries and journal', 'Save a tab with Ctrl+S. The journal (Ctrl+Shift+J) lists every statement run — yours, the grid\'s and the Clerk\'s — with timings.'],
+      ['Saved queries and journal', 'Save a tab with Ctrl+S. The journal (Ctrl+Shift+J) lists every statement run (yours, the grid\'s and the Clerk\'s) with timings.'],
     ] },
     { t: 'Design the schema', items: [
       ['New table', 'Define columns visually, in the schema you pick, and see the SQL it writes.'],
       ['Import a CSV', 'Column types are inferred; adjust them before loading.'],
       ['Schemas', 'The top bar shows the current schema; click it to switch or reset the search path.'],
       ['ERD', 'Every table and how they reference each other, filtered by schema. Export as SVG or PNG, or copy as Mermaid, DBML or text.'],
-      ['Extensions', `${EXT.length} extensions load into the browser on demand — fuzzy search, UUIDs, crypto, vectors, PostGIS and more.`],
+      ['Extensions', `${EXT.length} extensions load into the browser on demand: fuzzy search, UUIDs, crypto, vectors, PostGIS and more.`],
       ['Extensions on a server', 'See what the server offers, and create or drop them through the usual production checks.'], // @remote
     ] },
     { t: 'The Clerk (AI)', items: [
-      ['Bring your own model', 'Any OpenAI-compatible endpoint: OpenRouter, OpenAI, Groq, or a local Ollama or LM Studio. Your API key stays in this tab\'s memory only — never saved, sent only to that endpoint.'],
+      ['Bring your own model', 'Any OpenAI-compatible endpoint: OpenRouter, OpenAI, Groq, or a local Ollama or LM Studio. Your API key stays in this tab\'s memory. It\'s never saved and only goes to that endpoint.'],
       ['What it can do', 'Read the schema, run SQL, open tables, write queries into the editor and enable extensions. It sees the tab you\'re on, and you can attach tables or query tabs.'],
-      ['On a server', 'It knows it\'s working on a real server — and whether it\'s production or read-only — prefers reads, and asks you to run CREATE EXTENSION yourself.'], // @remote
+      ['On a server', 'It knows it\'s working on a real server, and whether that server is production or read-only. It prefers reads and asks you to run CREATE EXTENSION yourself.'], // @remote
       ['Your approval', 'Changes wait for your stamp (unless you turn that off); reads are tried read-only first.'],
       ['On production', 'It always asks before changing anything, and Approve all is hidden.'], // @remote
       ['Conversations', 'Several per database, sent with full context or compacted to save tokens; export and import them as JSON.'],
     ] },
     { t: 'Move data', items: [
-      ['Copy to a local database', 'From a server into this browser — a sample or every row — to experiment on without touching the server.'], // @remote
+      ['Copy to a local database', 'Copy a sample or every row from a server into this browser, and experiment without touching the server.'], // @remote
       ['SQL dump', 'Schema and data as a .sql file that loads with psql, or here as a new database.'],
       ['SQL dump from a server', 'Read from the catalog in one consistent snapshot, without needing pg_dump.'], // @remote
       ['Clone', 'An exact copy as a new database in this browser, named with the next free v1, v2….'],
@@ -2323,7 +2290,7 @@ function readmeSections() {
 }
 function renderReadme(pane) {
   const remote = isRemote(S.id), r = currentDb()?.remote || {}; // @remote
-  const keys = [['Ctrl K', 'jump to a table, database or command — or type SQL'], ['Ctrl+Enter', 'run the editor (or the selection)'], ['Ctrl+Alt+N', 'new query tab'], ['Ctrl+S', 'save the query'], ['Ctrl+Shift+S', 'save it as a .sql file'],
+  const keys = [['Ctrl K', 'jump to a table, database or command, or type SQL'], ['Ctrl+Enter', 'run the editor (or the selection)'], ['Ctrl+Alt+N', 'new query tab'], ['Ctrl+S', 'save the query'], ['Ctrl+Shift+S', 'save it as a .sql file'],
     ['Ctrl+Alt+R', 'insert a row'], ['Ctrl+Z', 'undo the last grid change'], ['Ctrl+J', 'the Clerk'], ['Ctrl+Shift+J', 'the journal']];
   pane.append(h('div', { class: 'home readme' },
     h('div', { class: 'home-hero' },
@@ -2335,7 +2302,7 @@ function renderReadme(pane) {
       // @pages: h('h1', { html: 'Postgres in your browser,<br><em>kept like a ledger.</em>' }),
       // @pages: h('p', {}, 'Everything here works on this in-browser database. Nothing to install, nothing sent anywhere unless you choose to.')),
     readmeSections().map(sec => h('section', {}, h('h2', {}, sec.t),
-      h('ul', {}, sec.items.filter(Boolean).map(([b, text]) => h('li', {}, h('b', {}, b), ' — ', text))))),
+      h('ul', {}, sec.items.filter(Boolean).map(([b, text]) => h('li', {}, h('b', {}, b), ': ', text))))),
     h('section', {}, h('h2', {}, 'Keys', h('small', {}, 'Cmd instead of Ctrl on a Mac')),
       h('div', { class: 'keys' }, keys.flatMap(([k, what]) => [h('span', {}, k.split(/(?<=[^+ ])[+ ](?=\S)/).flatMap((x, i) => [i ? '+' : null, h('kbd', {}, x)]).filter(Boolean), ' '), h('span', {}, what)]))),
     h('div', { class: 'foot' }, 'Source code, and releases of the pgquire server (for connecting to real Postgres): ', h('a', { href: 'https://github.com/abiddotdev/pgquire', target: '_blank', rel: 'noopener' }, 'github.com/abiddotdev/pgquire'), '.')));
@@ -2407,7 +2374,7 @@ function renderTableTab(tab, pane) {
     const pending = typed !== tab.filter;
     filterBox.classList.toggle('pending', pending);
     filterBox.classList.toggle('applied', !pending && !!tab.filter);
-    filterBox.title = pending ? 'Not applied yet — press Enter (Esc reverts)' : tab.filter ? `Applied: WHERE ${tab.filter}` : 'A SQL WHERE clause. Enter to apply.';
+    filterBox.title = pending ? 'Not applied yet. Press Enter (Esc reverts)' : tab.filter ? `Applied: WHERE ${tab.filter}` : 'A SQL WHERE clause. Enter to apply.';
   };
   filterBox.append(h('span', { class: 'w' }, 'WHERE'), filterInput,
     h('span', { class: 'fstate apply', onclick: e => { e.preventDefault(); applyFilter(filterInput.value); } }, 'Apply ↵'),
@@ -2447,7 +2414,7 @@ function renderTableTab(tab, pane) {
         h('button', { class: 'btn blue sm', onclick: () => clerkAsk(`My filter on ${t.key} failed: \`${tab.filter}\` → ${tab.error}. What should it be?`) }, ic('quill'), 'Fix')));
     } else {
       wrap.append(buildGrid(tab, t));
-      if (!tab.rows.length && !tab.draft) wrap.append(h('div', { class: 'grid-empty' }, tab.filter ? 'No rows match this filter.' : isView ? 'This view returns no rows.' : 'No entries yet — add a row, import a CSV, or ask the Clerk to fill it.'));
+      if (!tab.rows.length && !tab.draft) wrap.append(h('div', { class: 'grid-empty' }, tab.filter ? 'No rows match this filter.' : isView ? 'This view returns no rows.' : 'No rows yet. Add one, import a CSV, or ask the Clerk to fill it.'));
     }
     const from = tab.total ? tab.page * pageSize() + 1 : 0, to = tab.approx ? tab.page * pageSize() + tab.rows.length : Math.min(tab.total, (tab.page + 1) * pageSize());
     foot.replaceChildren(...[
@@ -2645,11 +2612,11 @@ function relFig(t, tab) {
       h('span', { class: 'spacer' }),
       h('small', { class: 'hint' }, 'drag to pan · scroll to zoom · click a table to open it'),
       h('button', { class: 'iconbtn', title: 'Fit', onclick: () => { vb = { ...d.full }; apply(); } }, ic('fit')),
-      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Copy as text (Mermaid, DBML, plain) — every column', onclick: e => menuAt(e, [{ label: 'Copy as text', header: true }, ...erdTextItems(copy)]) }, ic('copy')),
-      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Export (SVG or PNG) — every column', onclick: e => menuAt(e, [{ label: 'Export diagram', header: true }, ...erdExportItems(exp)]) }, ic('download')),
+      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Copy as text (Mermaid, DBML, plain), with every column', onclick: e => menuAt(e, [{ label: 'Copy as text', header: true }, ...erdTextItems(copy)]) }, ic('copy')),
+      d.nodes.size > 1 && h('button', { class: 'iconbtn', title: 'Export as SVG or PNG, with every column', onclick: e => menuAt(e, [{ label: 'Export diagram', header: true }, ...erdExportItems(exp)]) }, ic('download')),
       h('button', { class: 'iconbtn', title: 'The whole schema (ERD tab)', onclick: () => openMap() }, ic('map')),
       h('button', { class: 'iconbtn', title: 'Hide the diagram (the map button in the toolbar brings it back)', onclick: () => { tab.rel = false; persistTabs(); renderPane(); } }, ic('x'))),
-    d.nodes.size > 1 ? el : h('div', { class: 'rel-none' }, d.selfFk ? `${t.key} only points at itself — ${fkLabel(d.selfFk)}.` : 'No foreign keys lead to or from this table.'),
+    d.nodes.size > 1 ? el : h('div', { class: 'rel-none' }, d.selfFk ? `${t.key} only points at itself: ${fkLabel(d.selfFk)}.` : 'No foreign keys lead to or from this table.'),
     d.nodes.size > 1 && resizer());
 }
 /** The diagram as a standalone SVG in the current look's colours and fonts — every column of every box. */
@@ -2783,7 +2750,7 @@ function renderRowPanel(tab) {
     rel,
     h('div', { class: 'rp-acts' },
       h('button', { class: 'btn sm', onclick: () => { copyText(JSON.stringify(rowObj(t, vals), null, 2), 'Copied as JSON'); } }, ic('copy'), 'Copy JSON'),
-      h('button', { class: 'btn sm blue', onclick: () => clerkAsk(`About this row in ${t.key}: ${JSON.stringify(rowObj(t, vals))} — `, { draft: true }) }, ic('quill'), 'Ask'),
+      h('button', { class: 'btn sm blue', onclick: () => clerkAsk(`About this row in ${t.key}: ${JSON.stringify(rowObj(t, vals))}\n\n`, { draft: true }) }, ic('quill'), 'Ask'),
       t.editable && h('button', { class: 'btn sm red', onclick: () => { tab.sel = new Set([r]); deleteSelected(tab); } }, ic('trash'), 'Delete')));
   markField();
   const section = (label, meta) => { const body = h('div'); rel.append(h('section', { class: 'rp-sec' }, h('h5', {}, h('span', {}, label), h('small', { title: meta }, meta)), body)); return body; };
@@ -2821,7 +2788,7 @@ function renderRowPanel(tab) {
       if (panel._token !== token) return;
       const body = section(fk.ref, `${fk.cols.join(', ')} → ${fk.refCols.join(', ')}`);
       const hit = res.rows[0];
-      if (!hit) { body.append(h('div', { class: 'rp-note' }, 'No matching row — the key points at nothing.')); continue; }
+      if (!hit) { body.append(h('div', { class: 'rp-note' }, 'No matching row. The key points at nothing.')); continue; }
       body.append(relItem(ref, hit, where(fk.refCols, vs), true));
     }
     for (const { from: o, fk } of t.refsIn) {                  // rows elsewhere → this row
@@ -2864,7 +2831,7 @@ function fieldDd(tab, t, r, i, v) {
   dd.ondblclick = e => {
     clearTimeout(timer);
     getSelection()?.removeAllRanges();
-    if (!canEdit) { if (t.editable) toast('Generated columns are computed — they can\'t be edited.', 'bad'); return; }
+    if (!canEdit) { if (t.editable) toast('Generated columns are computed and can\'t be edited.', 'bad'); return; }
     if (dd.classList.contains('editing')) return;
     const input = h('textarea', { value: v ?? '', placeholder: v == null ? 'null' : '', spellcheck: false, rows: Math.min(8, Math.max(1, Math.ceil((v?.length || 0) / 32), (v?.split('\n').length || 1))) });
     const keep = [...dd.childNodes], cls = dd.className;
@@ -2916,7 +2883,7 @@ function editCell(tab, t, r, c, initial) {
   const td = tab._wrap.querySelector(`td[data-r="${r}"][data-c="${c}"]`);
   if (!td || td.classList.contains('editing')) return;
   const col = t.cols[c];
-  if (col.gen === 's') { toast('Generated columns are computed — they can\'t be edited.', 'bad'); return; }
+  if (col.gen === 's') { toast('Generated columns are computed and can\'t be edited.', 'bad'); return; }
   const old = tab.rows[r][c + 1];
   const input = h('input', { value: initial ?? old ?? '', placeholder: old == null ? 'null' : '', spellcheck: false });
   td.className = 'editing'; td.replaceChildren(input);
@@ -2949,8 +2916,8 @@ function undoCaveat(t, op) {
     const refs = t.refsIn.map(({ from, fk }) => ({ o: from, rule: fk.onDelete }));
     const cascade = [...new Set(refs.filter(x => x.rule === 'cascade').map(x => x.o.name))];
     const unlink = [...new Set(refs.filter(x => x.rule === 'set null' || x.rule === 'set default').map(x => x.o.name))];
-    if (cascade.length) out.push(`Any rows in ${list(cascade)} that pointed to what you deleted were deleted too (ON DELETE CASCADE) — Undo won't bring those back.`);
-    if (unlink.length) out.push(`Any rows in ${list(unlink)} that pointed to it were unlinked (ON DELETE SET NULL) — Undo won't relink them.`);
+    if (cascade.length) out.push(`Any rows in ${list(cascade)} that pointed to what you deleted were deleted too (ON DELETE CASCADE). Undo won't bring those back.`);
+    if (unlink.length) out.push(`Any rows in ${list(unlink)} that pointed to it were unlinked (ON DELETE SET NULL). Undo won't relink them.`);
   }
   const n = t.triggers?.length || 0;
   if (n) out.push(`Undo ${op === 'delete' ? 're-inserts the rows' : op === 'insert' ? 'deletes the row' : 'writes the old value back'}, so ${t.name}'s trigger${n > 1 ? 's' : ''} (${list(t.triggers)}) run${n > 1 ? '' : 's'} again.`);
@@ -2996,7 +2963,7 @@ async function undoLast() {
     const res = await appTransaction(async tx => { const out = []; for (const s of u.stmts) out.push(await tx.query(s.sql, s.params || [])); return out; });
     const n = res.reduce((a, r) => a + (r.affectedRows || 0), 0);
     journalAdd({ src: 'grid', sql: '-- undo\n' + u.stmts.map(s => inlineParams(s.sql, s.params)).join(';\n'), info: plural(n, 'row'), ms: Math.round(performance.now() - t0) });
-    toast(n ? (u.done ? u.done(n) : `Undid: ${u.label}`) : `Couldn't undo "${u.label}" — the row has changed since.`, n ? null : 'bad');
+    toast(n ? (u.done ? u.done(n) : `Undid: ${u.label}`) : `Couldn't undo "${u.label}" because the row has changed since.`, n ? null : 'bad');
   } catch (e) { toast('Undo failed: ' + e.message, 'bad'); }
   await afterWrite({ rowsOnly: true });            // grid edits change rows, not the schema
 }
@@ -3101,7 +3068,7 @@ function cellMenu(tab, t, r, c, x, y) {
   items.push('-');
   if (t.editable) items.push({ label: tab.sel.has(r) ? 'Unselect row' : 'Select row', hint: 'Space', run: () => toggleSel(tab, r) });
   items.push({ label: 'Ask the Clerk about this row', icon: 'quill', run: () => {
-    clerkAsk(`About this row in ${t.key}: ${JSON.stringify(rowObj(t, tab.rows[r].slice(1)))} — `, { draft: true });
+    clerkAsk(`About this row in ${t.key}: ${JSON.stringify(rowObj(t, tab.rows[r].slice(1)))}\n\n`, { draft: true });
   } });
   if (t.editable) items.push({ label: 'Delete row', danger: true, icon: 'trash', run: () => { tab.sel = new Set([r]); deleteSelected(tab); } });
   showMenu(x, y, items);
@@ -3468,7 +3435,7 @@ async function runQueryTab(tab, sql, file) {
       : st ? `Statement ${st.n.toLocaleString()}, line ${st.line.toLocaleString()}: ${e.message}`
       : rg ? `In statements ${rg[0].n.toLocaleString()}–${rg[1].n.toLocaleString()} (lines ${rg[0].line.toLocaleString()}–${rg[1].line.toLocaleString()}): ${e.message}`
       : e.message;
-    if (big && (st || rg)) tab.errorNote = e.own ? 'The script manages its own transactions, so statements before this one may have been applied.' : 'Nothing was applied — the script ran as one transaction and was rolled back.';
+    if (big && (st || rg)) tab.errorNote = e.own ? 'The script manages its own transactions, so statements before this one may have been applied.' : 'Nothing was applied. The script ran as one transaction and was rolled back.';
     tab.errorSql = e.stopped ? null : st?.sql || null;
     tab.stopped = !!e.stopped;
   }
@@ -3514,7 +3481,7 @@ async function sqlFile() {
   /* A new tab named after the file, showing its text — or, past 10 MB, a note (the tab keeps its SQL and saves it on every edit). */
   const tabFor = async (text, run) => {
     m?.close();
-    const shown = !(run && huge), tab = openQuery(shown ? text : `-- ${file.name} (${fmtBytes(file.size)}) ran straight from disk — too big to show here.\n`, { title: file.name.replace(/\.sql$/i, '') });
+    const shown = !(run && huge), tab = openQuery(shown ? text : `-- ${file.name} (${fmtBytes(file.size)}) ran straight from disk. It's too big to show here.\n`, { title: file.name.replace(/\.sql$/i, '') });
     if (fh && shown) { tab._fh = fh; renderPane(); }   // the toolbar's Save then writes back to it
     if (run) runQueryTab(tab, text, file.name);
   };
@@ -3522,10 +3489,10 @@ async function sqlFile() {
   const openBtn = h('button', { class: 'btn ghost', onclick: async () => tabFor(await file.text()) }, ic('query'), 'Open in editor');
   const runBtn = h('button', { class: 'btn ink', onclick: async () => tabFor(await file.text(), true) }, ic('play'), `Run on “${db}”`);
   m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, file.name), h('p', {}, `${fmtBytes(file.size)} of SQL — a big script or a dump.`)),
+    h('div', { class: 'modal-h' }, h('h2', {}, file.name), h('p', {}, `${fmtBytes(file.size)} of SQL, probably a big script or a dump.`)),
     h('div', { class: 'modal-b', style: 'font-size:13px;display:grid;gap:8px' },
-      h('div', {}, h('b', {}, 'Open in editor'), ' — read and change it first, then run it yourself.', huge ? h('span', { style: 'color:var(--red)' }, ' This is a lot for the editor.') : ''),
-      h('div', {}, h('b', {}, 'Run'), ` — now, on “${db}”${huge ? ' (too big to show in the tab)' : ', showing it in the tab'}. Big scripts run in chunks with progress and Stop, as one transaction unless they manage their own, so an error leaves nothing half-done.`)),
+      h('div', {}, h('b', {}, 'Open in editor'), ': read and change it first, then run it yourself.', huge ? h('span', { style: 'color:var(--red)' }, ' This is a lot for the editor.') : ''),
+      h('div', {}, h('b', {}, 'Run'), `: now, on “${db}”${huge ? ' (too big to show in the tab)' : ', showing it in the tab'}. Big scripts run in chunks with progress and Stop, as one transaction unless they manage their own, so an error leaves nothing half-done.`)),
     h('div', { class: 'modal-f' }, h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), h('span', { class: 'spacer' }), openBtn, runBtn)]);
   runBtn.focus();
 }
@@ -3569,7 +3536,7 @@ function queryEditor(tab) {
       '-',
       { label: 'Cut', hint: 'Ctrl X', disabled: !sel, run: () => { copyText(sel, null); put(''); } },
       { label: 'Copy', icon: 'copy', hint: 'Ctrl C', disabled: !sel, run: () => copyText(sel, null) },
-      { label: 'Paste', hint: 'Ctrl V', run: async () => { try { put(await navigator.clipboard.readText()); } catch { ta.focus(); toast('The browser kept the clipboard to itself — press Ctrl+V'); } } },
+      { label: 'Paste', hint: 'Ctrl V', run: async () => { try { put(await navigator.clipboard.readText()); } catch { ta.focus(); toast('The browser blocked clipboard access. Press Ctrl+V'); } } },
       { label: 'Select all', hint: 'Ctrl A', run: () => { ta.focus(); ta.select(); } },
       '-',
       { label: 'Toggle comment', hint: 'Ctrl /', run: () => toggleLineComments(ta) },
@@ -3594,7 +3561,7 @@ function renderQueryTab(tab, pane, keep) {
     hist.length > 0 && h('button', { class: 'btn ghost', onclick: e => showMenu(e.clientX, e.clientY + 10, [{ label: 'Recent queries', header: true }, ...hist.slice(0, 15).map(j => ({ label: j.sql.replace(/\s+/g, ' ').slice(0, 70), run: () => { tab.sql = j.sql; renderPane(); } }))]) }, 'History'),
     h('div', { class: 'spacer' }),
     h('button', { class: 'btn ghost', title: 'Attach this query (and its latest result) to your next Clerk message', onclick: () => { C.attachQ.add(tab.id); openClerk(); $('clerkText')?.focus(); toast(`Attached “${tab.title}” to your next message`); } }, ic('plus'), 'Attach'),
-    h('button', { class: 'btn ghost', title: tab._fh ? `Save to ${tab._fh.name} (Ctrl+Shift+S) — right-click the tab for Save as` : 'Save as a .sql file (Ctrl+Shift+S)', onclick: () => saveQueryFile(tab) }, ic('download'), tab._fh ? 'Save file' : 'Save as…'),
+    h('button', { class: 'btn ghost', title: tab._fh ? `Save to ${tab._fh.name} (Ctrl+Shift+S). Right-click the tab for Save as` : 'Save as a .sql file (Ctrl+Shift+S)', onclick: () => saveQueryFile(tab) }, ic('download'), tab._fh ? 'Save file' : 'Save as…'),
     h('button', { class: 'btn ghost', title: 'Copy the whole query', onclick: () => { if (!tab.sql.trim()) return toast('Nothing to copy yet'); copyText(tab.sql, `Copied ${plural(tab.sql.split('\n').length, 'line')}`); } }, ic('copy'), 'Copy'),
     h('button', { class: 'btn blue', onclick: () => tab.sql.trim() ? clerkAsk(`Explain this query step by step, and suggest improvements if any:\n\n${tab.sql}`) : toast('Write a query first') }, ic('quill'), 'Explain'),
     h('button', { class: 'btn blue', onclick: () => { openClerk(); S.clerk.ctxOn = true; renderClerkCtx(); const t = $('clerkText'); if (t) { t.value = 'Write a query that '; t.focus(); } } }, ic('quill'), 'Draft with Clerk'));
@@ -3618,7 +3585,7 @@ function renderQueryTab(tab, pane, keep) {
     !tab.stopped && h('button', { class: 'btn blue sm', onclick: () => clerkAsk(tab.errorSql
       ? `This statement from a longer script fails with: ${tab.error}\n\n${tab.errorSql}\n\nFix it and put the corrected statement in my editor.`
       : `This query fails with: ${tab.error}\n\n${tab.sql.length > 20000 ? tab.sql.slice(0, 20000) + '\n-- …' : tab.sql}\n\nFix it and put the corrected SQL in my editor.`) }, ic('quill'), 'Fix with Clerk')));
-  else if (!tab.results) results.append(h('div', { class: 'placeholder' }, h('div', { html: 'Write SQL above and press <kbd>Ctrl</kbd> <kbd>Enter</kbd>.<br>Several statements are fine — each gets its own result.<br><kbd>Ctrl</kbd> <kbd>S</kbd> saves it to the index · <kbd>#</kbd> or <kbd>--</kbd> starts a comment, <kbd>Ctrl</kbd> <kbd>/</kbd> toggles one.' })));
+  else if (!tab.results) results.append(h('div', { class: 'placeholder' }, h('div', { html: 'Write SQL above and press <kbd>Ctrl</kbd> <kbd>Enter</kbd>.<br>Several statements are fine; each gets its own result.<br><kbd>Ctrl</kbd> <kbd>S</kbd> saves it to the index · <kbd>#</kbd> or <kbd>--</kbd> starts a comment, <kbd>Ctrl</kbd> <kbd>/</kbd> toggles one.' })));
   else {
     const rs = tab.results;
     const cur = rs[tab.ri] || rs[0];
@@ -3632,11 +3599,11 @@ function renderQueryTab(tab, pane, keep) {
       cur?.fields.length > 0 && (() => {
         // A capped remote result: stream the whole thing, when the query can run on its own. // @remote
         if (cur.truncated && S.db?.remote && tab.single) return h('button', { class: 'btn sm ghost', title: 'Runs the query again and streams every row to a file', onclick: () => remoteCsv(hashComments(tab.ranSql), `${tab.title}.csv`) }, ic('download'), `CSV (all ${cur.truncated.toLocaleString()})`); // @remote
-        return h('button', { class: 'btn sm ghost', title: cur.truncated ? 'Only the rows shown — run this query on its own to download all of them' : null, onclick: () => downloadCsv(cur.fields.map(f => f.name), cur.rows, `${tab.title}.csv`) }, ic('download'), 'CSV');
+        return h('button', { class: 'btn sm ghost', title: cur.truncated ? 'Only the rows shown. Run this query on its own to download all of them' : null, onclick: () => downloadCsv(cur.fields.map(f => f.name), cur.rows, `${tab.title}.csv`) }, ic('download'), 'CSV');
       })(),
-      cur?.fields.length > 0 && h('button', { class: 'btn sm ghost', onclick: () => { copyText(toCsv(cur.fields.map(f => f.name), cur.rows, '\t'), 'Copied as TSV — paste into a spreadsheet'); } }, ic('copy'), 'Copy')));
+      cur?.fields.length > 0 && h('button', { class: 'btn sm ghost', onclick: () => { copyText(toCsv(cur.fields.map(f => f.name), cur.rows, '\t'), 'Copied as TSV, ready to paste into a spreadsheet'); } }, ic('copy'), 'Copy')));
     if (cur?.fields.length) results.append(h('div', { class: 'gridwrap' }, readGrid(cur)));
-    else results.append(h('div', { class: 'placeholder' }, cur?.stmts > 1 ? `Done — ${plural(cur.stmts, 'statement')}${cur.affected ? `, ${plural(cur.affected, 'row')} affected` : ''}.` : cur?.affected != null ? `Done — ${plural(cur.affected, 'row')} affected.` : 'Done.'));
+    else results.append(h('div', { class: 'placeholder' }, cur?.stmts > 1 ? `Done: ${plural(cur.stmts, 'statement')}${cur.affected ? `, ${plural(cur.affected, 'row')} affected` : ''}.` : cur?.affected != null ? `Done: ${plural(cur.affected, 'row')} affected.` : 'Done.'));
   }
   if (keep) { edWrap.before(bar); edWrap.after(splitter, results); return; }
   pane.append(bar, edWrap, splitter, results);
@@ -3651,7 +3618,7 @@ function readGrid(r) {
     h('thead', {}, h('tr', {}, h('th', { class: 'rn' }), cols.map(c => h('th', { style: 'cursor:default' }, h('div', { class: 'cn' }, c.name))))),
     h('tbody', {}, shown.map((row, i) => h('tr', {}, h('td', { class: 'rn num' }, i + 1),
       row.map((v, ci) => h('td', { 'data-r': i, 'data-c': ci, class: cellClass(cols[ci], v), title: v != null && v.length > 40 ? v.slice(0, 600) : '' }, v == null || cols[ci].cat === 'B' ? '' : v)))),
-      r.rows.length > shown.length && h('tr', {}, h('td', { colspan: cols.length + 1, class: 'grid-empty', style: 'padding:14px' }, `Showing 2,000 of ${(r.truncated || r.rows.length).toLocaleString()} rows — ${/*remote:*/r.truncated && S.db?.remote ? 'CSV (all) downloads every one' : /*:remote*/'export CSV for all'}.`))));
+      r.rows.length > shown.length && h('tr', {}, h('td', { colspan: cols.length + 1, class: 'grid-empty', style: 'padding:14px' }, `Showing 2,000 of ${(r.truncated || r.rows.length).toLocaleString()} rows. ${/*remote:*/r.truncated && S.db?.remote ? 'CSV (all) downloads every one' : /*:remote*/'export CSV for all'}.`))));
 }
 
 /** Right-click on a query result cell: the copy side of a table cell's menu (results aren't tied to one table). */
@@ -3665,7 +3632,7 @@ function resultCellMenu(r, ri, ci, x, y) {
     { label: 'Copy row as TSV', icon: 'copy', hint: 'spreadsheets', run: () => copy(toCsv(r.fields.map(f => f.name), [row], '\t'), 'row as TSV') },
     { label: `Copy column “${col.name.slice(0, 24)}”`, icon: 'copy', run: () => copy(r.rows.map(x => x[ci] ?? '').join('\n'), plural(r.rows.length, 'value')) },
     '-',
-    { label: 'Ask the Clerk about this row', icon: 'quill', run: () => clerkAsk(`About this row from my query: ${JSON.stringify(obj())} — `, { draft: true }) }]);
+    { label: 'Ask the Clerk about this row', icon: 'quill', run: () => clerkAsk(`About this row from my query: ${JSON.stringify(obj())}\n\n`, { draft: true }) }]);
 }
 
 /* ---------- CSV ---------- */
@@ -3753,7 +3720,7 @@ function aboutDialog() {
   const where = /*remote:*/S.server ? 'the pgquire app, with its server for remote Postgres' : /*:remote*/HOSTED ? 'the browser, from the web' : 'the browser, from a local file';
   const link = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text);
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, 'pgquire ', h('small', { style: 'font-weight:400;color:var(--ink3)' }, `v${APP_VERSION}`)), h('p', {}, 'Inquire into your Postgres — tables, queries, diagrams and the Clerk, in one page.')),
+    h('div', { class: 'modal-h' }, h('h2', {}, 'pgquire ', h('small', { style: 'font-weight:400;color:var(--ink3)' }, `v${APP_VERSION}`)), h('p', {}, 'Tables, queries, diagrams and an AI clerk for your Postgres, in one page.')),
     h('div', { class: 'modal-b', style: 'display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13px' },
       h('span', { class: 'smallcaps' }, 'Running in'), h('span', {}, where),
       h('span', { class: 'smallcaps' }, 'Database'), h('span', {}, S.db ? dbLabel(currentDb()) : 'none open'),
@@ -3852,7 +3819,7 @@ function createTableDialog({ schema } = {}) {
   name.oninput = upd;
   if (sch) sch.onchange = upd;
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, 'A new table'), h('p', {}, 'Define its columns. The SQL below is exactly what will run — handy for learning, or copy it elsewhere.')),
+    h('div', { class: 'modal-h' }, h('h2', {}, 'A new table'), h('p', {}, 'Define its columns. The SQL below is exactly what will run.')),
     h('div', { class: 'modal-b' }, h('div', { style: 'display:flex;gap:10px' }, sch && h('label', { class: 'lab' }, 'Schema', sch), h('label', { class: 'lab', style: 'flex:1' }, 'Table name', name)), list, preview),
     h('div', { class: 'modal-f' },
       h('button', { class: 'btn ghost', onclick: () => { m.close(); openQuery(sqlFor(), { title: 'create table' }); } }, 'Open in editor'),
@@ -3932,7 +3899,7 @@ function importCsvDialog({ schema } = {}) {
     } catch (e) { status.fail(e.message); go.disabled = false; }
   };
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, 'Import a CSV'), h('p', {}, 'Creates a new table. Column types are guessed from the data — adjust them before loading. Empty cells become NULL.')),
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Import a CSV'), h('p', {}, 'Creates a new table. Column types are guessed from the data; adjust them before loading. Empty cells become NULL.')),
     h('div', { class: 'modal-b' }, file, h('div', { style: 'display:flex;gap:10px;align-items:flex-end' }, sch && h('label', { class: 'lab' }, 'Schema', sch), h('label', { class: 'lab', style: 'flex:1' }, 'Table name', nameI), h('label', { style: 'display:flex;gap:6px;align-items:center;font-size:12.5px;height:32px' }, header, 'First row is a header')), prev),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   file.click();
@@ -3969,8 +3936,8 @@ select b.title, a.name as author, sum(oi.qty)::int as copies, sum(oi.qty * b.pri
   from order_items oi join books b on b.id = oi.book_id join authors a on a.id = b.author_id
  group by b.title, a.name order by revenue desc;`;
 async function loadSample() {
-  if (isRemote(S.id)) return toast('The sample bookstore is for databases in this browser — make a new one to try it.', 'bad'); // @remote
-  if (S.byKey.books || S.byKey.authors) { toast('Sample tables already exist here — create a new database for a fresh copy.', 'bad'); return; }
+  if (isRemote(S.id)) return toast('The sample bookstore is for databases in this browser. Make a new one to try it.', 'bad'); // @remote
+  if (S.byKey.books || S.byKey.authors) { toast('Sample tables already exist here. Create a new database for a fresh copy.', 'bad'); return; }
   if (await runDDL(SAMPLE_SQL.trim(), 'Loaded the sample bookstore')) openMap();
 }
 
@@ -4286,7 +4253,7 @@ function exportSvg(kind, c, name) {
     const ctx = cv.getContext('2d'); ctx.scale(k, k); ctx.drawImage(img, 0, 0);
     cv.toBlob(b => { downloadBlob(b, `${name}.png`); toast('ERD exported as PNG'); }, 'image/png');
   };
-  img.onerror = () => toast('PNG export failed — try SVG', 'bad');
+  img.onerror = () => toast('PNG export failed. Try SVG', 'bad');
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(c.svg);
 }
 
@@ -4324,7 +4291,7 @@ function renderJournal() {
       { label: e.error ? 'Fix with the Clerk' : 'Explain with the Clerk', icon: 'quill', run: () => clerkAsk(e.error ? `This statement failed with: ${e.error}\n\n${sql}\n\nFix it and put the corrected SQL in my editor.` : `Explain this statement step by step:\n\n${sql}`) }]); };
     list.append(row);
   }
-  if (!rows.length) list.append(h('div', { class: 'placeholder', style: 'padding:30px' }, S.journal.length ? 'Nothing matches.' : 'Every statement that runs — by you, the grid, or the Clerk — is written here.'));
+  if (!rows.length) list.append(h('div', { class: 'placeholder', style: 'padding:30px' }, S.journal.length ? 'Nothing matches.' : 'Every statement that runs, whether from you, the grid or the Clerk, is written here.'));
   const search = h('input', { class: 'field mono', placeholder: 'search statements', value: J.q, style: 'width:200px' });
   search.oninput = debounce(() => { J.q = search.value; renderJournal(); const i = $('journal').querySelector('.journal-head input'); i?.focus(); i?.setSelectionRange(i.value.length, i.value.length); }, 200);
   const counts = S.journal.reduce((a, e) => (a[e.src] = (a[e.src] || 0) + 1, a), {});
@@ -4455,8 +4422,8 @@ async function readOnlyLoginDialog() {
       sql = [...p.create, ...p.grantAll, ...(p.perSchema.length ? [`-- ${p.grantAll.length ? 'if that grant isn\'t allowed' : 'before PostgreSQL 14'}: read access per schema instead`, ...p.perSchema] : [])]
         .map(x => x.startsWith('--') ? x : x + ';').join('\n');
       pre.innerHTML = highlightSQL(sql);
-      const taken = p.created && !p.reuse ? `pgquire already created ${p.created} for this connection — switch to that one, or remove it first.`
-        : p.exists && !p.reuse ? 'A login with that name already exists — pick another.' : '';
+      const taken = p.created && !p.reuse ? `pgquire already created ${p.created} for this connection. Switch to that one, or remove it first.`
+        : p.exists && !p.reuse ? 'A login with that name already exists. Pick another.' : '';
       go.disabled = !p.canCreate || !!taken;
       go.textContent = p.reuse ? 'Switch to login' : 'Create login';
       sw.checked ||= p.reuse; sw.disabled = p.reuse;
@@ -4469,13 +4436,13 @@ async function readOnlyLoginDialog() {
   name.oninput = () => { typed = true; clearTimeout(timer); timer = setTimeout(load, 300); };
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Create a read-only login'),
-      h('p', {}, `pgquire's read-only setting is a guard rail: SQL can switch it off. A login that isn't allowed to write can't be talked around — in pgquire or any other tool. This creates one that can read all data on ${d.remote?.host || 'the server'} and change nothing. pgquire generates its password and keeps it; you never need to type it.`)),
+      h('p', {}, `pgquire's read-only setting is a guard rail: SQL can switch it off. A login that isn't allowed to write can't be talked around, in pgquire or any other tool. This creates one that can read all data on ${d.remote?.host || 'the server'} and change nothing. pgquire generates its password and keeps it; you never need to type it.`)),
     h('div', { class: 'modal-b' },
       h('label', { class: 'lab' }, 'Login name', name),
       h('label', { class: 'pick opt' }, sw, 'Use it for this connection from now on'),
       pre),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }),
-      h('button', { class: 'btn ghost', onclick: () => { copyText(sql, 'SQL copied — replace the password placeholder'); } }, ic('copy'), 'Copy SQL'),
+      h('button', { class: 'btn ghost', onclick: () => { copyText(sql, 'SQL copied. Replace the password placeholder'); } }, ic('copy'), 'Copy SQL'),
       h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
   go.onclick = async () => {
     go.disabled = true; status.set(sw.disabled ? 'Switching…' : 'Creating the login…', { busy: true });
@@ -4554,7 +4521,7 @@ function moveDataDialog() {
       h('p', {}, /*remote:*/remote ? `“${name}” lives on ${d.remote?.host || 'a remote server'}. Copy it into this browser to experiment safely, or save it as a file.` : /*:remote*/`“${name}” lives in this browser. Save it as a file, or bring data in from one.`)),
     h('div', { class: 'modal-b' },
       h('div', { class: 'smallcaps' }, `Out of ${name} →`),
-      remote && row('copy', 'Copy to a local database', 'An in-browser copy — a sample or all rows — to experiment on without touching the server.', copyToLocalDialog), // @remote
+      remote && row('copy', 'Copy to a local database', 'An in-browser copy of a sample or all rows, to experiment on without touching the server.', copyToLocalDialog), // @remote
       /*remote:*/!remote && /*:remote*/row('branch', 'Clone this database', 'An exact copy as a new database in this browser, named with the next free v1, v2….', () => cloneDbDialog(d)),
       row('download', 'Download SQL dump (.sql)', 'Schema and data as SQL. Loads with psql, or here with “New database from a file”.', backupDb),
       /*remote:*/!remote && /*:remote*/row('download', 'Export session (.pgquire)', 'In-browser databases with their tabs, saved queries and chats — to move to another browser or address.', exportSessionDialog),
@@ -4562,7 +4529,7 @@ function moveDataDialog() {
       row('upload', 'New database from a file', 'A .sql dump, or a PGlite data folder (.tar.gz).', restoreDb),
       row('upload', 'Open a session file (.pgquire)', 'Databases, tabs, saved queries and chats from an export.', pickSessionFile),
       h('div', { class: 'smallcaps', style: 'margin-top:14px' }, `→ Into ${name}`),
-      row('upload', 'A .sql file — open or run', `Open it in the editor, or run it on “${name}” straight from disk — for scripts and dumps.`, sqlFile)),
+      row('upload', 'Open or run a .sql file', `Open it in the editor, or run it on “${name}” straight from disk. Good for scripts and dumps.`, sqlFile)),
     h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))]);
 }
 /* @remote { */
@@ -4571,7 +4538,7 @@ async function remoteExtensionsDialog() {
   let rows;
   try { rows = (await q(`select name, default_version as def, installed_version as inst, comment from pg_available_extensions order by installed_version is null, name`)).rows; }
   catch (e) { return toast(e.message, 'bad'); }
-  const filter = h('input', { class: 'field', placeholder: 'filter — e.g. trgm, vector, crypto' });
+  const filter = h('input', { class: 'field', placeholder: 'Filter, e.g. trgm, vector, crypto' });
   const list = h('div', { class: 'remote-list', style: 'max-height:420px' });
   const change = async (r, add) => {
     if (!add && !(await confirmDlg({ title: `Drop extension ${r.name}?`, body: `${onProd()}Anything that uses it (types, functions, indexes) has to go first, or the drop fails.`, ok: 'Drop extension', danger: true }))) return;
@@ -4588,7 +4555,7 @@ async function remoteExtensionsDialog() {
   const d = currentDb();
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, 'Extensions on this server'),
-      h('p', {}, `What ${d.remote?.host || 'the server'} has available. Creating one needs the right privileges there${readOnlyConn() ? ' — this connection is read-only, so you can only look' : ''}.`)),
+      h('p', {}, `What ${d.remote?.host || 'the server'} has available. Creating one needs the right privileges there${readOnlyConn() ? '. This connection is read-only, so you can only look' : ''}.`)),
     h('div', { class: 'modal-b' }, filter, list),
     h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))], { wide: true });
   draw(); filter.focus();
@@ -4606,7 +4573,7 @@ async function sqlDump(id) {
     // session options (search_path = '' etc.). Close and reset both, or later edits would sit in an
     // uncommitted transaction and the next dump would fail — then put back the user's own SETs.
     // Not with a transaction of the user's open: that ROLLBACK would throw their work away.
-    if (txState() !== 'I') throw new Error('A transaction is open (BEGIN) — commit or roll it back first, then dump.');
+    if (txState() !== 'I') throw new Error('A transaction is open (BEGIN). Commit or roll it back first, then dump.');
     const mine = (await S.db.query(`select name, setting from pg_settings where source = 'session'`)).rows;
     try { return await (await pgDumpFn({ pg: S.db, args })).text(); }
     finally {
@@ -4796,7 +4763,7 @@ function storageDialog() {
       ...orphans.map(o => row(h('span', { class: 'st-name', title: o.name }, h('span', { class: 'mdot', style: '--c:var(--ink3)' }), h('em', {}, 'left over, no database uses it')),
         o.size == null ? '—' : fmtBytes(o.size), '',
         h('button', { class: 'btn sm ghost st-more', title: 'Delete what\'s left', onclick: async () => {
-          if (!(await confirmDlg({ title: 'Delete the leftover data?', body: `No database in pgquire uses ${o.name} — it's left from one that was deleted or failed to load. ${o.size == null ? '' : `It holds ${fmtBytes(o.size)} of files.`}`, ok: 'Delete', danger: true }))) return;
+          if (!(await confirmDlg({ title: 'Delete the leftover data?', body: `No database in pgquire uses ${o.name}. It's left over from one that was deleted or failed to load. ${o.size == null ? '' : `It holds ${fmtBytes(o.size)} of files.`}`, ok: 'Delete', danger: true }))) return;
           indexedDB.deleteDatabase(o.name); orphans.splice(orphans.indexOf(o), 1); deleted();
         } }, ic('trash')))),
       h('div', { class: 'st-row st-total' }, h('span', {}, 'All databases'), h('span', { class: 'st-size' }, fmtBytes(total)), h('span', { class: 'st-when' }), h('span', { class: 'st-more' })),
@@ -4924,7 +4891,7 @@ function exportSessionDialog() {
   const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, ic('download'), 'Export');
   const radio = (val, label, hint) => h('label', { class: 'pick opt', style: 'align-items:baseline;padding:3px 0' },
-    h('input', { type: 'radio', name: 'fmt', checked: format === val, onchange: () => format = val }), h('span', {}, h('b', { style: 'font-weight:500' }, label), h('span', { style: 'color:var(--ink3);font-size:12px' }, ' — ' + hint)));
+    h('input', { type: 'radio', name: 'fmt', checked: format === val, onchange: () => format = val }), h('span', {}, h('b', { style: 'font-weight:500' }, label), h('span', { style: 'color:var(--ink3);font-size:12px' }, ': ' + hint)));
   const upd = () => { go.disabled = !chosen.size; status.set(chosen.size ? `${plural(chosen.size, 'database')} selected` : 'Choose at least one database'); };
   const check = (checked, on, label, hint) => h('label', { class: 'pick opt', style: 'padding:3px 0' },
     h('input', { type: 'checkbox', checked, onchange: e => { on(e.target.checked); upd(); } }), label, hint && h('small', { class: 'opt-hint' }, hint));
@@ -4934,7 +4901,7 @@ function exportSessionDialog() {
     dbs.map(d => h('div', { class: 'dbpick' }, check(chosen.has(d.id), v => v ? chosen.add(d.id) : chosen.delete(d.id), d.name,
       [d.id === S.id ? 'open now' : '', plural((store.get(`clerkv2:${d.id}`, null)?.convs || []).filter(c => (c.count ?? c.items?.length) > 0).length, 'chat'), store.get(`saved:${d.id}`, []).length + ' saved'].filter(Boolean).join(' · ')))));
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, 'Export session'), h('p', {}, 'One .pgquire file (a standard tar.gz) with the Postgres data and everything around it. Open it later — here or in another browser — with “Open session file”, or unpack it with any tar tool.')),
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Export session'), h('p', {}, 'One .pgquire file (a standard tar.gz) with the Postgres data and everything around it. Open it later, here or in another browser, with “Open session file”, or unpack it with any tar tool.')),
     h('div', { class: 'modal-b' },
       dbs.length === 1 && h('p', { style: 'margin:0;font-size:13px' }, 'Database: ', h('b', {}, dbs[0].name)),
       dbList,
@@ -5034,7 +5001,7 @@ async function importSessionDialog(file, preread, sourceLabel) {
   const go = h('button', { class: 'btn ink' }, ic('upload'), 'Open');
   const upd = () => { go.disabled = !chosen.size; status.set(`${plural(chosen.size, 'database')} will be added`); };
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, 'Open session'), h('p', {}, `${srcName} · ${man.shared ? 'shared' : 'exported'} ${new Date(man.exported).toLocaleString()}. Each database is added alongside yours — nothing existing is overwritten.`)),
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Open session'), h('p', {}, `${srcName} · ${man.shared ? 'shared' : 'exported'} ${new Date(man.exported).toLocaleString()}. Each database is added alongside yours; nothing existing is overwritten.`)),
     h('div', { class: 'modal-b' },
       man.pglite && man.pglite !== PGLITE_VER && man.databases.some(d => (d.data.kind || 'datadir') === 'datadir') && h('div', { class: 'pane-error', style: 'margin:0' }, h('div', {}, `Made with PGlite ${man.pglite}; this app uses a different version. Loading may fail if the storage format changed.`)),
       h('div', { class: 'smallcaps' }, 'Databases in this file'),
@@ -5044,7 +5011,7 @@ async function importSessionDialog(file, preread, sourceLabel) {
         const clash = loadDbs().some(x => x.name === d.name);
         return h('label', { class: 'pick opt', style: 'padding:3px 0' },
           h('input', { type: 'checkbox', checked: true, onchange: e => { e.target.checked ? chosen.add(i) : chosen.delete(i); upd(); } }),
-          d.name, clash && h('small', { style: 'color:var(--red)' }, '(name exists — will be renamed)'),
+          d.name, clash && h('small', { style: 'color:var(--red)' }, '(name exists, will be renamed)'),
           h('small', { class: 'opt-hint' }, hint));
       }),
       man.settings && h('label', { class: 'pick opt', style: 'padding:6px 0 0' },
@@ -5111,7 +5078,7 @@ const EXT = [
   { id: 'pg_trgm', cat: 0, kb: 15, desc: 'Trigram similarity: fuzzy matching, typo-tolerant search and fast LIKE / ILIKE indexes.', try: "select similarity('postgres', 'postgis') as similarity,\n       'postgres' % 'postgis' as is_similar,\n       show_trgm('clerk') as trigrams;" },
   { id: 'fuzzystrmatch', cat: 0, kb: 11, desc: 'Levenshtein distance, Soundex and Metaphone for sound-alike matching.', try: "select levenshtein('kitten', 'sitting') as edits,\n       soundex('Robert') = soundex('Rupert') as sounds_alike,\n       metaphone('Thompson', 10) as metaphone;" },
   { id: 'unaccent', cat: 0, kb: 12, desc: 'Strips accents, so “café” matches “cafe” in search.', try: "select unaccent('Crème brûlée à São Paulo') as plain;" },
-  { id: 'citext', cat: 0, kb: 5, desc: 'Case-insensitive text type — ideal for emails and usernames.', try: "select 'Ada@Example.com'::citext = 'ada@example.com'::citext as same_email;" },
+  { id: 'citext', cat: 0, kb: 5, desc: 'Case-insensitive text, for emails and usernames.', try: "select 'Ada@Example.com'::citext = 'ada@example.com'::citext as same_email;" },
   { id: 'hstore', cat: 1, kb: 22, desc: 'Key/value pairs in a single column, with operators and indexes.', try: "select 'color=>red, size=>XL'::hstore -> 'size' as size,\n       akeys('color=>red, size=>XL'::hstore) as keys;" },
   { id: 'ltree', cat: 1, kb: 21, desc: 'Hierarchical label paths (categories, org charts) with tree queries.', try: "select 'Books.Fiction.SciFi'::ltree <@ 'Books.Fiction' as under_fiction,\n       nlevel('Books.Fiction.SciFi') as depth;" },
   { id: 'cube', cat: 1, kb: 15, desc: 'Multi-dimensional points and boxes with distance operators.', try: "select cube_distance('(0,0)'::cube, '(3,4)'::cube) as distance;" },
@@ -5120,10 +5087,10 @@ const EXT = [
   { id: 'intarray', cat: 1, kb: 15, desc: 'Fast operators and indexes for integer arrays.', try: "select '{1,2,3}'::int[] & '{2,3,4}'::int[] as common,\n       icount('{1,2,3}'::int[]) as n;" },
   { id: 'lo', cat: 1, kb: 2, desc: 'The lo type plus a trigger that cleans up orphaned large objects.', try: "create temp table docs (id int, body lo);\nselect 'lo type ready' as status;" },
   { id: 'btree_gin', cat: 2, kb: 5, desc: 'Lets GIN indexes include plain columns next to arrays or JSONB.', try: "create temp table demo (owner int, tags text[]);\ncreate index on demo using gin (owner, tags);\nselect 'multi-column GIN index created' as status;" },
-  { id: 'btree_gist', cat: 2, kb: 21, desc: 'GiST for plain columns — enables exclusion constraints like “no double bookings”.', try: "create temp table booking (room int, during tstzrange,\n  exclude using gist (room with =, during with &&));\nselect 'no-overlap constraint created' as status;" },
+  { id: 'btree_gist', cat: 2, kb: 21, desc: 'GiST for plain columns, so exclusion constraints like “no double bookings” work.', try: "create temp table booking (room int, during tstzrange,\n  exclude using gist (room with =, during with &&));\nselect 'no-overlap constraint created' as status;" },
   { id: 'bloom', cat: 2, kb: 5, desc: 'Compact bloom-filter indexes for queries across many columns.', try: "create temp table wide (a int, b int, c int, d int);\ncreate index on wide using bloom (a, b, c, d);\nselect 'bloom index created' as status;" },
   { id: 'uuid_ossp', sql: 'uuid-ossp', cat: 3, kb: 16, desc: 'Classic UUID generators: v1, v3, v4 and v5.', try: "select uuid_generate_v4() as random_uuid,\n       uuid_generate_v5(uuid_ns_url(), 'https://example.com') as name_based;" },
-  { id: 'pg_uuidv7', pkg: 'pg_uuidv7@0.0.9', cat: 3, kb: 1, desc: 'Time-ordered UUID v7 — sortable ids that index well.', try: "select uuid_generate_v7() as id,\n       uuid_v7_to_timestamptz(uuid_generate_v7()) as created;" },
+  { id: 'pg_uuidv7', pkg: 'pg_uuidv7@0.0.9', cat: 3, kb: 1, desc: 'Time-ordered UUID v7: sortable ids that index well.', try: "select uuid_generate_v7() as id,\n       uuid_v7_to_timestamptz(uuid_generate_v7()) as created;" },
   { id: 'pgcrypto', cat: 3, kb: 1127, desc: 'Hashing, bcrypt passwords with crypt(), and PGP encryption.', try: "select encode(digest('hello', 'sha256'), 'hex') as sha256,\n       crypt('secret', gen_salt('bf')) as bcrypt_hash;" },
   { id: 'pg_hashids', pkg: 'pg_hashids@0.0.9', cat: 3, kb: 4, desc: 'Short, reversible ids from numbers (like YouTube ids).', try: "select id_encode(1234567) as short_id,\n       id_decode(id_encode(1234567)) as back;" },
   { id: 'vector', pkg: 'pgvector@0.0.9', cat: 4, kb: 45, desc: 'pgvector: store embeddings, run similarity search, build HNSW / IVFFlat indexes.', try: "select '[1,2,3]'::vector <-> '[3,2,1]'::vector as l2_distance,\n       '[1,2,3]'::vector <=> '[3,2,1]'::vector as cosine_distance;" },
@@ -5158,7 +5125,7 @@ const extModules = new Map();
 async function extensionModules(ids) {
   const out = {};
   for (const id of withDeps(ids)) {
-    if (!extModules.has(id)) extModules.set(id, import(extUrl(EXT_BY[id])).then(m => m[id]).catch(e => { extModules.delete(id); throw new Error(`Couldn't download the ${id} extension — ${navigator.onLine ? e.message : 'you appear to be offline'}.`); }));
+    if (!extModules.has(id)) extModules.set(id, import(extUrl(EXT_BY[id])).then(m => m[id]).catch(e => { extModules.delete(id); throw new Error(`Couldn't download the ${id} extension: ${navigator.onLine ? e.message : 'you appear to be offline'}.`); }));
     out[id] = await extModules.get(id);
   }
   return out;
@@ -5339,12 +5306,12 @@ class RemoteDb {
       if (this.#orphans.length) this.#closeOrphans();
       return out;
     } catch (e) {
-      if (e instanceof TypeError) { connDown('Can\'t reach the pgquire server — is it still running?'); throw new Error('can\'t reach the pgquire server'); }
-      if (e.status === 401) { connDown('The pgquire server restarted — Reconnect to paste its new token, or open the link it printed.'); throw e; }
+      if (e instanceof TypeError) { connDown('Can\'t reach the pgquire server. Is it still running?'); throw new Error('can\'t reach the pgquire server'); }
+      if (e.status === 401) { connDown('The pgquire server restarted. Reconnect to paste its new token, or open the link it printed.'); throw e; }
       if (e.code === 'session_closed' && retry && !openTx) { this.sid = null; return this.#call(op, body, false); }   // expired while idle; nothing ran
       if (e.code === 'session_closed' || e.code === 'session_lost') {                                                  // reconnect next time
         this.sid = null; this.txStatus = 'I';
-        if (openTx) e.message += ' — the transaction that was open was rolled back, so nothing in it was saved';
+        if (openTx) e.message += '. The open transaction was rolled back, so nothing in it was saved';
       }
       throw e;
     } finally { this.#running = 0; connWork(-1); }
@@ -5420,8 +5387,8 @@ function appTransaction(fn, db = S.db) {
 function paintTx() {
   const st = /*remote:*/isRemote(S.id) && conn.down ? 'I' : /*:remote*/txState();
   $('txBanner').hidden = st === 'I';
-  $('txMsg').textContent = st === 'E' ? 'The open transaction failed — nothing more runs until you roll it back.'
-    : 'A transaction is open (BEGIN). Changes made now — in queries or the grid — are kept only when you commit.';
+  $('txMsg').textContent = st === 'E' ? 'The open transaction failed. Nothing more runs until you roll it back.'
+    : 'A transaction is open (BEGIN). Changes made now, in queries or the grid, are kept only when you commit.';
   $('txCommit').hidden = st === 'E';
 }
 async function endTx(sql) {
@@ -5607,7 +5574,7 @@ function cloneDbDialog(d) {
   const status = modalStatus();
   const go = h('button', { class: 'btn ink' }, 'Clone');
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, `Clone “${d.name}”`), h('p', {}, 'An exact copy — tables, data, views, functions — as a new database in this browser. The original is not changed.')),
+    h('div', { class: 'modal-h' }, h('h2', {}, `Clone “${d.name}”`), h('p', {}, 'An exact copy (tables, data, views, functions) as a new database in this browser. The original is not changed.')),
     h('div', { class: 'modal-b' }, h('label', { class: 'lab' }, 'Name of the clone', name)),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)]);
   name.select();
@@ -5669,7 +5636,7 @@ async function copyToLocalDialog() {
       slot,
       space,
       h('div', {}, h('div', { class: 'smallcaps', style: 'margin:6px 0 4px' }, 'Rows per table'),
-        radio(100, '100'), radio(1000, '1,000 — recommended'), radio(10000, '10,000'), radio(null, allL)),
+        radio(100, '100'), radio(1000, '1,000 (recommended)'), radio(10000, '10,000'), radio(null, allL)),
       h('div', {}, h('div', { class: 'smallcaps', style: 'margin:6px 0 4px' }, 'Also copy'), viewsL, codeL),
       h('p', { style: 'margin:0;font-size:12px;color:var(--ink3)' }, 'With a row limit, foreign keys are added NOT VALID, since sampled rows may point at rows that weren\'t copied. Anything the browser\'s Postgres can\'t run (for example an extension it doesn\'t have) is skipped and listed.')),
     h('div', { class: 'modal-f' }, status, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), go)], { wide: true });
@@ -5781,7 +5748,7 @@ async function copyTablePicker(db, onChange) {
 }
 function copyReport(meta, result, rows, failed) {
   const groups = new Map();
-  for (const f of failed) { const k = f.what + ' — ' + f.error; groups.set(k, (groups.get(k) || 0) + 1); }
+  for (const f of failed) { const k = f.what + ': ' + f.error; groups.set(k, (groups.get(k) || 0) + 1); }
   const m = modal([
     h('div', { class: 'modal-h' }, h('h2', {}, `Copied to “${meta.name}”`),
       h('p', {}, `${plural(result.tables, 'table')}, ${plural(result.rows, 'row')}${rows != null ? ` (up to ${rows.toLocaleString()} per table)` : ''}.`)),
@@ -5835,7 +5802,7 @@ function showDbKind() {
   const d = currentDb(), el = $('dbKind'), r = d?.remote || {};
   $('dbName').textContent = dbLabel(d) || '—';
   $('dbWhere').textContent = !d ? 'Database' : d.kind === 'remote' ? `${d.profile}${r.host ? ' · ' + r.host : ''}` : 'In this browser';
-  $('dbSwitch').title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''} — switch database` : 'Switch database';
+  $('dbSwitch').title = d?.kind === 'remote' ? `${r.user || ''}@${r.host || ''}${r.port ? ':' + r.port : ''}/${r.database || ''} (switch database)` : 'Switch database';
   paintConn();
   el.textContent = d?.kind === 'remote' ? (r.tag === 'prod' ? 'prod' + (r.readOnly ? ' · ro' : '') : r.readOnly ? 'read-only' : '') : '';
   el.classList.toggle('prod', r.tag === 'prod');
@@ -5896,7 +5863,7 @@ async function pickDatabasesDialog(p, { intro, open } = {}) {
   const picks = list.databases.map(name => {
     const i = h('input', { type: 'checkbox', checked: have.has(name) || (!!open && name === def), disabled: have.has(name) });
     return { name, i, el: h('label', { class: 'pick opt', style: 'padding:2px 0' }, i,
-      h('span', { style: 'font-family:var(--mono)' }, name), name === def && h('span', { style: 'color:var(--ink3)' }, '— from the connection string'), have.has(name) && h('span', { style: 'color:var(--ink3)' }, '— added')) };
+      h('span', { style: 'font-family:var(--mono)' }, name), name === def && h('span', { style: 'color:var(--ink3)' }, '(from the connection string)'), have.has(name) && h('span', { style: 'color:var(--ink3)' }, '(added)')) };
   });
   const go = h('button', { class: 'btn ink' }, 'Add');
   const m = modal([
@@ -5961,14 +5928,14 @@ async function connectRemoteDialog(again) {
     try {
       const r = await api('POST', '/api/profiles/test', { dsn: dsnOf() });
       (r.tls ? status.set : status.fail)(`✓ PostgreSQL ${r.serverVersion} · ${r.database} as ${r.user} · ${r.tls ? 'encrypted (TLS)' : 'not encrypted'}`
-        + (ro.checked && r.role?.writable ? ` · ${roleWho(r.role)} can write, so read-only will only be a guard rail — you can create a read-only login once connected` : ''));
+        + (ro.checked && r.role?.writable ? ` · ${roleWho(r.role)} can write, so read-only will only be a guard rail. You can create a read-only login once connected` : ''));
       if (!r.tls) status.title = 'Passwords and data travel in the clear. Fine on localhost; use sslmode=require elsewhere.';
     } catch (e) { status.fail(e.message); }
     testBtn.disabled = false;
   };
   const box = (checked, label, hint, title) => {
     const i = h('input', { type: 'checkbox', checked });
-    return [i, h('label', { class: 'pick opt', title }, i, h('span', {}, label, hint && h('span', { style: 'color:var(--ink3)' }, ' — ', hint)))];
+    return [i, h('label', { class: 'pick opt', title }, i, h('span', {}, label, hint && h('span', { style: 'color:var(--ink3)' }, ': ', hint)))];
   };
   const [prod, prodL] = box(false, 'Production', 'red marker, read-only unless you untick below');
   const [ro, roL] = box(false, 'Read-only', 'writes are refused (a guard rail; for a hard guarantee use a read-only role)');
@@ -6005,7 +5972,7 @@ async function connectRemoteDialog(again) {
       m.close();
       toast(`Connected · PostgreSQL ${r.serverVersion} · ${r.tls ? 'encrypted' : 'not encrypted'}`);
       const dbsOn = await api('GET', `/api/profiles/${encodeURIComponent(r.profile.name)}/databases`).catch(() => null);
-      if (dbsOn?.databases?.length > 1) pickDatabasesDialog(r.profile, { open: true, intro: `Connected. This server has ${dbsOn.databases.length} databases you can open — which should appear in the switcher?` });
+      if (dbsOn?.databases?.length > 1) pickDatabasesDialog(r.profile, { open: true, intro: `Connected. This server has ${dbsOn.databases.length} databases you can open. Which should appear in the switcher?` });
       else openRemote(r.profile);
     } catch (e) { status.fail(e.message); go.disabled = false; }
   };
@@ -6037,7 +6004,7 @@ async function connectDb(id, opts = {}) {
   /* @remote { */
   if (isRemote(id)) {
     const srv = await pgquireServer();
-    if (!srv) throw new Error('remote databases open only through the pgquire server — run `pgquire` and use the link it prints');
+    if (!srv) throw new Error('remote databases open only through the pgquire server. Run `pgquire` and use the link it prints');
     if (!srv.authed) throw Object.assign(new Error('not signed in to the pgquire server'), { status: 401 });
     const d = loadDbs().find(x => x.id === id);
     bootMsg(`connecting to ${d.name}…`, true);
@@ -6045,7 +6012,7 @@ async function connectDb(id, opts = {}) {
     conn.down = null; clearInterval(conn.retry);
     if (d.remote?.readOnly && db.info.role?.writable && !(S.roleWarned ??= new Set()).has(id)) {
       S.roleWarned.add(id);
-      setTimeout(() => toast(`“${d.name}” is read-only in pgquire, but it logs in as ${roleWho(db.info.role)}, which can write — so read-only is only a guard rail here.`, 'bad', { label: 'Fix…', run: readOnlyLoginDialog }), 600);
+      setTimeout(() => toast(`“${d.name}” is read-only in pgquire, but it logs in as ${roleWho(db.info.role)}, which can write, so read-only is only a guard rail here.`, 'bad', { label: 'Fix…', run: readOnlyLoginDialog }), 600);
     }
     saveDbs(loadDbs().map(x => x.id === id ? { ...x, remote: { ...db.info.profile, database: db.info.database } } : x));   // keep host/tag/read-only current
     showDbKind();
@@ -6155,79 +6122,48 @@ function extensionFixButton(err, retry) {
 /* ---------- the Extensions dialog ---------- */
 function extensionsDialog(focusId) {
   if (!dbCaps().wasmExt) return remoteExtensionsDialog(); // @remote
-  const installed = new Map((S.exts || []).map(x => [x.extname, x.extversion]));
-  const isOn = id => installed.has(extSql(EXT_BY[id]));
-  const was = new Set(EXT.filter(e => isOn(e.id)).map(e => e.id));
-  const want = new Set(was);
-  let query = '', cat = 'all';
-  const search = h('input', { class: 'field', placeholder: 'Search — e.g. fuzzy, uuid, vector, geo…', spellcheck: false });
-  const chips = h('div', { class: 'ext-chips' });
-  const body = h('div', { class: 'ext-body' });
-  const summary = h('div', { class: 'ext-summary' });
-  const apply = h('button', { class: 'btn ink' }, 'Apply');
-  const matches = e => (cat === 'all' || (cat === 'on' ? want.has(e.id) : e.cat === cat)) &&
-    (!query || `${e.id} ${extSql(e)} ${e.desc} ${EXT_CATS[e.cat]}`.toLowerCase().includes(query));
-  const card = e => {
-    const on = want.has(e.id), changed = on !== was.has(e.id);
-    const neededBy = [...want].filter(w => (EXT_BY[w].needs || []).includes(e.id));
-    const sw = h('button', { class: 'switch' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(on), 'aria-label': `Enable ${e.id}`,
-      disabled: on && neededBy.length > 0, title: on && neededBy.length ? `Needed by ${neededBy.join(', ')}` : on ? 'Turn off' : 'Turn on',
-      onclick: () => { if (on) want.delete(e.id); else { want.add(e.id); (e.needs || []).forEach(n => want.add(n)); } draw(); } });
-    const st = changed ? (on ? h('span', { class: 'st add' }, 'will enable') : h('span', { class: 'st remove' }, 'will remove'))
-      : on ? h('span', { class: 'st installed' }, `installed ${installed.get(extSql(e)) || ''}`) : null;
-    return h('div', { class: 'ext-card' + (on ? ' on' : '') + (changed ? ' changed' : '') + (e.id === focusId ? ' focus' : ''), id: 'ext-' + e.id },
-      h('div', { class: 'ext-top' }, h('code', {}, extSql(e)), h('span', { class: 'ext-size' + (e.kb >= 1000 ? ' heavy' : ''), title: 'One-time download, then cached by the browser' }, extKb(e.kb)), sw),
-      h('p', {}, e.desc, e.needs && h('span', { style: 'color:var(--ink3)' }, ` Uses ${e.needs.join(', ')}.`)),
-      h('div', { class: 'ext-foot' }, st, h('span', { class: 'spacer', style: 'flex:1' }),
-        was.has(e.id) && !changed && h('button', { class: 'btn sm ghost', title: 'Open a working example in a new query tab', onclick: () => { m.close(); openQuery(e.try, { title: `try ${e.id}`, run: true }); } }, ic('play'), 'Try it'),
-        !was.has(e.id) && on && h('span', {}, 'Try it after applying')));
+  const filter = h('input', { class: 'field', placeholder: 'Filter, e.g. fuzzy, uuid, vector, geo', spellcheck: false });
+  const list = h('div', { class: 'remote-list', style: 'max-height:420px' });
+  let busy = null;
+  const neededBy = id => EXT.filter(e => e.id !== id && extEnabled(e.id) && (e.needs || []).includes(id)).map(e => e.id);
+  // Adding or removing reopens the database for a moment, so one change at a time; the list stays open.
+  const change = async (e, add) => {
+    if (!add && !(await confirmDlg({ title: `Remove extension ${e.id}?`, body: `It's dropped from “${currentDb()?.name}”. If anything uses it (types, functions, indexes), you're asked before those go too.`, ok: 'Remove', danger: true }))) return;
+    busy = e.id; draw();
+    try {
+      const r = await applyExtensionChanges(add ? [...(e.needs || []).filter(n => !extEnabled(n)), e.id] : [], add ? [] : [e.id]);
+      if (r.added.length || r.removed.length) toast(add ? `Enabled ${r.added.join(', ')}` : `Removed ${e.id}`, null, add && e.try ? { label: `Try ${e.id}`, run: () => { m.close(); openQuery(e.try, { title: `try ${e.id}`, run: true }); } } : null);
+    } catch (err) { toast(err.message, 'bad'); }
+    busy = null; draw();
   };
   const draw = () => {
-    const counts = EXT_CATS.map((_, i) => EXT.filter(e => e.cat === i).length);
-    chips.replaceChildren(
-      h('button', { class: cat === 'all' ? 'on' : '', onclick: () => { cat = 'all'; draw(); } }, 'All', h('small', {}, EXT.length)),
-      h('button', { class: cat === 'on' ? 'on' : '', onclick: () => { cat = 'on'; draw(); } }, 'Enabled', h('small', {}, want.size)),
-      ...EXT_CATS.map((c, i) => h('button', { class: cat === i ? 'on' : '', onclick: () => { cat = i; draw(); } }, c, h('small', {}, counts[i]))));
-    body.replaceChildren();
-    let any = false;
-    for (const [i, name] of EXT_CATS.entries()) {
-      const list = EXT.filter(e => e.cat === i && matches(e));
-      if (!list.length) continue;
-      any = true;
-      body.append(h('div', { class: 'ext-cat' }, name), h('div', { class: 'ext-grid' }, list.map(card)));
-    }
-    if (!any) body.append(h('div', { class: 'placeholder', style: 'padding:30px' }, cat === 'on' ? 'Nothing enabled yet.' : 'No extension matches that.'));
-    const adds = [...want].filter(x => !was.has(x)), rems = [...was].filter(x => !want.has(x));
-    const dl = adds.reduce((a, x) => a + EXT_BY[x].kb, 0);
-    summary.replaceChildren(...(adds.length || rems.length ? [
-      adds.length ? h('span', { class: 'plus' }, '+ ', ...adds.flatMap((x, i) => [i ? ', ' : '', h('b', {}, x)])) : '',
-      adds.length && rems.length ? ' · ' : '',
-      rems.length ? h('span', { class: 'minus' }, '− ', ...rems.flatMap((x, i) => [i ? ', ' : '', h('b', {}, x)])) : '',
-      h('br'),
-      h('span', { style: 'color:var(--ink3)' }, [adds.length ? `Downloads ${extKb(dl)} (once)` : '', adds.length ? 'the database reopens for a moment' : '', rems.length ? 'removal drops the extension from this database' : ''].filter(Boolean).join(' · '))]
-      : [h('span', { style: 'color:var(--ink3)' }, `${plural(was.size, 'extension')} enabled for “${currentDb()?.name}”. Toggle to change; nothing happens until you apply.`)]));
-    apply.disabled = !adds.length && !rems.length;
+    const f = filter.value.trim().toLowerCase();
+    const shown = EXT.filter(e => !f || `${e.id} ${extSql(e)} ${e.desc} ${EXT_CATS[e.cat]}`.toLowerCase().includes(f))
+      .sort((a, b) => extEnabled(b.id) - extEnabled(a.id));
+    list.replaceChildren(...shown.map(e => {
+      const on = extEnabled(e.id), by = on ? neededBy(e.id) : [];
+      const ver = on && (S.exts || []).find(x => x.extname === extSql(e))?.extversion;
+      return h('div', { class: 'remote-row' + (e.id === focusId ? ' focus' : ''), id: 'ext-' + e.id },
+        h('b', { style: 'font-family:var(--mono)' }, extSql(e)),
+        h('span', { class: 'who ext-desc', title: `${e.desc}${e.needs ? ` Uses ${e.needs.join(', ')}.` : ''} (${EXT_CATS[e.cat]})` }, e.desc, e.needs && h('span', { style: 'color:var(--ink3)' }, ` Uses ${e.needs.join(', ')}.`)),
+        on ? h('span', { class: 'db-kind', title: 'installed' }, ver || 'on')
+          : h('span', { class: 'ext-size' + (e.kb >= 1000 ? ' heavy' : ''), title: 'One-time download, then cached by the browser' }, extKb(e.kb)),
+        busy === e.id ? h('span', { class: 'ext-size' }, on ? 'removing…' : 'loading…')
+          : on ? [e.try && h('button', { class: 'btn sm ghost', title: 'Open a working example in a new query tab', disabled: !!busy, onclick: () => { m.close(); openQuery(e.try, { title: `try ${e.id}`, run: true }); } }, 'Try'),
+                  h('button', { class: 'btn sm ghost', disabled: !!busy || by.length > 0, title: by.length ? `Needed by ${by.join(', ')}` : '', onclick: () => change(e, false) }, 'Remove…')]
+          : h('button', { class: 'btn sm', disabled: !!busy, onclick: () => change(e, true) }, 'Add'));
+    }));
+    if (!shown.length) list.append(h('div', { class: 'placeholder', style: 'padding:20px' }, 'No extension matches that.'));
   };
-  search.oninput = () => { query = search.value.trim().toLowerCase(); draw(); };
-  apply.onclick = async () => {
-    const adds = [...want].filter(x => !was.has(x)), rems = [...was].filter(x => !want.has(x));
-    m.close();
-    try {
-      const r = await applyExtensionChanges(adds, rems);
-      const first = r.added.find(x => EXT_BY[x].try);
-      toast([r.added.length && `Enabled ${r.added.join(', ')}`, r.removed.length && `Removed ${r.removed.join(', ')}`].filter(Boolean).join(' · ') || 'No changes',
-        null, first ? { label: `Try ${first}`, run: () => openQuery(EXT_BY[first].try, { title: `try ${first}`, run: true }) } : null);
-    } catch (e) { toast(e.message, 'bad'); }
-  };
+  filter.oninput = draw;
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, 'Extensions'), h('p', {}, `Add Postgres superpowers to “${currentDb()?.name}”. Each database keeps its own set; they download once and load whenever it opens.`)),
-    h('div', { class: 'ext-bar' }, search, chips),
-    body,
-    h('div', { class: 'modal-f', style: 'position:sticky;bottom:0;background:var(--sheet);border-top:1px solid var(--rule2)' }, summary, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Cancel'), apply)], { wide: true });
-  m.box.classList.add('ext-modal');
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Extensions'),
+      h('p', {}, `${EXT.length} extensions for “${currentDb()?.name}”, loaded into this browser on demand. Each downloads once and loads whenever this database opens.`)),
+    h('div', { class: 'modal-b' }, filter, list),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ghost', onclick: () => m.close() }, 'Close'))], { wide: true });
   draw();
   if (focusId) requestAnimationFrame(() => $('ext-' + focusId)?.scrollIntoView({ block: 'center' }));
-  else search.focus();
+  else filter.focus();
 }
 
 /* ==========================================================================
@@ -6243,16 +6179,16 @@ const unb64url = str => { const bin = atob(str.replace(/-/g, '+').replace(/_/g, 
 const FFLATE_URL = 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
 const nativeRaw = kind => { try { return kind === 'c' ? new CompressionStream('deflate-raw') : new DecompressionStream('deflate-raw'); } catch { return null; } };
 let fflateMod = null;
-const fflate = async () => fflateMod ||= await import(FFLATE_URL).catch(() => { throw new Error('this browser needs a small helper download to handle links, and it could not be fetched — check your connection'); });
+const fflate = async () => fflateMod ||= await import(FFLATE_URL).catch(() => { throw new Error('this browser needs a small helper download to handle links, and it could not be fetched. Check your connection'); });
 async function deflateRaw(b) { const s = nativeRaw('c'); return s ? pipeBytes(b, s) : (await fflate()).deflateSync(b, { level: 9 }); }
 async function inflateRaw(b) {
   const s = nativeRaw('d');
   try { return s ? await pipeBytes(b, s) : (await fflate()).inflateSync(b); }
-  catch (e) { if (/helper download/.test(e.message)) throw e; throw new Error('the link looks incomplete — it may have been cut off when it was copied or sent'); }
+  catch (e) { if (/helper download/.test(e.message)) throw e; throw new Error('the link looks incomplete. It may have been cut off when it was copied or sent'); }
 }
 const hasSubtle = () => !!globalThis.crypto?.subtle;
 async function passKey(pass, salt) {
-  if (!hasSubtle()) throw new Error('passphrase links need a secure page (https) — open pgquire over https to unlock this one');
+  if (!hasSubtle()) throw new Error('passphrase links need a secure page (https). Open pgquire over https to unlock this one');
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey']);
   return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
 }
@@ -6263,10 +6199,10 @@ async function encryptBytes(bytes, pass) {
   return out;
 }
 async function decryptBytes(bytes, pass) {
-  if (bytes.length < 29) throw new Error('the link looks incomplete — it may have been cut off when it was copied or sent');
+  if (bytes.length < 29) throw new Error('the link looks incomplete. It may have been cut off when it was copied or sent');
   const key = await passKey(pass, bytes.subarray(0, 16));
   try { return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(16, 28) }, key, bytes.subarray(28))); }
-  catch { throw new Error('Wrong passphrase — or the link was cut short.'); }
+  catch { throw new Error('Wrong passphrase, or the link was cut short.'); }
 }
 /** Pack the open database (+ optional saved queries / chats) the same way .pgquire files are laid out. */
 async function buildSharePayload(sql, { saved, chats, curId }) {   // saved / chats = Sets of ids
@@ -6288,14 +6224,14 @@ async function buildSharePayload(sql, { saved, chats, curId }) {   // saved / ch
 }
 const shareBase = () => location.href.replace(/#.*$/, '');
 function shareDialog() {
-  if (!dbCaps().share) return toast('A link carries the data itself, so it needs a database in this browser — use Copy to a local database first.'); // @remote
+  if (!dbCaps().share) return toast('A link carries the data itself, so it needs a database in this browser. Use Copy to a local database first.'); // @remote
   let sql = null, link = '', building = 0;
   const MAX_CHATS = 5;
   const convList = [...C.convs].filter(c => c.items.length).sort((a, b) => b.updated - a.updated);
   const MAX_SAVED = 10;
   const savedList = [...store.get(`saved:${S.id}`, [])].sort((a, b) => b.updated - a.updated);
   const opts = { saved: new Set(savedList.slice(0, MAX_SAVED).map(q => q.id)), chats: new Set(convList.some(c => c.id === C.cur) ? [C.cur] : []), curId: C.cur };
-  const pass = h('input', { class: 'field', type: 'password', placeholder: 'optional — leave empty for a plain link', autocomplete: 'new-password' });
+  const pass = h('input', { class: 'field', type: 'password', placeholder: 'Optional. Leave empty for a plain link', autocomplete: 'new-password' });
   const out = h('input', { class: 'field mono', readOnly: true, placeholder: 'building…', style: 'width:100%' });
   const meter = h('div', { class: 'share-meter' }, h('i'));
   const verdict = h('div', { class: 'share-verdict' });
@@ -6314,7 +6250,7 @@ function shareDialog() {
       link = `${shareBase()}#${SHARE_TAG}${p ? 'e' : ''}.${b64url(bytes)}`;
       out.value = link.length > 160 ? link.slice(0, 100) + ' … ' + link.slice(-40) : link;
       const n = link.length, kb = n / 1024;
-      const [cls, msg] = n <= 8000 ? ['ok', 'Works almost everywhere — chats, email, docs.'] : n <= 64000 ? ['warn', 'Fine in browsers, but chat apps and email may cut it.'] : n <= 2000000 ? ['bad', 'Very long — Chrome/Edge only, and most apps will break it. Share a .pgquire file instead.'] : ['bad', 'Too long for a link. Export a .pgquire file instead.'];
+      const [cls, msg] = n <= 8000 ? ['ok', 'Works almost everywhere: chats, email, docs.'] : n <= 64000 ? ['warn', 'Fine in browsers, but chat apps and email may cut it.'] : n <= 2000000 ? ['bad', 'Very long. Chrome/Edge only, and most apps will break it. Share a .pgquire file instead.'] : ['bad', 'Too long for a link. Export a .pgquire file instead.'];
       meter.className = 'share-meter ' + cls; meter.firstChild.style.width = Math.min(100, Math.log10(Math.max(n, 100)) / Math.log10(2000000) * 100) + '%';
       verdict.className = 'share-verdict ' + cls;
       verdict.replaceChildren(h('b', {}, kb < 1 ? `${n} characters` : `${kb.toFixed(1)} KB link`), ` (${(sql.length / 1024).toFixed(1)} KB of SQL${p ? ', encrypted' : ''}) · ${msg}`);
@@ -6323,7 +6259,7 @@ function shareDialog() {
   }, 250);
   pass.oninput = rebuild;
   copy.onclick = async () => {
-    copyText(link, pass.value ? 'Link copied — send the passphrase separately' : 'Link copied');
+    copyText(link, pass.value ? 'Link copied. Send the passphrase separately' : 'Link copied');
   };
   /** Checkboxes for opts[key], at most `max` ticked, under a heading that counts them; extra(sync) adds to the heading. */
   const capped = (key, list, max, title, extra, row) => {
@@ -6338,7 +6274,7 @@ function shareDialog() {
   };
   const local = location.protocol === 'file:';
   const m = modal([
-    h('div', { class: 'modal-h' }, h('h2', {}, 'Share as link'), h('p', {}, `“${currentDb()?.name}” packed into the link itself — tables, data, views and extensions. Whoever opens it gets their own copy; nothing is uploaded.`)),
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Share as link'), h('p', {}, `“${currentDb()?.name}” packed into the link itself: tables, data, views and extensions. Whoever opens it gets their own copy; nothing is uploaded.`)),
     h('div', { class: 'modal-b' },
       local && h('div', { class: 'pane-error', style: 'margin:0;color:var(--ink2);border-color:var(--rule);background:var(--paper)' }, h('div', {}, 'pgquire is open from a file on this computer, so the link only works here. To share with others, host the pgquire HTML file somewhere public (e.g. GitHub Pages) and share from there.')),
       savedList.length ? capped('saved', savedList, MAX_SAVED, 'Saved queries', sync => h('button', { class: 'btn sm ghost', style: 'text-transform:none;letter-spacing:0;height:20px', onclick: () => { opts.saved = new Set(opts.saved.size ? [] : savedList.slice(0, MAX_SAVED).map(q => q.id)); sync(); rebuild(); } }, opts.saved.size ? 'None' : `Latest ${Math.min(MAX_SAVED, savedList.length)}`),
@@ -6372,11 +6308,11 @@ async function openSharedLink() {
   history.replaceState(null, '', location.href.replace(/#.*$/, ''));   // don't re-import on reload
   try {
     let bytes;
-    try { bytes = unb64url(link.data); } catch { throw new Error('the link is damaged — it contains characters that don\'t belong'); }
+    try { bytes = unb64url(link.data); } catch { throw new Error('the link is damaged. It contains characters that don\'t belong'); }
     if (link.locked) {
       let unlocked = null;
       for (let attempt = 1; !unlocked; attempt++) {
-        const p = await promptDlg({ title: attempt === 1 ? 'This shared link is locked' : 'Wrong passphrase — try again', label: 'Passphrase', value: '' });
+        const p = await promptDlg({ title: attempt === 1 ? 'This shared link is locked' : 'Wrong passphrase. Try again', label: 'Passphrase', value: '' });
         if (!p) return;
         try { unlocked = await decryptBytes(bytes, p); }
         catch (e) { if (!/Wrong passphrase/.test(e.message) || attempt >= 5) throw e; }
@@ -6401,7 +6337,7 @@ const COMMANDS = [
   { label: 'Import a CSV', k: 'import csv upload file', run: importCsvDialog },
   { label: 'Open the ERD', k: 'erd chart map diagram er entity relationships schema', run: openMap },
   { label: 'Overview', k: 'home overview dashboard', run: () => activate(null) },
-  { label: 'README — what pgquire can do', k: 'readme help about features docs guide keys shortcuts', run: openReadme },
+  { label: 'README: what pgquire can do', k: 'readme help about features docs guide keys shortcuts', run: openReadme },
   { label: 'Toggle the journal', k: 'journal log history', run: toggleJournal },
   { label: 'Toggle day / night', k: 'theme dark light night day', run: toggleTheme },
   { label: 'Switch look: Ledger / Prism', k: 'look theme appearance prism ledger style', run: () => setLook(document.documentElement.dataset.look === 'prism' ? 'ledger' : 'prism') },
@@ -6540,13 +6476,13 @@ function saveClerk() {
   writeClerk(S.id, { cur: C.cur, convs: C.convs }, cur ? [cur.id] : []);
 }
 function switchConv(id) {
-  if (C.busy) return toast('The Clerk is still working — stop it first.');
+  if (C.busy) return toast('The Clerk is still working. Stop it first.');
   const c = C.convs.find(x => x.id === id);
   if (!c) return;
   bindConv(c); C.showConnect = false; saveClerk(); renderClerk();
 }
 function startNewConv() {
-  if (C.busy) return toast('The Clerk is still working — stop it first.');
+  if (C.busy) return toast('The Clerk is still working. Stop it first.');
   const cur = curConv();
   if (cur && !cur.items.length) { $('clerkText')?.focus(); return; }
   bindConv(newConv()); saveClerk(); renderClerk(); $('clerkText')?.focus();
@@ -6590,14 +6526,14 @@ function convToMarkdown(c) {
       lines.push(`### The Clerk${t}${it.model ? ` · ${it.model}` : ''}${it.ms != null ? ` · ${fmtMs(it.ms)}` : ''}${it.tin != null ? ` · ${it.tin} → ${it.tout} tokens` : ''}`, '', it.text);
     } else if (it.k === 'sql') {
       const status = { applied: 'APPROVED & applied', rejected: 'DECLINED', error: 'failed', ran: 'ran', pending: 'pending' }[it.status] || it.status;
-      lines.push(`**${it.write ? 'Proposed change' : 'Query'}** — ${status}${it.ms != null ? ` · ${it.ms} ms` : ''}`, '', '```sql', it.sql, '```');
+      lines.push(`**${it.write ? 'Proposed change' : 'Query'}**: ${status}${it.ms != null ? ` · ${it.ms} ms` : ''}`, '', '```sql', it.sql, '```');
       if (it.error) lines.push('', `> Error: ${it.error}`);
       else if (it.preview?.fields?.length) {
         lines.push('', `| ${it.preview.fields.join(' | ')} |`, `|${it.preview.fields.map(() => '---').join('|')}|`,
           ...it.preview.rows.map(r => `| ${r.map(v => v == null ? '*null*' : String(v).replace(/\|/g, '\\|').replace(/\n/g, ' ')).join(' | ')} |`));
         if (it.summary) lines.push('', `*${it.summary}*`);
       } else if (it.summary) lines.push('', `*${it.summary}*`);
-    } else if (it.k === 'note') lines.push(`*— ${it.text}*`);
+    } else if (it.k === 'note') lines.push(`*${it.text}*`);
     else if (it.k === 'err') lines.push(`> **Error:** ${it.text}`);
     else if (it.k === 'turn') lines.push(`*${it.calls} calls · ${fmtMs(it.ms)} · ${it.in} in / ${it.out} out · ${fmtCost(it)}*`);
   }
@@ -6617,7 +6553,7 @@ function exportConvs(list, kind) {
   toast(`Exported ${plural(list.length, 'conversation')}`);
 }
 function importConvs() {
-  if (C.busy) return toast('The Clerk is still working — stop it first.');
+  if (C.busy) return toast('The Clerk is still working. Stop it first.');
   const input = h('input', { type: 'file', accept: '.json,application/json' });
   input.onchange = async () => {
     const file = input.files[0]; if (!file) return;
@@ -6639,7 +6575,7 @@ function importConvs() {
       bindConv(last);
       writeClerk(S.id, { cur: C.cur, convs: C.convs }, imported.map(c => c.id));
       renderClerk();
-      toast(`Imported ${plural(imported.length, 'conversation')} — ${imported.every(c => c.convo) ? 'with the full context the Clerk had' : 'the Clerk gets a summary as context'}`);
+      toast(`Imported ${plural(imported.length, 'conversation')}, ${imported.every(c => c.convo) ? 'with the full context the Clerk had' : 'the Clerk gets a summary as context'}`);
     } catch (e) { toast(e.message.startsWith('Unexpected') ? 'That file isn\'t valid JSON.' : e.message, 'bad'); }
   };
   input.click();
@@ -6734,9 +6670,9 @@ function attachPicker(e) {
   const qs = queryTabs();
   const pick = (checked, on, label, hint) => h('label', { class: 'pick' }, h('input', { type: 'checkbox', checked, onchange: ev => { on(ev.target.checked); renderAttachChips(); } }), label, h('small', {}, hint));
   const box = h('div', {},
-    S.tables.length > 0 && h('div', { class: 'mlabel' }, 'Tables — schema + first rows'),
+    S.tables.length > 0 && h('div', { class: 'mlabel' }, 'Tables: schema and first rows'),
     S.tables.map(t => pick(C.attach.has(t.key), v => v ? C.attach.add(t.key) : C.attach.delete(t.key), t.key, t.kind === 'v' ? 'view' : (S.counts[t.key] ?? 0).toLocaleString())),
-    qs.length > 0 && h('div', { class: 'mlabel' }, 'Query tabs — SQL + latest result'),
+    qs.length > 0 && h('div', { class: 'mlabel' }, 'Query tabs: SQL and latest result'),
     qs.map(t => pick(C.attachQ.has(t.id), v => v ? C.attachQ.add(t.id) : C.attachQ.delete(t.id), t.title,
       t.error ? 'error' : t.results ? plural(t.results.at(-1)?.rows.length || 0, 'row') : t.sql.trim() ? 'not run' : 'empty')));
   showMenu(r.left, r.top - 8 - Math.min(60 + (S.tables.length + qs.length) * 30, 420), box);
@@ -6823,7 +6759,7 @@ function renderClerk() {
       h('h2', {}, 'The Clerk', clerkOn() && h('small', { title: `${C.base} · ${C.model}` }, C.model.split('/').pop())),
       h('button', { class: 'conv-switch', title: 'Switch conversation', onclick: convMenu }, h('span', {}, cv.title), ic('down', 'width:11px;height:11px'), C.convs.length > 1 && h('small', { style: 'color:var(--ink3)' }, `· ${C.convs.length}`))),
     h('button', { class: 'iconbtn', title: 'New conversation', onclick: startNewConv }, ic('plus')),
-    h('button', { class: 'iconbtn' + (clerkOn() ? '' : ' on'), title: clerkOn() ? 'Connection' : 'Not connected — set up the AI', onclick: () => { C.showConnect = !C.showConnect; renderClerk(); } }, ic('key')),
+    h('button', { class: 'iconbtn' + (clerkOn() ? '' : ' on'), title: clerkOn() ? 'Connection' : 'Not connected. Set up the AI', onclick: () => { C.showConnect = !C.showConnect; renderClerk(); } }, ic('key')),
     h('button', { class: 'iconbtn clerk-wide-btn', title: app.classList.contains('clerk-wide') ? 'Restore width (Esc)' : 'Expand to full width', onclick: () => toggleClerkWide() }, ic(app.classList.contains('clerk-wide') ? 'shrink' : 'expand')),
     h('button', { class: 'iconbtn', title: 'Close (Ctrl+J)', onclick: toggleClerk }, ic('x')));
   const u = cv.usage;
@@ -6911,11 +6847,11 @@ function suggestions() {
   const t = activeTab();
   const tb = t?.type === 'table' ? S.byKey[t.key] : null;
   const list = !S.tables.length ? [
-    'Design a schema for a small CRM — companies, contacts, deals — and fill it with realistic sample data',
+    'Design a schema for a small CRM (companies, contacts, deals) and fill it with realistic sample data',
     'Create a habits tracker with a table for habits and daily check-ins',
     'What can a Postgres database running in a browser do?',
   ] : tb ? [
-    `Summarise what's in ${tb.name} — distributions, outliers, anything odd`,
+    `Summarise what's in ${tb.name}: distributions, outliers, anything odd`,
     `Find likely data-quality problems in ${tb.name}`,
     `Add 20 more realistic rows to ${tb.name}`,
     `Suggest indexes or constraints ${tb.name} should have`,
@@ -6948,7 +6884,7 @@ function promptEditor() {
   return h('details', { class: 'prompt-box', open: !!custom },
     h('summary', {}, 'System prompt ', badge),
     ta,
-    h('div', { class: 'prompt-help' }, 'Placeholders: ', ['{{database}}', '{{schema}}', '{{view}}', '{{date}}'].map(p => h('code', {}, p)), ' — filled in on every request. Remove {{schema}} and the Clerk won\'t know your tables unless it asks. Saved in this browser; applies to all databases.'),
+    h('div', { class: 'prompt-help' }, 'Placeholders: ', ['{{database}}', '{{schema}}', '{{view}}', '{{date}}'].map(p => h('code', {}, p)), ' are filled in on every request. Remove {{schema}} and the Clerk won\'t know your tables unless it asks. Saved in this browser; applies to all databases.'),
     h('div', { style: 'display:flex;gap:6px' }, reset, preview));
 }
 
@@ -6990,7 +6926,7 @@ function connectForm() {
     h('label', {}, 'Model', model),
     promptEditor(),
     go, msg,
-    h('div', { class: 'fine' }, 'The key stays in this tab\'s memory only — never saved, gone on reload, sent only to the endpoint above. The endpoint and model are remembered.'),
+    h('div', { class: 'fine' }, 'The key stays in this tab\'s memory. It\'s never saved, it\'s gone on reload, and it only goes to the endpoint above. The endpoint and model are remembered.'),
     h('div', { style: 'display:flex;gap:6px;flex-wrap:wrap' },
       (clerkOn() || store.get('clerkBrowse', false))
         ? h('button', { class: 'btn ghost sm', onclick: () => { C.showConnect = false; renderClerk(); } }, 'Back to conversations')
@@ -7090,7 +7026,7 @@ function receipt(it, pending) {
       h('tbody', {}, it.preview.rows.map(r => h('tr', {}, r.map(v => h('td', { style: v == null ? 'color:var(--ink4);font-style:italic' : '', title: v != null && v.length > 30 ? v : '' }, v ?? 'null')))))))));
   }
   const foot = h('div', { class: 'r-foot' },
-    h('span', {}, it.status === 'rejected' ? (it.interrupted ? 'Not run — the page closed before you approved it' : 'Not run') : it.error ? 'Failed' : it.summary || ''),
+    h('span', {}, it.status === 'rejected' ? (it.interrupted ? 'Not run: the page closed before you approved it' : 'Not run') : it.error ? 'Failed' : it.summary || ''),
     h('span', { class: 'spacer' }),
     it.status !== 'pending' && h('button', { class: 'btn sm ghost', onclick: () => openQuery(it.sql, { title: `Clerk ${hms(it.ts || Date.now())}`, run: !it.write && !it.error }) }, 'Open ↗'));
   if (!pending) card.append(foot);
@@ -7146,7 +7082,7 @@ function schemaTextNow() {
   const where = schemas.length > 1 || (sp && sp.path !== sp.def)
     ? `Schemas: ${schemas.join(', ')}. search_path = ${sp?.path ?? '(unknown)'}, so unqualified names resolve to ${sp?.cur ?? 'no schema'}. Tables below without a prefix are in public. Write schema-qualified names (schema.table) in SQL you run.\n\n`
     : '';
-  if (!S.tables.length) return where + '(empty — no tables yet)';
+  if (!S.tables.length) return where + '(empty, no tables yet)';
   return where + schemaTables();
 }
 const TOOLS_CHARS = JSON.stringify(TOOLS).length;
@@ -7225,7 +7161,7 @@ async function callModel(messages, signal, { lessThinking } = {}) {
 
 function clerkAsk(text, { draft } = {}) {
   openClerk();
-  if (!clerkOn()) { C.pending = text; C.showConnect = true; renderClerk(); toast('Connect the Clerk first — your question is waiting.'); return; }
+  if (!clerkOn()) { C.pending = text; C.showConnect = true; renderClerk(); toast('Connect the Clerk first. Your question is waiting.'); return; }
   if (draft) { const t = $('clerkText'); t.value = text; t.focus(); t.setSelectionRange(t.value.length, t.value.length); return; }
   clerkSend(text);
 }
@@ -7256,8 +7192,8 @@ async function clerkSend(text) {
   C.items.push({ k: 'user', text, ts: Date.now(), ...(attached.length ? { attached } : {}), ...(attachedQ.length ? { attachedQ: attachedQ.map(t => t.title) } : {}) }); saveClerk();
   renderClerk();
   let content = text;
-  if (attached.length) content += `\n\n[Attached tables — schema and first rows]\n${await describeAttached(attached)}`;
-  if (attachedQ.length) content += `\n\n[Attached query tabs — SQL and latest result]\n${describeAttachedQueries(attachedQ)}`;
+  if (attached.length) content += `\n\n[Attached tables: schema and first rows]\n${await describeAttached(attached)}`;
+  if (attachedQ.length) content += `\n\n[Attached query tabs: SQL and latest result]\n${describeAttachedQueries(attachedQ)}`;
   C.convo.push({ role: 'user', content });
   const turn = blankUsage();
   turn.steps = [];
@@ -7283,7 +7219,7 @@ async function clerkSend(text) {
       turn.steps.push(stepRec);
       C.convo.push(calls.length ? { role: 'assistant', content: msg.content || '', tool_calls: calls } : { role: 'assistant', content: msg.content || '' });
       if (msg.content?.trim()) clerkPush({ k: 'ai', text: msg.content.trim(), model: usage.model, ms: usage.ms, tin: usage.in, tout: usage.out, cost: usage.cost, costKnown: usage.costKnown });
-      if (cut) { clerkPush({ k: 'note', paused: true, text: `Cut off — ${usage.model} ran out of room for its reply${msg.content?.trim() ? '' : ' while thinking'}. Continue, or pick a model that thinks less.` }); break; }
+      if (cut) { clerkPush({ k: 'note', paused: true, text: `Cut off: ${usage.model} ran out of room for its reply${msg.content?.trim() ? '' : ' while thinking'}. Continue, or pick a model that thinks less.` }); break; }
       if (!calls.length) break;
       for (const tc of calls) {
         const t0 = performance.now();
@@ -7419,7 +7355,7 @@ async function clerkRunSql(sql) {
   if (!r.rejected) journalAdd({ src: 'clerk', sql, ms: r.ms, error: r.error, info: it.summary });
   if (it.write && !r.error && !r.rejected) await afterWrite();
   if (r.rejected) return 'DECLINED: the user did not approve this change.';
-  if (r.error) { const sug = suggestExtension(r.error); return `ERROR: ${r.error}${sug && !extEnabled(sug.id) ? `\nHINT: the ${extSql(sug)} extension provides this — call enable_extension.` : ''}`; }
+  if (r.error) { const sug = suggestExtension(r.error); return `ERROR: ${r.error}${sug && !extEnabled(sug.id) ? `\nHINT: the ${extSql(sug)} extension provides this; call enable_extension.` : ''}`; }
   return r.results.map(x => {
     if (!x.fields.length) return `OK${x.affected ? ` (${x.affected} rows affected)` : ''}`;
     const rows = x.rows.slice(0, 50);
@@ -7605,13 +7541,13 @@ async function checkForUpdate() {
   } catch { return null; }
   const b = $('updateBtn');
   b.classList.toggle('has-update', upd.available);
-  b.title = upd.available ? 'New version available — reload to update' : 'Reload';
+  b.title = upd.available ? 'New version available. Reload to update' : 'Reload';
   return upd.available;
 }
 async function reloadApp() {
   if (C.busy && !(await confirmDlg({ title: 'The Clerk is still working', body: 'Reloading stops its current request. Everything else is saved first.', ok: 'Reload anyway' }))) return;
   $('updateBtn').classList.add('spin');
-  if (HOSTED) { const a = await checkForUpdate(); toast(a ? 'Updating to the latest version…' : a === false ? 'Already up to date — reloading…' : 'Reloading…'); }
+  if (HOSTED) { const a = await checkForUpdate(); toast(a ? 'Updating to the latest version…' : a === false ? 'Already up to date. Reloading…' : 'Reloading…'); }
   try { persistTabs(); saveClerk(); await kvFlush(); } catch {}
   if (HOSTED) { const u = new URL(location.href); u.searchParams.set('_v', Date.now().toString(36)); location.replace(u); }
   else location.reload();
@@ -7678,7 +7614,7 @@ document.body.append(
 
 (async function boot() {
   try { const n = await kvInit(); if (n) console.info(`pgquire: moved ${n} records from localStorage to IndexedDB`); }
-  catch (e) { kv.fallback = true; console.error(e); toast(`Couldn't open IndexedDB (${e.message}) — using limited browser storage for now.`, 'bad'); }
+  catch (e) { kv.fallback = true; console.error(e); toast(`Couldn't open IndexedDB (${e.message}) . Using limited browser storage for now.`, 'bad'); }
   const theme = store.get('theme', matchMedia('(prefers-color-scheme: dark)').matches ? 'night' : 'day');
   document.documentElement.dataset.theme = theme;
   paintThemeIcon();
