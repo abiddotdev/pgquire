@@ -14,7 +14,7 @@ A two-minute tour. No player? [Download it](docs/assets/pgquire-tour.mp4).
 
 - **Real Postgres in a tab, from one HTML file.** PGlite runs PostgreSQL in your browser: no install, no account, no server.
 - **Share a whole database as a link.** The data rides after the `#`, which browsers never send to a server; add a passphrase to encrypt it.
-  [Try one](https://abiddotdev.github.io/pgquire/docs/sample/): a small CRM with saved queries, bird sightings with the `pg_trgm` extension for typo-tolerant search, or 180,000 bike trips, 11 MB of SQL in a 1.7 MB link.
+  [Try one](https://abiddotdev.github.io/pgquire/docs/sample/): bird sightings with `pg_trgm` for typo-tolerant search (small enough for any chat), a sales CRM with a `tablefunc` crosstab (opens in every browser), or 180,000 bike trips, 11 MB of SQL in a 1.7 MB link (Chrome or Edge).
 - **Copy a slice of production into your browser.** A sample of each table, with the rows they reference, to break freely. The server is only read.
 - **An AI that asks before it writes.** The Clerk reads your schema and runs queries; every change waits for your approval.
 - **Production guardrails.** Production connections are red and start read-only, and pgquire can create a login that really can't write.
