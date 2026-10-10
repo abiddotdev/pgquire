@@ -127,6 +127,8 @@ kbd { font: 500 10px var(--mono); border: 1px solid var(--rule); border-bottom-w
 .iconbtn { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: var(--radius); color: var(--ink2); }
 .iconbtn:hover { background: var(--rule2); color: var(--ink); }
 .iconbtn.on { color: var(--blue); background: var(--blue-soft); }
+.gh-link[hidden] { display: none; }
+.gh-link svg.ic { fill: currentColor; stroke: none; }
 .field { height: 28px; border: 1px solid var(--rule); background: var(--sheet); border-radius: var(--radius); padding: 0 9px; outline: none; min-width: 0; }
 .field:focus { border-color: var(--ink2); box-shadow: 0 0 0 3px var(--hl-soft); }
 .field.mono { font: 12.5px var(--mono); }
@@ -1242,6 +1244,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
   <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M10 3.5a2 2 0 0 1 4 0V5h4a1 1 0 0 1 1 1v4h-1.5a2 2 0 0 0 0 4H19v4a1 1 0 0 1-1 1h-4v-1.5a2 2 0 0 0-4 0V19H6a1 1 0 0 1-1-1v-4h1.5a2 2 0 0 0 0-4H5V6a1 1 0 0 1 1-1h4z"/></symbol>
   <symbol id="i-composite" viewBox="0 0 24 24"><path d="M7 5H4v6h3M17 13h3v6h-3M4 8h5c3 0 3 8 6 8h5"/></symbol>
   <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="2.6"/><circle cx="6" cy="12" r="2.6"/><circle cx="18" cy="19" r="2.6"/><path d="m8.3 10.8 7.4-4.4M8.3 13.2l7.4 4.4"/></symbol>
+  <symbol id="i-github" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8"/></symbol>
   <symbol id="i-update" viewBox="0 0 24 24"><path d="M20.5 9A8.5 8.5 0 0 0 5 6.2L3.5 8"/><path d="M3.5 3.5V8H8"/><path d="M3.5 15A8.5 8.5 0 0 0 19 17.8l1.5-1.8"/><path d="M20.5 20.5V16H16"/></symbol>
   <symbol id="i-fit" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
   <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="18.5" cy="12" r="1.3"/></symbol>
@@ -1273,6 +1276,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
       <button class="iconbtn" id="shareBtn" title="Share as link"><svg class="ic"><use href="#i-share"/></svg></button>
       <button class="iconbtn hide-sm" id="journalToggle" title="Journal (Ctrl+Shift+J)"><svg class="ic"><use href="#i-book"/></svg></button>
       <button class="iconbtn" id="themeToggle" title="Appearance: Ledger or Prism, day or night"><svg class="ic"><use href="#i-moon"/></svg></button>
+      <a class="iconbtn hide-sm gh-link" id="ghLink" href="https://github.com/abiddotdev/pgquire" target="_blank" rel="noopener" title="Source on GitHub · a star helps others find pgquire" hidden><svg class="ic"><use href="#i-github"/></svg></a>
       <button class="clerk-toggle" id="clerkToggle" title="The Clerk (Ctrl+J)"><span class="pip"></span><svg class="ic"><use href="#i-quill"/></svg><span class="lbl">Clerk</span></button>
     </div>
   </header>
@@ -1310,7 +1314,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
    localStorage prefix so they carry over.
    (Visual language: a ledger book. Storage keys keep the 'ledger:' prefix for continuity.)
    ========================================================================== */
-const APP_VERSION = '1.0.3';                                                                    // bump on each release
+const APP_VERSION = '1.0.4';                                                                    // bump on each release
 const PGLITE_VER = '0.5.8';
 const PG_CDN = 'https://cdn.jsdelivr.net/npm/@electric-sql/';
 const PGLITE_URL = `${PG_CDN}pglite@${PGLITE_VER}/dist/index.js`;
@@ -1327,6 +1331,8 @@ const HOSTED = /^https?:$/.test(location.protocol);   // served over http(s), no
 
 /* ---------- tiny helpers ---------- */
 const $ = id => document.getElementById(id);
+// The GitHub link shows on the website only: the app and a page opened from a file already came from there.
+if (HOSTED) $('ghLink').hidden = false;
 const app = $('app');
 function h(tag, props, ...kids) {
   const n = document.createElement(tag);
@@ -3597,7 +3603,8 @@ function aboutDialog() {
       h('span', { class: 'smallcaps' }, 'Database'), h('span', {}, S.db ? dbLabel(currentDb()) : 'none open'),
       h('span', { class: 'smallcaps' }, 'Connected to'), pg,
       h('span', { class: 'smallcaps' }, 'Storage'), h('span', {}, storage, ' · ', h('a', { href: '#', onclick: e => { e.preventDefault(); m.close(); storageDialog(); } }, 'See what\'s using it')),
-      h('span', { class: 'smallcaps' }, 'Source'), h('span', {}, link('https://github.com/abiddotdev/pgquire', 'github.com/abiddotdev/pgquire')),
+      h('span', { class: 'smallcaps' }, 'Source'), h('span', {}, link('https://github.com/abiddotdev/pgquire', 'github.com/abiddotdev/pgquire'),
+        h('br'), h('small', { style: 'color:var(--ink3)' }, 'If pgquire is useful to you, a star on GitHub helps others find it.')),
       h('span', { class: 'smallcaps' }, 'Releases'), h('span', {}, link('https://github.com/abiddotdev/pgquire/releases', 'Download the app'))),
     h('div', { class: 'modal-f' },
       h('button', { class: 'btn ghost', onclick: () => { m.close(); openReadme(); } }, 'Help'),
@@ -5097,8 +5104,10 @@ async function deflateRaw(b) { const s = nativeRaw('c'); return s ? pipeBytes(b,
 async function inflateRaw(b) {
   const s = nativeRaw('d');
   try { return s ? await pipeBytes(b, s) : (await fflate()).inflateSync(b); }
-  catch (e) { if (/helper download/.test(e.message)) throw e; throw new Error('the link looks incomplete. It may have been cut off when it was copied or sent'); }
+  catch (e) { if (/helper download/.test(e.message)) throw e; throw linkDamaged(); }
 }
+/** The link's data doesn't decode or unpack: almost always it was cut short when copied or sent. */
+const linkDamaged = () => Object.assign(new Error('the link is damaged or incomplete. It may have been cut off when it was copied or sent'), { damaged: true });
 const hasSubtle = () => !!globalThis.crypto?.subtle;
 async function passKey(pass, salt) {
   if (!hasSubtle()) throw new Error('passphrase links need a secure page (https). Open pgquire over https to unlock this one');
@@ -5112,7 +5121,7 @@ async function encryptBytes(bytes, pass) {
   return out;
 }
 async function decryptBytes(bytes, pass) {
-  if (bytes.length < 29) throw new Error('the link looks incomplete. It may have been cut off when it was copied or sent');
+  if (bytes.length < 29) throw linkDamaged();
   const key = await passKey(pass, bytes.subarray(0, 16));
   try { return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(16, 28) }, key, bytes.subarray(28))); }
   catch { throw new Error('Wrong passphrase, or the link was cut short.'); }
@@ -5220,7 +5229,7 @@ async function openSharedLink() {
   history.replaceState(null, '', location.href.replace(/#.*$/, ''));   // don't re-import on reload
   try {
     let bytes;
-    try { bytes = unb64url(link.data); } catch { throw new Error('the link is damaged. It contains characters that don\'t belong'); }
+    try { bytes = unb64url(link.data); } catch { throw linkDamaged(); }   // a cut can leave a length base64 can't have
     if (link.locked) {
       let unlocked = null;
       for (let attempt = 1; !unlocked; attempt++) {
@@ -5231,9 +5240,19 @@ async function openSharedLink() {
       }
       bytes = unlocked;
     }
-    const man = readTarSession(await inflateRaw(bytes));
+    const tar = await inflateRaw(bytes);
+    let man;
+    try { man = readTarSession(tar); } catch (e) { if (/newer pgquire/.test(e.message)) throw e; throw linkDamaged(); }   // unpacked, but to garbage
     importSessionDialog(null, man, 'a shared link');
-  } catch (e) { toast(`Couldn't open the shared link: ${e.message}`, 'bad'); }
+  } catch (e) { if (e.damaged) damagedLinkDialog(link.data.length); else toast(`Couldn't open the shared link: ${e.message}`, 'bad'); }
+}
+function damagedLinkDialog(chars) {
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'This link is damaged or incomplete'),
+      h('p', {}, `It's a pgquire link, but the database in it doesn't unpack: the ${chars.toLocaleString()} characters that arrived stop short, or some of them changed on the way.`)),
+    h('div', { class: 'modal-b' },
+      h('p', { style: 'margin:0' }, 'Most likely it didn\'t get copied in full. Chat apps, email and some address bars cut very long links short, and losing even the last few characters breaks it. Ask for the link again and paste the whole thing, copied with pgquire\'s Copy link button. For a big database, a .pgquire file is safer than a link.')),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ink', onclick: () => m.close() }, 'Close'))]);
 }
 addEventListener('hashchange', openSharedLink);
 
