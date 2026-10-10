@@ -8,7 +8,9 @@ A two-minute tour. No player? [Download it](docs/assets/pgquire-tour.mp4).
 
 ## Live Demo
 
-**https://abiddotdev.github.io/pgquire/**
+Open the app: **https://abiddotdev.github.io/pgquire/**
+
+Or try a sample database straight from a share link: **https://abiddotdev.github.io/pgquire/docs/sample/**
 
 ## What makes it different
 
