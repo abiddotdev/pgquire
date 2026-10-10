@@ -2,9 +2,9 @@
 
 A single-file Postgres workbench with a clean interface in two looks, Ledger and Prism. On its own it runs a real PostgreSQL (PGlite) entirely in your browser; with its small optional server it also works on your real Postgres servers.
 
-[![pgquire: a two-minute tour. Click to play.](docs/assets/pgquire-tour.webp)](docs/assets/pgquire-tour.mp4)
+https://github.com/user-attachments/assets/91cf1d1f-2c4c-497b-aee9-7b774eafbcab
 
-▶ [Watch the tour](docs/assets/pgquire-tour.mp4) (2 minutes)
+A two-minute tour. No player? [Download it](docs/assets/pgquire-tour.mp4).
 
 ## Live Demo
 
