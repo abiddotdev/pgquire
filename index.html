@@ -1276,7 +1276,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
       <button class="iconbtn" id="shareBtn" title="Share as link"><svg class="ic"><use href="#i-share"/></svg></button>
       <button class="iconbtn hide-sm" id="journalToggle" title="Journal (Ctrl+Shift+J)"><svg class="ic"><use href="#i-book"/></svg></button>
       <button class="iconbtn" id="themeToggle" title="Appearance: Ledger or Prism, day or night"><svg class="ic"><use href="#i-moon"/></svg></button>
-      <a class="iconbtn hide-sm gh-link" id="ghLink" href="https://github.com/abiddotdev/pgquire" target="_blank" rel="noopener" title="Source on GitHub" hidden><svg class="ic"><use href="#i-github"/></svg></a>
+      <a class="iconbtn hide-sm gh-link" id="ghLink" href="https://github.com/abiddotdev/pgquire" target="_blank" rel="noopener" title="Source on GitHub · a star helps others find pgquire" hidden><svg class="ic"><use href="#i-github"/></svg></a>
       <button class="clerk-toggle" id="clerkToggle" title="The Clerk (Ctrl+J)"><span class="pip"></span><svg class="ic"><use href="#i-quill"/></svg><span class="lbl">Clerk</span></button>
     </div>
   </header>
@@ -3603,7 +3603,8 @@ function aboutDialog() {
       h('span', { class: 'smallcaps' }, 'Database'), h('span', {}, S.db ? dbLabel(currentDb()) : 'none open'),
       h('span', { class: 'smallcaps' }, 'Connected to'), pg,
       h('span', { class: 'smallcaps' }, 'Storage'), h('span', {}, storage, ' · ', h('a', { href: '#', onclick: e => { e.preventDefault(); m.close(); storageDialog(); } }, 'See what\'s using it')),
-      h('span', { class: 'smallcaps' }, 'Source'), h('span', {}, link('https://github.com/abiddotdev/pgquire', 'github.com/abiddotdev/pgquire')),
+      h('span', { class: 'smallcaps' }, 'Source'), h('span', {}, link('https://github.com/abiddotdev/pgquire', 'github.com/abiddotdev/pgquire'),
+        h('br'), h('small', { style: 'color:var(--ink3)' }, 'If pgquire is useful to you, a star on GitHub helps others find it.')),
       h('span', { class: 'smallcaps' }, 'Releases'), h('span', {}, link('https://github.com/abiddotdev/pgquire/releases', 'Download the app'))),
     h('div', { class: 'modal-f' },
       h('button', { class: 'btn ghost', onclick: () => { m.close(); openReadme(); } }, 'Help'),
