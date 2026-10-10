@@ -47,3 +47,20 @@ for (const [name, [table, query]] of Object.entries(SAMPLES)) {
     expect(errors).toEqual([]);
   });
 }
+
+// A link cut short or changed on the way says so, however it breaks: a cut can leave a length base64
+// can't have, or data that won't inflate; a changed character can inflate to garbage.
+test('a damaged share link says it is damaged or incomplete', async ({ page }) => {
+  const errors = watchErrors(page);
+  const html = readFileSync(path.join(import.meta.dirname, '../../docs/sample/birds/index.html'), 'utf8');
+  const hash = html.match(/href="(?:\.\.\/)+(#pgquire1\.[^"]+)"/)[1];
+  for (const broken of [hash.slice(0, -1), hash.slice(0, -3), hash.slice(0, 50) + (hash[50] === 'Q' ? 'R' : 'Q') + hash.slice(51)]) {
+    await page.goto('about:blank');
+    await page.goto(env('PAGES') + '/index.html' + broken);
+    await bootDone(page);
+    const dlg = page.locator('.modal', { hasText: 'This link is damaged or incomplete' });
+    await expect(dlg).toBeVisible({ timeout: 30_000 });
+    await dlg.getByRole('button', { name: 'Close' }).click();
+  }
+  expect(errors).toEqual([]);
+});

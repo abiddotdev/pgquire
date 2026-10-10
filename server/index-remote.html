@@ -1339,7 +1339,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
    localStorage prefix so they carry over.
    (Visual language: a ledger book. Storage keys keep the 'ledger:' prefix for continuity.)
    ========================================================================== */
-const APP_VERSION = '1.0.3';                                                                    // bump on each release
+const APP_VERSION = '1.0.4';                                                                    // bump on each release
 const PGLITE_VER = '0.5.8';
 const PG_CDN = 'https://cdn.jsdelivr.net/npm/@electric-sql/';
 const PGLITE_URL = `${PG_CDN}pglite@${PGLITE_VER}/dist/index.js`;
@@ -6188,8 +6188,10 @@ async function deflateRaw(b) { const s = nativeRaw('c'); return s ? pipeBytes(b,
 async function inflateRaw(b) {
   const s = nativeRaw('d');
   try { return s ? await pipeBytes(b, s) : (await fflate()).inflateSync(b); }
-  catch (e) { if (/helper download/.test(e.message)) throw e; throw new Error('the link looks incomplete. It may have been cut off when it was copied or sent'); }
+  catch (e) { if (/helper download/.test(e.message)) throw e; throw linkDamaged(); }
 }
+/** The link's data doesn't decode or unpack: almost always it was cut short when copied or sent. */
+const linkDamaged = () => Object.assign(new Error('the link is damaged or incomplete. It may have been cut off when it was copied or sent'), { damaged: true });
 const hasSubtle = () => !!globalThis.crypto?.subtle;
 async function passKey(pass, salt) {
   if (!hasSubtle()) throw new Error('passphrase links need a secure page (https). Open pgquire over https to unlock this one');
@@ -6203,7 +6205,7 @@ async function encryptBytes(bytes, pass) {
   return out;
 }
 async function decryptBytes(bytes, pass) {
-  if (bytes.length < 29) throw new Error('the link looks incomplete. It may have been cut off when it was copied or sent');
+  if (bytes.length < 29) throw linkDamaged();
   const key = await passKey(pass, bytes.subarray(0, 16));
   try { return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(16, 28) }, key, bytes.subarray(28))); }
   catch { throw new Error('Wrong passphrase, or the link was cut short.'); }
@@ -6312,7 +6314,7 @@ async function openSharedLink() {
   history.replaceState(null, '', location.href.replace(/#.*$/, ''));   // don't re-import on reload
   try {
     let bytes;
-    try { bytes = unb64url(link.data); } catch { throw new Error('the link is damaged. It contains characters that don\'t belong'); }
+    try { bytes = unb64url(link.data); } catch { throw linkDamaged(); }   // a cut can leave a length base64 can't have
     if (link.locked) {
       let unlocked = null;
       for (let attempt = 1; !unlocked; attempt++) {
@@ -6323,9 +6325,19 @@ async function openSharedLink() {
       }
       bytes = unlocked;
     }
-    const man = readTarSession(await inflateRaw(bytes));
+    const tar = await inflateRaw(bytes);
+    let man;
+    try { man = readTarSession(tar); } catch (e) { if (/newer pgquire/.test(e.message)) throw e; throw linkDamaged(); }   // unpacked, but to garbage
     importSessionDialog(null, man, 'a shared link');
-  } catch (e) { toast(`Couldn't open the shared link: ${e.message}`, 'bad'); }
+  } catch (e) { if (e.damaged) damagedLinkDialog(link.data.length); else toast(`Couldn't open the shared link: ${e.message}`, 'bad'); }
+}
+function damagedLinkDialog(chars) {
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'This link is damaged or incomplete'),
+      h('p', {}, `It's a pgquire link, but the database in it doesn't unpack: the ${chars.toLocaleString()} characters that arrived stop short, or some of them changed on the way.`)),
+    h('div', { class: 'modal-b' },
+      h('p', { style: 'margin:0' }, 'Most likely it didn\'t get copied in full. Chat apps, email and some address bars cut very long links short, and losing even the last few characters breaks it. Ask for the link again and paste the whole thing, copied with pgquire\'s Copy link button. For a big database, a .pgquire file is safer than a link.')),
+    h('div', { class: 'modal-f' }, h('span', { class: 'spacer' }), h('button', { class: 'btn ink', onclick: () => m.close() }, 'Close'))]);
 }
 addEventListener('hashchange', openSharedLink);
 
