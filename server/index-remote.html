@@ -201,6 +201,17 @@ select.field { padding-right: 4px; }
 .upd-btn.spin svg { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .clerk-toggle { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px 0 8px; border-radius: 15px; border: 1px solid var(--rule); color: var(--blue); font-weight: 500; margin-left: 6px; }
+.agent-toggle { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px 0 9px; border-radius: 15px; border: 1px solid var(--rule); color: var(--ink3); font-weight: 500; margin-left: 6px; } /* @remote */
+.agent-toggle[hidden] { display: none; } /* @remote */
+.agent-toggle .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--ink4); } /* @remote */
+.agent-toggle.on .pip { background: transparent; box-shadow: inset 0 0 0 1.5px var(--green); } /* @remote */
+.agent-toggle.shared { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent); } /* @remote */
+.agent-toggle.shared .pip { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent); } /* @remote */
+.agent-toggle.busy .pip { animation: agentPulse .9s ease-in-out infinite; } /* @remote */
+@keyframes agentPulse { 50% { opacity: .25; } } /* @remote */
+.agent-setup pre { font: 12px/1.5 var(--mono); background: color-mix(in srgb, var(--ink) 5%, transparent); padding: 10px 12px; border-radius: 6px; white-space: pre-wrap; word-break: break-all; margin: 6px 0 8px; } /* @remote */
+.agent-compose { padding: 12px 16px 14px; border-top: 1px solid var(--rule); color: var(--ink3); font-size: 12.5px; display: flex; gap: 10px; align-items: center; }
+.agent-compose span { flex: 1; }
 .clerk-toggle:hover { border-color: var(--blue); }
 .clerk-toggle .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--ink4); }
 .clerk-toggle.live .pip { background: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
@@ -751,6 +762,7 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .jrow .ja button:hover { background: var(--rule2); color: var(--ink); }
 @media (max-width: 980px) { .jhead { display: none; } .jhead, .jrow { grid-template-columns: 70px 46px minmax(0, 1fr); } .jrow .ji, .jrow .jm, .jrow .ja { display: none; } }
 .jrow .js.src-clerk { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 40%, transparent); }
+.jrow .js.src-agent { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
 .jrow .js.src-grid { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 .jrow.bad .ji { color: var(--red); }
 
@@ -845,6 +857,8 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
   .structure { grid-template-columns: 1fr; }
   .clerk-toggle span.lbl, .top-actions .hide-sm { display: none; }
   .clerk-toggle { padding: 0 8px; margin-left: 2px; }
+  .agent-toggle span.lbl { display: none; } /* @remote */
+  .agent-toggle { padding: 0 9px; margin-left: 2px; } /* @remote */
   .omni { min-width: 0; }
 }
 @media (max-width: 600px) {
@@ -926,6 +940,7 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 [data-look=prism] .omni-list { border-radius: 12px; }
 [data-look=prism] .omni-item { border-radius: 8px; }
 [data-look=prism] .omni-item .kind { border-radius: 5px; }
+[data-look=prism] .agent-toggle { height: 32px; border-radius: 10px; } /* @remote */
 [data-look=prism] .clerk-toggle { height: 32px; border-radius: 10px; background: var(--ink); color: var(--paper); border-color: var(--ink); font-weight: 600; padding: 0 12px 0 10px; }
 [data-look=prism] .clerk-toggle:hover { border-color: var(--ink); background: color-mix(in srgb, var(--ink) 85%, var(--paper)); }
 [data-look=prism] .clerk-toggle .pip { width: 8px; height: 8px; background: color-mix(in srgb, var(--paper) 40%, transparent); }
@@ -1307,6 +1322,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
       <button class="iconbtn hide-sm" id="journalToggle" title="Journal (Ctrl+Shift+J)"><svg class="ic"><use href="#i-book"/></svg></button>
       <button class="iconbtn" id="themeToggle" title="Appearance: Ledger or Prism, day or night"><svg class="ic"><use href="#i-moon"/></svg></button>
       <a class="iconbtn hide-sm gh-link" id="ghLink" href="https://github.com/abiddotdev/pgquire" target="_blank" rel="noopener" title="Source on GitHub · a star helps others find pgquire" hidden><svg class="ic"><use href="#i-github"/></svg></a>
+      <button class="agent-toggle" id="agentBtn" hidden><span class="pip"></span><span class="lbl">Agent</span></button> <!-- @remote -->
       <button class="clerk-toggle" id="clerkToggle" title="The Clerk (Ctrl+J)"><span class="pip"></span><svg class="ic"><use href="#i-quill"/></svg><span class="lbl">Clerk</span></button>
     </div>
   </header>
@@ -1516,7 +1532,7 @@ const S = {
    Database lifecycle
    ========================================================================== */
 const loadDbs = () => store.get('dbs', []);
-const saveDbs = d => store.set('dbs', d);
+const saveDbs = d => { store.set('dbs', d); /*remote:*/agentSoon(); /*:remote*/};
 const currentDb = () => loadDbs().find(d => d.id === S.id);
 
 /** Ask the browser to keep this site's databases when disk runs low (by default it may delete them).
@@ -1537,6 +1553,7 @@ async function openDb(id, opts = {}) {
   persistTabs();
   if (S.db) { await S.db.close().catch(() => {}); S.db = null; }
   S.id = id; store.set('active', id);
+  /*remote:*/agentMoved();   // an agent's waiting approvals were for the database before /*:remote*/
   saveDbs(loadDbs().map(d => d.id === id ? { ...d, opened: Date.now() } : d));
   S.tables = []; S.byKey = {}; S.counts = {}; S.undo = [];
   showDbKind();
@@ -1553,6 +1570,7 @@ async function openDb(id, opts = {}) {
     loadClerk();
     renderAll();
     bootMsg(null);
+    /*remote:*/agentSoon(); /*:remote*/
   } catch (e) {
     if (e.busy) return S.id === id && dbBusy(id, prev);
     console.error(e);
@@ -4310,7 +4328,7 @@ function renderJournal() {
   const counts = S.journal.reduce((a, e) => (a[e.src] = (a[e.src] || 0) + 1, a), {});
   j.replaceChildren(h('div', { class: 'journal-head' },
     h('h2', {}, 'Journal'), h('span', { class: 'smallcaps' }, plural(S.journal.length, 'statement')),
-    h('div', { class: 'seg' }, ['all', 'you', 'grid', 'clerk'].map(k => h('button', { class: J.src === k ? 'on' : '', onclick: () => { J.src = k; renderJournal(); } }, k === 'all' ? 'All' : `${k} ${counts[k] || 0}`))),
+    h('div', { class: 'seg' }, ['all', 'you', 'grid', 'clerk', ...(counts.agent ? ['agent'] : [])].map(k => h('button', { class: J.src === k ? 'on' : '', onclick: () => { J.src = k; renderJournal(); } }, k === 'all' ? 'All' : `${k} ${counts[k] || 0}`))),
     search,
     h('span', { class: 'spacer' }),
     h('button', { class: 'btn sm ghost', disabled: !S.undo.length, onclick: undoLast, title: 'Ctrl+Z (outside inputs)' }, ic('undo'), S.undo.length ? `Undo: ${S.undo.at(-1).label}` : 'Nothing to undo'),
@@ -5163,6 +5181,7 @@ const pgquireServer = () => serverP ??= (/^https?:$/.test(location.protocol)
   : Promise.resolve(null));
 pgquireServer().then(s => {
   S.server = s;
+  agentSoon();
   if (s && !store.get('originNote', false) && S.db && !activeTab()) renderPane();   // Home picks up the one-time note
 });
 
@@ -6110,6 +6129,7 @@ dbChan?.addEventListener('message', async ({ data }) => {
   if (reason) return dbChan.postMessage({ t: 'refused', id: data.id, reason });
   persistTabs();
   S.db = null;
+  /*remote:*/agentMoved(); agentSoon(); /*:remote*/
   await kvFlush();
   await db.close().catch(() => {});
   dbChan.postMessage({ t: 'released', id: data.id });
@@ -6591,6 +6611,29 @@ function saveClerk() {
   if (cur) { cur.updated = Date.now(); cur.convo = convoCache.get(cur.id) || cur.convo; }
   writeClerk(S.id, { cur: C.cur, convs: C.convs }, cur ? [cur.id] : []);
 }
+/* Conversations that aren't the one on screen: an agent's (conv.agent = its name) fill while the user
+   talks to the Clerk in another. */
+function saveConv(conv) {
+  conv.updated = Date.now();
+  if (conv.id === C.cur) return saveClerk();
+  writeClerk(S.id, { cur: C.cur, convs: C.convs }, [conv.id]);
+}
+function pushTo(conv, it) {
+  if (conv.id === C.cur) return clerkPush(it);
+  it.ts ??= Date.now();
+  conv.items.push(it); saveConv(conv);
+}
+/** Put conv on screen (for an approval) once the Clerk isn't busy; false if signal gives up first or
+ *  the database changed meanwhile. */
+async function showConv(conv, signal) {
+  while (C.busy) {
+    if (signal?.aborted || !C.convs.includes(conv)) return false;
+    await new Promise(r => setTimeout(r, 250));
+  }
+  if (signal?.aborted || !C.convs.includes(conv)) return false;
+  if (C.cur !== conv.id) { bindConv(conv); C.showConnect = false; saveClerk(); renderClerk(); }
+  return true;
+}
 function switchConv(id) {
   if (C.busy) return toast('The Clerk is still working. Stop it first.');
   const c = C.convs.find(x => x.id === id);
@@ -6884,7 +6927,8 @@ function renderClerk() {
     h('span', {}, h('b', {}, fmtTok(u.in)), ' in'), h('span', {}, h('b', {}, fmtTok(u.out)), ' out'), h('span', {}, h('b', {}, u.calls), ' calls'), h('span', {}, h('b', {}, fmtMs(u.ms))),
     h('span', { class: 'cost' }, fmtCost(u)));
   const log = h('div', { class: 'clerk-log', id: 'clerkLog', oncontextmenu: clerkMenu });
-  if (C.showConnect || (!clerkOn() && !store.get('clerkBrowse', false))) log.append(connectForm());
+  if (cv.agent) { if (!C.items.length) log.append(h('div', { class: 'c-note' }, `Nothing from ${cv.agent} yet.`)); else for (const it of C.items) log.append(renderClerkItem(it)); }
+  else if (C.showConnect || (!clerkOn() && !store.get('clerkBrowse', false))) log.append(connectForm());
   else if (!C.items.length) log.append(suggestions());
   else for (const it of C.items) log.append(renderClerkItem(it));
   const offline = !clerkOn();
@@ -6910,7 +6954,10 @@ function renderClerk() {
           title: full ? 'Sending the full history every time: best recall, cost grows each turn. Click for compact.' : `Compact: the last ${KEEP_FULL_TURNS} turns in full, older query results shortened to ~${OLD_TOOL_CHARS.toLocaleString()} characters. Click to send everything.`,
           onclick: () => { c.ctxMode = full ? 'compact' : 'full'; saveClerk(); renderClerk(); toast(`This conversation now sends ${full ? 'compact' : 'full'} context`); } }, `Context: ${full ? 'Full' : 'Compact'}`); })(),
       h('span', { class: 'ctx-size', id: 'ctxSize' })));
-  inner.replaceChildren(...[head, usageBar, log, compose].filter(Boolean));
+  const agentNote = cv.agent && h('div', { class: 'agent-compose' },
+    h('span', {}, `Agent access log${cv.title === 'Agent' ? '' : ` for ${cv.agent}`}. The changes it asks for wait here for your stamp.`),
+    h('button', { class: 'btn sm', onclick: startNewConv }, 'Ask the Clerk'));
+  inner.replaceChildren(...[head, usageBar, log, agentNote || compose].filter(Boolean));
   renderClerkCtx();
   if (C.busy) log.append(h('div', { class: 'c-working', id: 'clerkWorking' }, h('span', { class: 'quill' }), 'writing…'));
   log.scrollTop = log.scrollHeight;
@@ -7129,7 +7176,7 @@ function receipt(it, pending) {
   const sqlEl = h('div', { class: 'r-sql' + (it.sql.split('\n').length <= 5 && it.sql.length < 300 ? ' short' : ''), html: highlightSQL(it.sql), title: 'Click to expand' });
   sqlEl.onclick = () => sqlEl.classList.toggle('full');
   const card = h('div', { class: 'receipt' + (write ? ' write' : '') },
-    h('div', { class: 'r-head' }, write ? 'Proposed change' : 'Query', h('span', { class: 'spacer' }), h('span', { class: 'r-meta' }, [it.ts && hms(it.ts), it.ms != null && `${it.ms} ms`].filter(Boolean).join(' · '))),
+    h('div', { class: 'r-head' }, (it.who ? `${it.who} · ` : '') + (write ? 'Proposed change' : 'Query'), h('span', { class: 'spacer' }), h('span', { class: 'r-meta' }, [it.ts && hms(it.ts), it.ms != null && `${it.ms} ms`].filter(Boolean).join(' · '))),
     sqlEl);
   card._sql = it.sql;                          // for the Clerk's right-click menu
   if (it.status === 'applied') card.append(h('div', { class: 'stamp ok', style: it.fresh ? '' : 'animation:none' }, 'APPROVED'));
@@ -7142,7 +7189,7 @@ function receipt(it, pending) {
       h('tbody', {}, it.preview.rows.map(r => h('tr', {}, r.map(v => h('td', { style: v == null ? 'color:var(--ink4);font-style:italic' : '', title: v != null && v.length > 30 ? v : '' }, v ?? 'null')))))))));
   }
   const foot = h('div', { class: 'r-foot' },
-    h('span', {}, it.status === 'rejected' ? (it.interrupted ? 'Not run: the page closed before you approved it' : 'Not run') : it.error ? 'Failed' : it.summary || ''),
+    h('span', {}, it.status === 'rejected' ? (it.interrupted ? it.why || 'Not run: the page closed before you approved it' : 'Not run') : it.error ? 'Failed' : it.summary || ''),
     h('span', { class: 'spacer' }),
     it.status !== 'pending' && h('button', { class: 'btn sm ghost', onclick: () => openQuery(it.sql, { title: `Clerk ${hms(it.ts || Date.now())}`, run: !it.write && !it.error }) }, 'Open ↗'));
   if (!pending) card.append(foot);
@@ -7298,6 +7345,7 @@ function clerkPush(it) {
 
 async function clerkSend(text) {
   if (C.busy || !clerkOn()) return;
+  if (curConv()?.agent) { bindConv(C.convs.find(c => !c.agent && !c.items.length) || newConv()); renderClerk(); }   // an agent's log isn't the Clerk's to answer in
   const ta = $('clerkText'); if (ta) { ta.value = ''; ta.style.height = 'auto'; }
   const conv = curConv();
   const attached = [...C.attach].filter(k => S.byKey[k]);
@@ -7432,30 +7480,40 @@ async function execRO(sql) {
   out.ms = Math.round(performance.now() - t0);
   return out;
 }
-async function execRW(sql) {
+async function execRW(sql, check) {
   if (!(await prodWriteOk(sql))) return { error: 'The user declined to run this on the production database.', ms: 0 }; // @remote
+  const stale = check?.();                        // the production prompt waited: still the same database?
+  if (stale) return { error: stale, ms: 0 };
   const t0 = performance.now();
   try { return { results: (await S.db.exec(sql, { rowMode: 'array' })).map(shapeResult), ms: Math.round(performance.now() - t0) }; }
   catch (e) { return { error: e.message, ms: Math.round(performance.now() - t0) }; }
 }
 
-async function clerkRunSql(sql) {
+/** Run SQL for the Clerk, or (src 'agent', see agent access) a local agent: who names it on its cards,
+ *  which never take the Clerk's approve-all, and conv is the conversation they go in; check() says why
+ *  it may no longer run (checked again after approval); noWrite refuses changes outright; ask is
+ *  passed on to approve(). */
+async function clerkRunSql(sql, { src = 'clerk', who, conv, check, noWrite, ask } = {}) {
   if (!sql) return 'ERROR: empty sql';
-  const it = { k: 'sql', sql, status: 'pending', ts: Date.now() };
+  const it = { k: 'sql', sql, status: 'pending', ts: Date.now(), who };
+  const allowAll = src === 'clerk' && C.allowAll;
   /* @remote { */
-  const gate = isProd() || (store.get('confirm', true) && !C.allowAll);   // production: always ask, every time
+  const gate = !!noWrite || isProd() || (store.get('confirm', true) && !allowAll);   // production: always ask, every time
   /* } @remote */
-  // @pages: const gate = store.get('confirm', true) && !C.allowAll;
-  let r;
+  // @pages: const gate = !!noWrite || (store.get('confirm', true) && !allowAll);
+  let r, stale;
   if (gate) {
     r = leavesReadOnly(sql) ? { needsWrite: true } : await execRO(sql);
-    if (r.needsWrite) {
+    if (r.needsWrite && noWrite) r = { error: noWrite, ms: 0 };
+    else if (r.needsWrite) {
       it.write = true;
-      const ok = await approve(it);
-      r = ok ? await execRW(sql) : { rejected: true };
+      const ok = await approve(it, { who, conv, ...ask });
+      stale = check?.();
+      r = !ok || stale ? { rejected: true } : await execRW(sql, check);
+      if (stale) Object.assign(it, { interrupted: true, why: 'Not run — the database was closed here meanwhile' });
     }
   } else {
-    r = await execRW(sql);
+    r = await execRW(sql, check);
     it.write = !isReadish(sql);
   }
   it.ms = r.ms; it.error = r.error;
@@ -7465,12 +7523,14 @@ async function clerkRunSql(sql) {
   if (last) it.preview = { fields: last.fields.map(f => f.name), rows: last.rows.slice(0, 5) };
   it.summary = r.results ? r.results.map(x => x.fields.length ? plural(x.rows.length, 'row') : x.affected ? `${plural(x.affected, 'row')} affected` : 'ok').join(' · ') : '';
   // Replace the pending card (if any) with the final one.
-  const idx = C.items.indexOf(it);
-  if (idx >= 0) { C.items[idx] = it; saveClerk(); it._node?.replaceWith(receipt(it)); }
-  else clerkPush(it);
-  if (!r.rejected) journalAdd({ src: 'clerk', sql, ms: r.ms, error: r.error, info: it.summary });
+  const items = conv?.items || C.items, idx = items.indexOf(it);
+  if (stale) {}                                   // its card went with the database
+  else if (idx >= 0) { items[idx] = it; conv ? saveConv(conv) : saveClerk(); it._node?.replaceWith(receipt(it)); }
+  else conv ? pushTo(conv, it) : clerkPush(it);
+  if (!r.rejected) journalAdd({ src, sql, ms: r.ms, error: r.error, info: it.summary });
   if (it.write && !r.error && !r.rejected) await afterWrite();
-  if (r.rejected) return 'DECLINED: the user did not approve this change.';
+  if (stale) return stale;
+  if (r.rejected) return it.interrupted ? `NOT RUN: ${it.why}.` : 'DECLINED: the user did not approve this change.';
   if (r.error) { const sug = suggestExtension(r.error); return `ERROR: ${r.error}${sug && !extEnabled(sug.id) ? `\nHINT: the ${extSql(sug)} extension provides this; call enable_extension.` : ''}`; }
   return r.results.map(x => {
     if (!x.fields.length) return `OK${x.affected ? ` (${x.affected} rows affected)` : ''}`;
@@ -7479,24 +7539,228 @@ async function clerkRunSql(sql) {
   }).join('\n---\n').slice(0, 9000) || 'OK';
 }
 
-function approve(it) {
+/** The approval card. who: someone other than the Clerk asks (no approve-all for them), in conversation
+ *  conv, shown once the Clerk isn't busy; onAsk runs as the wait starts; signal withdraws it (not run). */
+async function approve(it, { who, conv, onAsk, signal } = {}) {
+  onAsk?.();
+  if (conv && !(await showConv(conv, signal))) {
+    Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` });
+    return false;
+  }
   return new Promise(res => {
     C.items.push(it); saveClerk();
     const card = receipt(it, true);
     it._node = card;
-    const done = v => { C.approve = null; bar.remove(); res(v); };
+    let settled = false;
+    const done = v => { if (settled) return; settled = true; if (C.approve === done) C.approve = null; bar.remove(); res(v); };
     const bar = h('div', { class: 'r-ask' },
-      h('div', { class: 'q' }, 'This will change the database. Stamp it?'),
+      h('div', { class: 'q' }, who ? `${who} wants to change the database. Stamp it?` : 'This will change the database. Stamp it?'),
       h('button', { class: 'btn sm ink', onclick: () => done(true) }, 'Approve'),
-      /*remote:*/!isProd() && /*:remote*/h('button', { class: 'btn sm', onclick: () => { C.allowAll = true; done(true); } }, 'Approve all this session'),
+      !who && /*remote:*/!isProd() && /*:remote*/h('button', { class: 'btn sm', onclick: () => { C.allowAll = true; done(true); } }, 'Approve all this session'),
       h('button', { class: 'btn sm red', onclick: () => done(false) }, 'Decline'));
     card.append(bar);
-    C.approve = done;
+    if (!who) C.approve = done;
+    signal?.addEventListener('abort', () => { Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` }); done(false); });
+    if (signal?.aborted) { Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` }); done(false); }
     const log = $('clerkLog');
     if (log) { const w = $('clerkWorking'); w ? log.insertBefore(card, w) : log.append(card); log.scrollTop = log.scrollHeight; }
     if (app.classList.contains('clerk-closed')) openClerk();
   });
 }
+
+/* @remote { */
+/* ==========================================================================
+   Agent access — local AI agents (Claude Code, Codex… over MCP) use databases shared with them
+   ========================================================================== */
+/* The user shares a database with agents (Agent, at the top; kept per browser with the database). While
+   anything is shared, each tab holds a stream from the server and tells it which database it has open.
+   An agent's call names a database and comes to the tab that has it open, which runs it the way the
+   Clerk's run (the same approvals; production always asks), in a conversation of the agent's own, and
+   posts the answer back. Nothing runs unless that database is still open here and still shared. */
+const AG = { es: null, tab: null, busy: 0, retry: 0, timer: null, queue: Promise.resolve(), calls: new Map(), wants: new Map() };
+const agentShared = () => loadDbs().filter(d => d.agents);
+const agentWanted = () => !!S.server?.authed && agentShared().length > 0;
+function agentDescribe(d) {
+  return { id: d.id, name: dbLabel(d), engine: d.kind === 'remote' ? `PostgreSQL on ${d.remote?.host || 'a remote server'}` : 'PGlite in the browser',
+    production: isProdDb(d) || undefined, readOnly: (d.kind === 'remote' && !!d.remote?.readOnly) || undefined };
+}
+/** The shared database open in this tab, or null. */
+const agentOpen = () => { const d = currentDb(); return S.db && d?.agents ? d : null; };
+
+/** Something changed (the databases, what's open): connect or disconnect, and tell the server, soon. */
+function agentSoon() {
+  clearTimeout(agentSoon.t);
+  agentSoon.t = setTimeout(() => { agentSync(); agentReport(); paintAgent(); }, 50);
+}
+function agentSync() {
+  if (agentWanted()) { if (!AG.es && !AG.timer) agentConnect(); }
+  else if (AG.es || AG.timer) agentDisconnect();
+}
+function agentConnect() {
+  clearTimeout(AG.timer); AG.timer = null;
+  const es = AG.es = new EventSource('/api/agent/stream');
+  const on = (name, fn) => es.addEventListener(name, e => { if (AG.es === es) fn(JSON.parse(e.data)); });
+  on('hello', d => { AG.tab = d.tab; AG.retry = 0; agentReport(); paintAgent(); });
+  on('call', d => { AG.queue = AG.queue.then(() => agentCall(d.id, d.call)); });   // one at a time
+  on('cancel', d => AG.calls.get(d.id)?.gone.abort());
+  on('want', agentWant);
+  es.onerror = () => {                           // server restarted, network dropped: try again
+    if (AG.es !== es) return;
+    agentDisconnect();
+    if (agentWanted()) AG.timer = setTimeout(agentConnect, Math.min(30000, 1000 * 2 ** AG.retry++));
+  };
+}
+/** Close the stream; calls in hand are given up (approvals withdrawn). */
+function agentDisconnect() {
+  clearTimeout(AG.timer); AG.timer = null;
+  AG.es?.close(); AG.es = null; AG.tab = null;
+  for (const c of AG.calls.values()) c.gone.abort();
+  paintAgent();
+}
+function agentReport(front = document.visibilityState === 'visible' && document.hasFocus()) {
+  if (!AG.tab) return;
+  api('POST', '/api/agent/state', { tab: AG.tab, open: agentOpen()?.id || '', shared: agentShared().map(agentDescribe), front }).catch(() => {});
+}
+addEventListener('focus', () => agentReport(true));
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && agentReport(true));
+addEventListener('storage', e => { if (e.key === 'ledger:dbs') agentSoon(); });   // shared or unshared in another tab
+/** The database changed in this tab: an agent's waiting approvals were for the one before. */
+function agentMoved() { for (const c of AG.calls.values()) c.moved.abort(); }
+
+/** An agent asked for a shared database no tab has open: offer to open it (once in a while). */
+function agentWant({ id, client }) {
+  const d = loadDbs().find(x => x.id === id);
+  if (!d?.agents || S.id === id || Date.now() - (AG.wants.get(id) || 0) < 20000) return;
+  AG.wants.set(id, Date.now());
+  toast(`${agentWho(client)} wants to use “${dbLabel(d)}”, which isn't open.`, null, { label: 'Open it here', run: () => openDb(id) });
+}
+const agentWho = client => client ? client.replace(/^claude-code$/i, 'Claude Code').replace(/^codex(-mcp-client)?$/i, 'Codex') : 'An agent';
+
+async function agentShare(d = currentDb(), on = true) {
+  if (!d) return;
+  if (on && !(await confirmDlg({ title: `Share “${dbLabel(d)}” with agents?`, ok: 'Share',
+    body: `AI agents on this computer that you set up with pgquire (Claude Code, Codex, anything that speaks MCP) can then use it while it's open in pgquire: read its schema, run queries, open tables and put SQL in the editor.\n\n`
+      + `Changes wait for your stamp here, in a Clerk conversation of the agent's own${isProdDb(d) ? ', and on this production database every change asks' : ' (unless you turned confirmations off)'}. Agents never see databases you haven't shared.` }))) return;
+  saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, agents: on || undefined } : x));
+  if (!on && d.id === S.id) agentMoved();
+  toast(on ? `Agents can use “${dbLabel(d)}”.` : `“${dbLabel(d)}” is no longer shared with agents.`);
+}
+
+function paintAgent() {
+  const b = $('agentBtn');
+  b.hidden = !S.server?.authed;
+  const shared = agentShared(), here = agentOpen();
+  b.className = 'agent-toggle' + (shared.length ? ' on' : '') + (here && AG.tab ? ' shared' : '') + (AG.busy ? ' busy' : '');
+  b.title = here ? `Agents can use “${dbLabel(here)}”${AG.tab ? '' : ' (connecting…)'}${AG.busy ? ' — working' : ''}`
+    : shared.length ? `${plural(shared.length, 'database')} shared with agents; not this one`
+    : 'Let a local AI agent (Claude Code, Codex…) use a database';
+}
+$('agentBtn').onclick = e => {
+  const r = e.currentTarget.getBoundingClientRect(), d = currentDb(), shared = agentShared();
+  showMenu(r.left, r.bottom + 4, [
+    d && (d.agents ? { label: `Stop sharing “${dbLabel(d)}”`, icon: 'x', run: () => agentShare(d, false) }
+      : { label: `Share “${dbLabel(d)}” with agents…`, icon: 'plus', run: () => agentShare(d) }),
+    shared.length > 0 && '-',
+    shared.length > 0 && { label: 'Shared with agents', header: true },
+    ...shared.map(x => ({ label: dbLabel(x), cur: x.id === S.id, hint: x.id === S.id ? 'open' : '', run: () => x.id !== S.id && openDb(x.id) })),
+    '-',
+    { label: 'Set up an agent…', icon: 'key', run: agentSetupDialog }]);
+};
+async function agentSetupDialog() {
+  let s;
+  try { s = await api('GET', '/api/agent/setup'); } catch (e) { return toast(e.message, 'bad'); }
+  const exe = s.exe || 'pgquire', q = /\s/.test(exe) ? JSON.stringify(exe) : exe;
+  const block = text => [h('pre', {}, text), h('div', { style: 'display:flex;justify-content:flex-end' }, h('button', { class: 'btn sm', onclick: () => copyText(text) }, ic('copy'), 'Copy'))];
+  const m = modal([
+    h('div', { class: 'modal-h' }, h('h2', {}, 'Set up an agent'), h('p', {}, 'Once is enough: it keeps working across restarts. Agents only see the databases you share with them (Agent → Share), while they are open in pgquire.')),
+    h('div', { class: 'modal-b agent-setup' },
+      h('label', { class: 'lab' }, 'Claude Code: run once'), ...block(`claude mcp add pgquire -- ${q} mcp`),
+      h('label', { class: 'lab', style: 'margin-top:14px' }, 'Codex: add to ~/.codex/config.toml'), ...block(`[mcp_servers.pgquire]\ncommand = ${JSON.stringify(exe)}\nargs = ["mcp"]`),
+      h('p', { style: 'color:var(--ink3);font-size:12.5px;margin-top:14px' }, 'Other MCP clients: run ', h('code', {}, `${exe} mcp`), ' over stdio. It finds this pgquire on its own.'),
+      h('label', { class: 'lab', style: 'margin-top:14px' }, 'Or over HTTP (pgquire in Docker, say): this URL with this token, which stays the same across restarts'),
+      ...block(`claude mcp add --transport http pgquire ${s.url} --header "Authorization: Bearer ${s.token}"`)),
+    h('div', { class: 'modal-f' }, h('button', { class: 'btn ink', onclick: () => m.close() }, 'Done'))], { wide: true });
+}
+
+/* ---------- running a call ---------- */
+const AG_FAILED = /^(ERROR|DECLINED|NOT RUN|MOVED)\b/;
+/** Why a call on database id can't run here now, or null. */
+function agentStale(id, db) {
+  if (S.id !== id || !S.db || (db && S.db !== db)) return `MOVED: “${dbLabel(loadDbs().find(d => d.id === id)) || id}” was closed in that pgquire tab. Nothing ran. Try again; if it isn't open anywhere, the user is asked to open it.`;
+  if (!currentDb()?.agents) return `MOVED: the user stopped sharing “${dbLabel(currentDb())}” with agents. Nothing ran.`;
+  return null;
+}
+/* A call's approval is withdrawn when the agent gives up on it (gone: no answer is sent) or the tab moves
+   to another database (moved: answered MOVED). */
+async function agentCall(id, call) {
+  const c = { gone: new AbortController(), moved: new AbortController() };
+  AG.calls.set(id, c); AG.busy++; paintAgent();
+  let text;
+  try { text = await agentRun(call || {}, id, AbortSignal.any([c.gone.signal, c.moved.signal])); }
+  catch (e) { text = `ERROR: ${e.message}`; }
+  finally { AG.calls.delete(id); AG.busy--; paintAgent(); }
+  if (c.gone.signal.aborted || !AG.tab) return;  // given up: the server has no one to hand an answer to
+  const d = currentDb();
+  await api('POST', '/api/agent/reply', { tab: AG.tab, id, result: { text, error: AG_FAILED.test(text), db: S.id === call?.database && d ? agentDescribe(d) : null } }).catch(() => {});
+}
+function agentConv(who) {
+  let c = C.convs.find(x => x.agent === who);
+  if (!c) { c = newConv(); Object.assign(c, { agent: who, title: who === agentWho() ? 'Agent' : `${who} (agent)` }); saveConv(c); }
+  if (C.cur !== c.id && !C.busy && !curConv()?.items.length) showConv(c);   // on screen, unless that would hide a chat
+  else if (!app.classList.contains('clerk-closed')) renderClerk();
+  return c;
+}
+async function agentRun({ tool, args = {}, client, database }, id, signal) {
+  const stale = agentStale(database);
+  if (stale) return stale;
+  const who = agentWho(client), conv = agentConv(who), db = S.db;
+  if (tool === 'get_schema') {
+    await refreshSchema({ initial: true });
+    pushTo(conv, { k: 'note', text: 'read the schema' });
+    return agentStale(database, db) || schemaText();
+  }
+  if (tool === 'run_sql') return agentSql(String(args.sql || '').trim(), { database, db, who, conv, id, signal });
+  if (tool === 'open_table') {
+    const key = S.byKey[args.table] ? args.table : S.tables.find(t => t.name === args.table || t.key.toLowerCase() === String(args.table).toLowerCase())?.key;
+    if (!key) return `ERROR: no table named ${args.table}`;
+    const tab = openTable(key, { view: 'rows', filter: args.where || '' });
+    await loadRows(tab); if (activeTab() === tab) renderPane();
+    pushTo(conv, { k: 'note', text: `opened ${key}${args.where ? ` where ${args.where}` : ''}` });
+    return tab.error ? `ERROR: ${tab.error}` : `Opened. ${tab.total} rows match.`;
+  }
+  if (tool === 'open_in_editor') {
+    const title = `${args.title || who} ${hms(Date.now())}`;
+    openQuery(String(args.sql || ''), { title });
+    pushTo(conv, { k: 'note', text: `placed SQL in “${title}”` });
+    return 'Placed in a new editor tab; the user will review and run it.';
+  }
+  return `ERROR: unknown tool ${tool}`;
+}
+/** run_sql for an agent: the Clerk's path, plus what a second client on the user's connection needs —
+ *  no writes into the user's open transaction, none left open, session settings put back. */
+async function agentSql(sql, { database, db, who, conv, id, signal }) {
+  if (!sql) return 'ERROR: empty sql';
+  const before = txState(db);
+  const settings = async () => JSON.stringify((await db.query(`select name, setting from pg_settings where source = 'session' order by 1`)).rows);
+  const was = await settings().catch(() => null);
+  let text = await clerkRunSql(sql, { src: 'agent', who, conv, check: () => agentStale(database, db),
+    noWrite: before !== 'I' ? 'ERROR: the user has a transaction of their own open in pgquire, so changes are refused until they commit or roll it back. Reads still work.' : null,
+    ask: { signal, onAsk: () => api('POST', '/api/agent/reply', { tab: AG.tab, id, hold: true }).catch(() => {}) } });
+  if (S.db !== db) return text;
+  if (before === 'I' && txState(db) !== 'I') {
+    await db.exec('ROLLBACK').catch(() => {});
+    journalAdd({ src: 'agent', sql: 'ROLLBACK', info: 'a transaction the agent left open' });
+    paintTx(); await afterWrite();
+    text = 'ERROR: the SQL left a transaction open (BEGIN without COMMIT), so it was rolled back and nothing it did was kept. Send BEGIN … COMMIT together in one run_sql call.';
+  }
+  if (was && await settings().catch(() => was) !== was) {
+    await db.exec('RESET ALL').catch(() => {});
+    for (const { name, setting } of JSON.parse(was)) await db.query('select set_config($1, $2, false)', [name, setting]).catch(() => {});
+    text += '\nNOTE: session settings (SET …) are put back after each call — schema-qualify names instead of changing search_path.';
+  }
+  return text;
+}
+/* } @remote */
 
 /* ==========================================================================
    Theme, keyboard, boot

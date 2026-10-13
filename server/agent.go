@@ -176,13 +176,10 @@ func (h *agentHub) databases() (dbs []agentDBState, tabs int) {
 // resolve finds the shared database ref names: its id, else its name (if only one has it).
 // An empty ref is fine while exactly one database is shared.
 func (h *agentHub) resolve(ref string) (agentDBState, error) {
-	dbs, tabs := h.databases()
+	dbs, _ := h.databases()
 	ref = strings.TrimSpace(ref)
 	if len(dbs) == 0 {
-		if tabs == 0 {
-			return agentDBState{}, &agentError{Code: "no_tabs", Message: "pgquire is running but no pgquire page is open — ask the user to open pgquire in their browser"}
-		}
-		return agentDBState{}, &agentError{Code: "none_shared", Message: "no database is shared with agents — ask the user to open one in pgquire and choose Agent → Share with agents"}
+		return agentDBState{}, &agentError{Code: "none_shared", Message: noneShared}
 	}
 	if ref == "" {
 		if len(dbs) == 1 {
@@ -354,6 +351,9 @@ func (s *server) agentTool(done <-chan struct{}, tool string, args json.RawMessa
 	return "[pgquire: " + describeAgentDB(*r.DB) + "]\n" + r.Text, r.Error
 }
 
+// noneShared: pages connect only while something is shared, so "no page open" looks the same.
+const noneShared = "no database is shared with agents, or pgquire isn't open in the browser — ask the user to open pgquire, open the database and choose Agent → Share with agents"
+
 func describeAgentDB(d agentDB) string {
 	s := fmt.Sprintf("“%s” — %s", d.Name, d.Engine)
 	if d.Production {
@@ -366,12 +366,9 @@ func describeAgentDB(d agentDB) string {
 }
 
 func (s *server) listAgentDatabases() string {
-	dbs, tabs := s.agent.databases()
+	dbs, _ := s.agent.databases()
 	if len(dbs) == 0 {
-		if tabs == 0 {
-			return "pgquire is running, but no pgquire page is open. Ask the user to open pgquire in their browser and share a database with agents (Agent, at the top)."
-		}
-		return "No database is shared with agents yet. Ask the user to open one in pgquire and choose Agent → Share with agents."
+		return noneShared
 	}
 	var b strings.Builder
 	b.WriteString("Databases the user shared with agents. Pass the id (or the name, if no other has it) as `database`.\n")

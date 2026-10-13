@@ -202,6 +202,8 @@ select.field { padding-right: 4px; }
 .upd-btn.spin svg { animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .clerk-toggle { display: flex; align-items: center; gap: 7px; height: 30px; padding: 0 10px 0 8px; border-radius: 15px; border: 1px solid var(--rule); color: var(--blue); font-weight: 500; margin-left: 6px; }
+.agent-compose { padding: 12px 16px 14px; border-top: 1px solid var(--rule); color: var(--ink3); font-size: 12.5px; display: flex; gap: 10px; align-items: center; }
+.agent-compose span { flex: 1; }
 .clerk-toggle:hover { border-color: var(--blue); }
 .clerk-toggle .pip { width: 7px; height: 7px; border-radius: 50%; background: var(--ink4); }
 .clerk-toggle.live .pip { background: var(--blue); box-shadow: 0 0 0 3px var(--blue-soft); }
@@ -724,6 +726,7 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .jrow .ja button:hover { background: var(--rule2); color: var(--ink); }
 @media (max-width: 980px) { .jhead { display: none; } .jhead, .jrow { grid-template-columns: 70px 46px minmax(0, 1fr); } .jrow .ji, .jrow .jm, .jrow .ja { display: none; } }
 .jrow .js.src-clerk { color: var(--blue); border-color: color-mix(in srgb, var(--blue) 40%, transparent); }
+.jrow .js.src-agent { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); }
 .jrow .js.src-grid { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); }
 .jrow.bad .ji { color: var(--red); }
 
@@ -1486,7 +1489,7 @@ const S = {
    Database lifecycle
    ========================================================================== */
 const loadDbs = () => store.get('dbs', []);
-const saveDbs = d => store.set('dbs', d);
+const saveDbs = d => { store.set('dbs', d); };
 const currentDb = () => loadDbs().find(d => d.id === S.id);
 
 /** Ask the browser to keep this site's databases when disk runs low (by default it may delete them).
@@ -1507,6 +1510,7 @@ async function openDb(id, opts = {}) {
   persistTabs();
   if (S.db) { await S.db.close().catch(() => {}); S.db = null; }
   S.id = id; store.set('active', id);
+  
   saveDbs(loadDbs().map(d => d.id === id ? { ...d, opened: Date.now() } : d));
   S.tables = []; S.byKey = {}; S.counts = {}; S.undo = [];
   showDbKind();
@@ -1523,6 +1527,7 @@ async function openDb(id, opts = {}) {
     loadClerk();
     renderAll();
     bootMsg(null);
+    
   } catch (e) {
     if (e.busy) return S.id === id && dbBusy(id, prev);
     console.error(e);
@@ -4179,7 +4184,7 @@ function renderJournal() {
   const counts = S.journal.reduce((a, e) => (a[e.src] = (a[e.src] || 0) + 1, a), {});
   j.replaceChildren(h('div', { class: 'journal-head' },
     h('h2', {}, 'Journal'), h('span', { class: 'smallcaps' }, plural(S.journal.length, 'statement')),
-    h('div', { class: 'seg' }, ['all', 'you', 'grid', 'clerk'].map(k => h('button', { class: J.src === k ? 'on' : '', onclick: () => { J.src = k; renderJournal(); } }, k === 'all' ? 'All' : `${k} ${counts[k] || 0}`))),
+    h('div', { class: 'seg' }, ['all', 'you', 'grid', 'clerk', ...(counts.agent ? ['agent'] : [])].map(k => h('button', { class: J.src === k ? 'on' : '', onclick: () => { J.src = k; renderJournal(); } }, k === 'all' ? 'All' : `${k} ${counts[k] || 0}`))),
     search,
     h('span', { class: 'spacer' }),
     h('button', { class: 'btn sm ghost', disabled: !S.undo.length, onclick: undoLast, title: 'Ctrl+Z (outside inputs)' }, ic('undo'), S.undo.length ? `Undo: ${S.undo.at(-1).label}` : 'Nothing to undo'),
@@ -5021,6 +5026,7 @@ dbChan?.addEventListener('message', async ({ data }) => {
   if (reason) return dbChan.postMessage({ t: 'refused', id: data.id, reason });
   persistTabs();
   S.db = null;
+  
   await kvFlush();
   await db.close().catch(() => {});
   dbChan.postMessage({ t: 'released', id: data.id });
@@ -5499,6 +5505,29 @@ function saveClerk() {
   if (cur) { cur.updated = Date.now(); cur.convo = convoCache.get(cur.id) || cur.convo; }
   writeClerk(S.id, { cur: C.cur, convs: C.convs }, cur ? [cur.id] : []);
 }
+/* Conversations that aren't the one on screen: an agent's (conv.agent = its name) fill while the user
+   talks to the Clerk in another. */
+function saveConv(conv) {
+  conv.updated = Date.now();
+  if (conv.id === C.cur) return saveClerk();
+  writeClerk(S.id, { cur: C.cur, convs: C.convs }, [conv.id]);
+}
+function pushTo(conv, it) {
+  if (conv.id === C.cur) return clerkPush(it);
+  it.ts ??= Date.now();
+  conv.items.push(it); saveConv(conv);
+}
+/** Put conv on screen (for an approval) once the Clerk isn't busy; false if signal gives up first or
+ *  the database changed meanwhile. */
+async function showConv(conv, signal) {
+  while (C.busy) {
+    if (signal?.aborted || !C.convs.includes(conv)) return false;
+    await new Promise(r => setTimeout(r, 250));
+  }
+  if (signal?.aborted || !C.convs.includes(conv)) return false;
+  if (C.cur !== conv.id) { bindConv(conv); C.showConnect = false; saveClerk(); renderClerk(); }
+  return true;
+}
 function switchConv(id) {
   if (C.busy) return toast('The Clerk is still working. Stop it first.');
   const c = C.convs.find(x => x.id === id);
@@ -5792,7 +5821,8 @@ function renderClerk() {
     h('span', {}, h('b', {}, fmtTok(u.in)), ' in'), h('span', {}, h('b', {}, fmtTok(u.out)), ' out'), h('span', {}, h('b', {}, u.calls), ' calls'), h('span', {}, h('b', {}, fmtMs(u.ms))),
     h('span', { class: 'cost' }, fmtCost(u)));
   const log = h('div', { class: 'clerk-log', id: 'clerkLog', oncontextmenu: clerkMenu });
-  if (C.showConnect || (!clerkOn() && !store.get('clerkBrowse', false))) log.append(connectForm());
+  if (cv.agent) { if (!C.items.length) log.append(h('div', { class: 'c-note' }, `Nothing from ${cv.agent} yet.`)); else for (const it of C.items) log.append(renderClerkItem(it)); }
+  else if (C.showConnect || (!clerkOn() && !store.get('clerkBrowse', false))) log.append(connectForm());
   else if (!C.items.length) log.append(suggestions());
   else for (const it of C.items) log.append(renderClerkItem(it));
   const offline = !clerkOn();
@@ -5815,7 +5845,10 @@ function renderClerk() {
           title: full ? 'Sending the full history every time: best recall, cost grows each turn. Click for compact.' : `Compact: the last ${KEEP_FULL_TURNS} turns in full, older query results shortened to ~${OLD_TOOL_CHARS.toLocaleString()} characters. Click to send everything.`,
           onclick: () => { c.ctxMode = full ? 'compact' : 'full'; saveClerk(); renderClerk(); toast(`This conversation now sends ${full ? 'compact' : 'full'} context`); } }, `Context: ${full ? 'Full' : 'Compact'}`); })(),
       h('span', { class: 'ctx-size', id: 'ctxSize' })));
-  inner.replaceChildren(...[head, usageBar, log, compose].filter(Boolean));
+  const agentNote = cv.agent && h('div', { class: 'agent-compose' },
+    h('span', {}, `Agent access log${cv.title === 'Agent' ? '' : ` for ${cv.agent}`}. The changes it asks for wait here for your stamp.`),
+    h('button', { class: 'btn sm', onclick: startNewConv }, 'Ask the Clerk'));
+  inner.replaceChildren(...[head, usageBar, log, agentNote || compose].filter(Boolean));
   renderClerkCtx();
   if (C.busy) log.append(h('div', { class: 'c-working', id: 'clerkWorking' }, h('span', { class: 'quill' }), 'writing…'));
   log.scrollTop = log.scrollHeight;
@@ -6034,7 +6067,7 @@ function receipt(it, pending) {
   const sqlEl = h('div', { class: 'r-sql' + (it.sql.split('\n').length <= 5 && it.sql.length < 300 ? ' short' : ''), html: highlightSQL(it.sql), title: 'Click to expand' });
   sqlEl.onclick = () => sqlEl.classList.toggle('full');
   const card = h('div', { class: 'receipt' + (write ? ' write' : '') },
-    h('div', { class: 'r-head' }, write ? 'Proposed change' : 'Query', h('span', { class: 'spacer' }), h('span', { class: 'r-meta' }, [it.ts && hms(it.ts), it.ms != null && `${it.ms} ms`].filter(Boolean).join(' · '))),
+    h('div', { class: 'r-head' }, (it.who ? `${it.who} · ` : '') + (write ? 'Proposed change' : 'Query'), h('span', { class: 'spacer' }), h('span', { class: 'r-meta' }, [it.ts && hms(it.ts), it.ms != null && `${it.ms} ms`].filter(Boolean).join(' · '))),
     sqlEl);
   card._sql = it.sql;                          // for the Clerk's right-click menu
   if (it.status === 'applied') card.append(h('div', { class: 'stamp ok', style: it.fresh ? '' : 'animation:none' }, 'APPROVED'));
@@ -6047,7 +6080,7 @@ function receipt(it, pending) {
       h('tbody', {}, it.preview.rows.map(r => h('tr', {}, r.map(v => h('td', { style: v == null ? 'color:var(--ink4);font-style:italic' : '', title: v != null && v.length > 30 ? v : '' }, v ?? 'null')))))))));
   }
   const foot = h('div', { class: 'r-foot' },
-    h('span', {}, it.status === 'rejected' ? (it.interrupted ? 'Not run: the page closed before you approved it' : 'Not run') : it.error ? 'Failed' : it.summary || ''),
+    h('span', {}, it.status === 'rejected' ? (it.interrupted ? it.why || 'Not run: the page closed before you approved it' : 'Not run') : it.error ? 'Failed' : it.summary || ''),
     h('span', { class: 'spacer' }),
     it.status !== 'pending' && h('button', { class: 'btn sm ghost', onclick: () => openQuery(it.sql, { title: `Clerk ${hms(it.ts || Date.now())}`, run: !it.write && !it.error }) }, 'Open ↗'));
   if (!pending) card.append(foot);
@@ -6195,6 +6228,7 @@ function clerkPush(it) {
 
 async function clerkSend(text) {
   if (C.busy || !clerkOn()) return;
+  if (curConv()?.agent) { bindConv(C.convs.find(c => !c.agent && !c.items.length) || newConv()); renderClerk(); }   // an agent's log isn't the Clerk's to answer in
   const ta = $('clerkText'); if (ta) { ta.value = ''; ta.style.height = 'auto'; }
   const conv = curConv();
   const attached = [...C.attach].filter(k => S.byKey[k]);
@@ -6329,26 +6363,36 @@ async function execRO(sql) {
   out.ms = Math.round(performance.now() - t0);
   return out;
 }
-async function execRW(sql) {
+async function execRW(sql, check) {
+  const stale = check?.();                        // the production prompt waited: still the same database?
+  if (stale) return { error: stale, ms: 0 };
   const t0 = performance.now();
   try { return { results: (await S.db.exec(sql, { rowMode: 'array' })).map(shapeResult), ms: Math.round(performance.now() - t0) }; }
   catch (e) { return { error: e.message, ms: Math.round(performance.now() - t0) }; }
 }
 
-async function clerkRunSql(sql) {
+/** Run SQL for the Clerk, or (src 'agent', see agent access) a local agent: who names it on its cards,
+ *  which never take the Clerk's approve-all, and conv is the conversation they go in; check() says why
+ *  it may no longer run (checked again after approval); noWrite refuses changes outright; ask is
+ *  passed on to approve(). */
+async function clerkRunSql(sql, { src = 'clerk', who, conv, check, noWrite, ask } = {}) {
   if (!sql) return 'ERROR: empty sql';
-  const it = { k: 'sql', sql, status: 'pending', ts: Date.now() };
-  const gate = store.get('confirm', true) && !C.allowAll;
-  let r;
+  const it = { k: 'sql', sql, status: 'pending', ts: Date.now(), who };
+  const allowAll = src === 'clerk' && C.allowAll;
+  const gate = !!noWrite || (store.get('confirm', true) && !allowAll);
+  let r, stale;
   if (gate) {
     r = leavesReadOnly(sql) ? { needsWrite: true } : await execRO(sql);
-    if (r.needsWrite) {
+    if (r.needsWrite && noWrite) r = { error: noWrite, ms: 0 };
+    else if (r.needsWrite) {
       it.write = true;
-      const ok = await approve(it);
-      r = ok ? await execRW(sql) : { rejected: true };
+      const ok = await approve(it, { who, conv, ...ask });
+      stale = check?.();
+      r = !ok || stale ? { rejected: true } : await execRW(sql, check);
+      if (stale) Object.assign(it, { interrupted: true, why: 'Not run — the database was closed here meanwhile' });
     }
   } else {
-    r = await execRW(sql);
+    r = await execRW(sql, check);
     it.write = !isReadish(sql);
   }
   it.ms = r.ms; it.error = r.error;
@@ -6358,12 +6402,14 @@ async function clerkRunSql(sql) {
   if (last) it.preview = { fields: last.fields.map(f => f.name), rows: last.rows.slice(0, 5) };
   it.summary = r.results ? r.results.map(x => x.fields.length ? plural(x.rows.length, 'row') : x.affected ? `${plural(x.affected, 'row')} affected` : 'ok').join(' · ') : '';
   // Replace the pending card (if any) with the final one.
-  const idx = C.items.indexOf(it);
-  if (idx >= 0) { C.items[idx] = it; saveClerk(); it._node?.replaceWith(receipt(it)); }
-  else clerkPush(it);
-  if (!r.rejected) journalAdd({ src: 'clerk', sql, ms: r.ms, error: r.error, info: it.summary });
+  const items = conv?.items || C.items, idx = items.indexOf(it);
+  if (stale) {}                                   // its card went with the database
+  else if (idx >= 0) { items[idx] = it; conv ? saveConv(conv) : saveClerk(); it._node?.replaceWith(receipt(it)); }
+  else conv ? pushTo(conv, it) : clerkPush(it);
+  if (!r.rejected) journalAdd({ src, sql, ms: r.ms, error: r.error, info: it.summary });
   if (it.write && !r.error && !r.rejected) await afterWrite();
-  if (r.rejected) return 'DECLINED: the user did not approve this change.';
+  if (stale) return stale;
+  if (r.rejected) return it.interrupted ? `NOT RUN: ${it.why}.` : 'DECLINED: the user did not approve this change.';
   if (r.error) { const sug = suggestExtension(r.error); return `ERROR: ${r.error}${sug && !extEnabled(sug.id) ? `\nHINT: the ${extSql(sug)} extension provides this; call enable_extension.` : ''}`; }
   return r.results.map(x => {
     if (!x.fields.length) return `OK${x.affected ? ` (${x.affected} rows affected)` : ''}`;
@@ -6372,24 +6418,35 @@ async function clerkRunSql(sql) {
   }).join('\n---\n').slice(0, 9000) || 'OK';
 }
 
-function approve(it) {
+/** The approval card. who: someone other than the Clerk asks (no approve-all for them), in conversation
+ *  conv, shown once the Clerk isn't busy; onAsk runs as the wait starts; signal withdraws it (not run). */
+async function approve(it, { who, conv, onAsk, signal } = {}) {
+  onAsk?.();
+  if (conv && !(await showConv(conv, signal))) {
+    Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` });
+    return false;
+  }
   return new Promise(res => {
     C.items.push(it); saveClerk();
     const card = receipt(it, true);
     it._node = card;
-    const done = v => { C.approve = null; bar.remove(); res(v); };
+    let settled = false;
+    const done = v => { if (settled) return; settled = true; if (C.approve === done) C.approve = null; bar.remove(); res(v); };
     const bar = h('div', { class: 'r-ask' },
-      h('div', { class: 'q' }, 'This will change the database. Stamp it?'),
+      h('div', { class: 'q' }, who ? `${who} wants to change the database. Stamp it?` : 'This will change the database. Stamp it?'),
       h('button', { class: 'btn sm ink', onclick: () => done(true) }, 'Approve'),
-      h('button', { class: 'btn sm', onclick: () => { C.allowAll = true; done(true); } }, 'Approve all this session'),
+      !who && h('button', { class: 'btn sm', onclick: () => { C.allowAll = true; done(true); } }, 'Approve all this session'),
       h('button', { class: 'btn sm red', onclick: () => done(false) }, 'Decline'));
     card.append(bar);
-    C.approve = done;
+    if (!who) C.approve = done;
+    signal?.addEventListener('abort', () => { Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` }); done(false); });
+    if (signal?.aborted) { Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` }); done(false); }
     const log = $('clerkLog');
     if (log) { const w = $('clerkWorking'); w ? log.insertBefore(card, w) : log.append(card); log.scrollTop = log.scrollHeight; }
     if (app.classList.contains('clerk-closed')) openClerk();
   });
 }
+
 
 /* ==========================================================================
    Theme, keyboard, boot

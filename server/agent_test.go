@@ -187,14 +187,14 @@ func TestAgentTokenGuards(t *testing.T) {
 
 func TestAgentListDatabases(t *testing.T) {
 	c, _ := newTestServer(t, 100, true)
-	if _, text, _ := agentTool(t, c, "agenttok", "list_databases", nil); !strings.Contains(text, "no pgquire page is open") {
+	if _, text, _ := agentTool(t, c, "agenttok", "list_databases", nil); text != noneShared {
 		t.Fatalf("no tabs: %q", text)
 	}
-	if _, text, isErr := agentTool(t, c, "agenttok", "run_sql", map[string]any{"sql": "select 1"}); !isErr || !strings.Contains(text, "no pgquire page is open") {
+	if _, text, isErr := agentTool(t, c, "agenttok", "run_sql", map[string]any{"sql": "select 1"}); !isErr || text != "ERROR: "+noneShared {
 		t.Fatalf("no tabs, run_sql: %q", text)
 	}
 	a := openTab(t, c)
-	if _, text, _ := agentTool(t, c, "agenttok", "list_databases", nil); !strings.Contains(text, "No database is shared") {
+	if _, text, _ := agentTool(t, c, "agenttok", "list_databases", nil); text != noneShared {
 		t.Fatalf("nothing shared: %q", text)
 	}
 	b := openTab(t, c)
@@ -380,4 +380,3 @@ func TestAgentSetupForThePage(t *testing.T) {
 		t.Fatalf("anonymous: %d", code)
 	}
 }
-
