@@ -39,7 +39,7 @@ func newTestServer(t *testing.T, maxRows int, signIn bool) (*client, *server) {
 	ts := httptest.NewUnstartedServer(nil)
 	port := ts.Listener.Addr().(*net.TCPAddr).Port
 	profiles, _ := loadProfiles(filepath.Join(t.TempDir(), "connections.json"))
-	srv := newServer(serverConfig{token: "tok", maxRows: maxRows, stmtTO: time.Minute, profiles: profiles, port: port})
+	srv := newServer(serverConfig{token: "tok", agentToken: "agenttok", maxRows: maxRows, stmtTO: time.Minute, profiles: profiles, port: port})
 	ts.Config.Handler = srv
 	ts.Start()
 	t.Cleanup(func() { srv.sessions.closeAll(); ts.Close() })

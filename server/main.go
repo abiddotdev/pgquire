@@ -4,6 +4,9 @@
 // Served from here, it finds /api and can open remote connections, which appear next to the
 // in-browser databases. Only loopback clients holding the startup token can use the API.
 // index.html, the GitHub Pages copy, is generated from it without the remote parts (internal/pages).
+//
+// Local AI agents reach databases the user shared with them over MCP: POST /mcp, or `pgquire mcp`
+// on stdio (agent.go, mcp.go).
 package main
 
 //go:generate go run ./internal/pages/gen
@@ -36,6 +39,10 @@ var Version = "1.0.4"
 var indexHTML []byte
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		mcpMain(os.Args[2:])
+		return
+	}
 	var (
 		listen   = flag.String("listen", "127.0.0.1:8432", "address to listen on (keep it on loopback)")
 		noOpen   = flag.Bool("no-open", false, "don't open a browser")
@@ -78,6 +85,12 @@ func main() {
 		log.Fatalf("-domain takes a host name only, like pgquire.example.com (got %q)", *domain)
 	}
 
+	// The agent token lasts across restarts, so an agent set up with it over HTTP keeps working.
+	agentToken, err := loadAgentToken(filepath.Join(filepath.Dir(*cfgPath), "agent-token"))
+	if err != nil {
+		log.Printf("warning: keeping the agent token: %v — it changes each start", err)
+	}
+
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
 		log.Fatal(err)
@@ -91,15 +104,16 @@ func main() {
 	}
 
 	srv := newServer(serverConfig{
-		token:     *token,
-		htmlPath:  *htmlPath,
-		maxRows:   *maxRows,
-		stmtTO:    *stmtTO,
-		idleTO:    *idleTO,
-		profiles:  profiles,
-		port:      addr.Port,
-		domain:    *domain,
-		allowHost: !addr.IP.IsLoopback() && *domain == "",
+		token:      *token,
+		agentToken: agentToken,
+		htmlPath:   *htmlPath,
+		maxRows:    *maxRows,
+		stmtTO:     *stmtTO,
+		idleTO:     *idleTO,
+		profiles:   profiles,
+		port:       addr.Port,
+		domain:     *domain,
+		allowHost:  !addr.IP.IsLoopback() && *domain == "",
 	})
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 
@@ -120,6 +134,12 @@ func main() {
 		fmt.Printf("  connected: %s\n", connected)
 	}
 	fmt.Printf("  connections: %s (%d saved)\n", *cfgPath, saved)
+	// For `pgquire mcp`: where this server is, while it runs.
+	agentPath := filepath.Join(filepath.Dir(*cfgPath), "agent.json")
+	if err := writeAgentFile(agentPath, agentInfo{URL: "http://" + browserHost(addr), Token: agentToken, PID: os.Getpid()}); err != nil {
+		log.Printf("warning: writing %s: %v — `pgquire mcp` won't find this server", agentPath, err)
+	}
+	defer removeAgentFile(agentPath)
 	if !*noOpen {
 		openBrowser(url)
 	}
