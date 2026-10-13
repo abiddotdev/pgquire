@@ -64,3 +64,17 @@ test('a damaged share link says it is damaged or incomplete', async ({ page }) =
   }
   expect(errors).toEqual([]);
 });
+
+test('a database is open in one tab at a time: Use it here moves it', async ({ context }) => {
+  const a = await context.newPage(), b = await context.newPage();
+  const ea = watchErrors(a), eb = watchErrors(b);
+  await openApp(a);
+  const name = await a.locator('#dbName').innerText();
+  await b.goto(`${env('URL')}/?t=${env('TOKEN')}`);
+  await expect(b.locator('#bootMsg')).toContainText('is open in another tab', { timeout: 90_000 });
+  await b.locator('#bootActions').getByRole('button', { name: 'Use it here' }).click();
+  await bootDone(b);
+  await expect(b.locator('#dbName')).toHaveText(name);
+  await expect(a.locator('#bootMsg')).toContainText('was opened in another tab');
+  expect([...ea, ...eb]).toEqual([]);
+});

@@ -790,6 +790,8 @@ label.opt { display: flex; gap: 8px; align-items: center; font-size: 13px; }
 .boot b { display: block; font: italic 500 42px var(--serif); letter-spacing: -.02em; }
 .boot .tagline { display: block; font: italic 15px var(--serif); color: var(--red); margin: -2px 0 8px; }
 .boot span { font: italic 15px var(--serif); color: var(--ink3); }
+.boot-actions { display: flex; gap: 8px; justify-content: center; margin: 18px 0 0; }
+.boot-actions:empty { display: none; }
 .boot .bar { width: 160px; height: 2px; background: var(--rule); margin: 16px auto 0; position: relative; overflow: hidden; }
 .boot .bar::after { content: ""; position: absolute; inset: 0; width: 40%; background: var(--red); animation: slide 1.1s ease-in-out infinite; }
 @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
@@ -1251,7 +1253,7 @@ html:not([data-look=prism]) .prof, html:not([data-look=prism]) .idx-bar { displa
   <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.4"/></symbol>
 </svg>
 
-<div class="boot" id="boot"><div><b>pgquire</b><em class="tagline">inquire into your Postgres</em><span id="bootMsg">opening the books…</span><div class="bar"></div></div></div>
+<div class="boot" id="boot"><div><b>pgquire</b><em class="tagline">inquire into your Postgres</em><span id="bootMsg">opening the books…</span><div class="bar"></div><p class="boot-actions" id="bootActions"></p></div></div>
 
 <div class="app" id="app">
   <header class="top">
@@ -1501,6 +1503,7 @@ function newDbMeta(name) {
 }
 
 async function openDb(id, opts = {}) {
+  const prev = opts.prev ?? S.id;
   persistTabs();
   if (S.db) { await S.db.close().catch(() => {}); S.db = null; }
   S.id = id; store.set('active', id);
@@ -1521,13 +1524,16 @@ async function openDb(id, opts = {}) {
     renderAll();
     bootMsg(null);
   } catch (e) {
+    if (e.busy) return S.id === id && dbBusy(id, prev);
     console.error(e);
     bootMsg(navigator.onLine ? `Couldn't open the database: ${e.message}` : 'You\'re offline. The Postgres engine has to download once first.', true, true);
   }
 }
 
-function bootMsg(msg, show, error) {
+/** The boot screen: msg (none hides it), as an error (no progress bar), with buttons [{ label, run }]. */
+function bootMsg(msg, show, error, actions = []) {
   const b = $('boot');
+  $('bootActions').replaceChildren(...actions.map((a, i) => h('button', { class: i ? 'btn' : 'btn ink', onclick: a.run }, a.label)));
   if (!msg) { b.classList.add('gone'); return; }
   $('bootMsg').textContent = msg;
   b.querySelector('.bar').style.display = error ? 'none' : '';
@@ -4383,7 +4389,10 @@ async function deleteDb(d = currentDb()) {
   if (!(await confirmDlg({ title: `Delete "${d.name}"?`, body: 'All tables and data in it are permanently removed from this browser.', ok: 'Delete database', danger: true, typeToConfirm: d.name }))) return;
   const open = d.id === S.id;
   if (open) { await S.db?.close().catch(() => {}); S.db = null; }
+  let unlock;                                    // not while another tab has it open: it would write it back
+  if (!(unlock = await lockDb(d.id))) { toast(`“${d.name}” is open in another tab — close it there, then delete it.`, 'bad'); return; }
   indexedDB.deleteDatabase(PGLITE_IDB(d.id));
+  await unlock?.();
   for (const k of ['tabs', 'journal', 'map', 'clerk', 'clerkv2', 'saved']) store.del(`${k}:${d.id}`);
   for (const k of store.keys(`conv:${d.id}:`)) store.del(k);
   const rest = loadDbs().filter(x => x.id !== d.id);
@@ -4943,12 +4952,96 @@ function showDbKind() {
 async function connectDb(id, opts = {}) {
   await loadPGlite();
   if (dbExtensions(id).length) bootMsg(`loading ${dbExtensions(id).join(', ')}…`, true);
-  return syncExtensions(id, await openInstance(id, opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}));
+  return syncExtensions(id, await openInstance(id, opts.loadDataDir ? { loadDataDir: opts.loadDataDir } : {}, opts.wait));
 }
-async function openInstance(id, extra = {}) {
-  const ids = dbExtensions(id);
-  const opts = { ...extra, ...(ids.length ? { extensions: await extensionModules(ids) } : {}) };
-  return S.PGlite.create(`idb://ledger-${id}`, Object.keys(opts).length ? opts : undefined);
+/** Open a database in this browser. wait: ms to wait for another tab to let go of it (see lockDb);
+ *  without it, a database open elsewhere throws at once (e.busy). */
+async function openInstance(id, extra = {}, wait = 0) {
+  const unlock = await lockDb(id, wait);
+  if (!unlock) throw Object.assign(new Error(`“${loadDbs().find(d => d.id === id)?.name || 'This database'}” is open in another tab — close it there first.`), { busy: true });
+  let inst;
+  try {
+    const ids = dbExtensions(id);
+    const opts = { ...extra, ...(ids.length ? { extensions: await extensionModules(ids) } : {}) };
+    inst = await S.PGlite.create(`idb://ledger-${id}`, Object.keys(opts).length ? opts : undefined);
+  } catch (e) { await unlock(); throw e; }
+  inst.pending = 0;                              // queries running: a tab asked to let go waits for none (dbChan)
+  for (const m of ['query', 'exec', 'transaction', 'dumpDataDir']) {
+    const f = inst[m].bind(inst);
+    inst[m] = async (...a) => { inst.pending++; try { return await f(...a); } finally { inst.pending--; } };
+  }
+  const close = inst.close.bind(inst);
+  inst.close = async () => { try { await close(); } finally { await unlock(); } };
+  return inst;
+}
+
+/* ---------- one tab per database ----------
+   PGlite holds a database in memory and writes it back to IndexedDB, so two tabs with the same one open
+   would overwrite each other's changes. Each open instance holds a Web Lock on its database; another tab
+   that wants it asks the holder to close it (dbChan) and waits for the lock, rather than taking it by
+   force while the holder may still be writing. */
+const dbLockName = id => `pgquire-db:${id}`;
+const dbChan = self.BroadcastChannel ? new BroadcastChannel('pgquire-db') : null;
+/** Lock database id for this tab: resolves to an unlock function (which resolves once the lock is
+ *  free), or null if another tab holds it (after waiting up to wait ms). No Web Locks: no guard. */
+async function lockDb(id, wait = 0) {
+  if (!navigator.locks) return async () => {};
+  let release, timer;
+  const held = new Promise(r => release = r), ac = new AbortController();
+  let done;
+  const got = await new Promise((res, rej) => {
+    done = navigator.locks.request(dbLockName(id), wait ? { signal: ac.signal } : { ifAvailable: true }, lock => { res(!!lock); return lock && held; });
+    done.catch(e => e.name === 'AbortError' ? res(false) : rej(e));
+    if (wait) timer = setTimeout(() => ac.abort(), wait);
+  });
+  clearTimeout(timer);
+  return got ? async () => { release(); await done.catch(() => {}); } : null;
+}
+const heldDbLocks = async () => new Set(((await navigator.locks?.query())?.held || []).map(l => l.name));
+
+/** Ask the tab holding database id to close it. Resolves to its answer ({ t: 'released' } or
+ *  { t: 'refused', reason }), or null when no tab answers (one mid-copy, say: the lock wait covers it). */
+function askRelease(id) {
+  if (!dbChan) return Promise.resolve(null);
+  return new Promise(res => {
+    const on = ({ data }) => { if (data?.id === id && (data.t === 'released' || data.t === 'refused')) finish(data); };
+    const finish = r => { dbChan.removeEventListener('message', on); clearTimeout(timer); res(r); };
+    const timer = setTimeout(() => finish(null), 3000);
+    dbChan.addEventListener('message', on);
+    dbChan.postMessage({ t: 'release', id });
+  });
+}
+/* The holder's side: let go unless that would lose work — an open transaction (scripts, imports and
+   chunked runs keep one) or a query still running. */
+dbChan?.addEventListener('message', async ({ data }) => {
+  if (data?.t !== 'release' || data.id !== S.id || !S.db) return;
+  const db = S.db;
+  const reason = txState(db) !== 'I' ? 'a transaction is open there — commit or roll it back first'
+    : db.pending ? 'it is running a query there' : null;
+  if (reason) return dbChan.postMessage({ t: 'refused', id: data.id, reason });
+  persistTabs();
+  S.db = null;
+  await kvFlush();
+  await db.close().catch(() => {});
+  dbChan.postMessage({ t: 'released', id: data.id });
+  dbBusy(data.id, null, `“${dbLabel(currentDb())}” was opened in another tab, so it closed here — a database is used in one tab at a time, so their changes can't overwrite each other.`);
+});
+
+/** The boot screen for a database open in another tab: bring it here, or open one that's free. */
+async function dbBusy(id, prev, why) {
+  const held = await heldDbLocks(), dbs = loadDbs();
+  const alt = [prev, ...[...dbs].sort((a, b) => (b.opened || 0) - (a.opened || 0)).map(d => d.id)]
+    .map(x => dbs.find(d => d.id === x)).find(d => d && d.id !== id && !held.has(dbLockName(d.id)));
+  bootMsg(why || `“${dbLabel(dbs.find(d => d.id === id))}” is open in another tab. A database is used in one tab at a time, so their changes can't overwrite each other.`, true, true, [
+    { label: 'Use it here', run: () => takeOverDb(id, prev) },
+    alt ? { label: `Open “${dbLabel(alt)}”`, run: () => openDb(alt.id) } : { label: 'New database', run: () => { keepStorage(); openDb(newDbMeta().id); } },
+  ]);
+}
+async function takeOverDb(id, prev) {
+  bootMsg('asking the other tab to close it…', true);
+  const r = await askRelease(id);
+  if (r?.t === 'refused') return dbBusy(id, prev, `The other tab is keeping “${dbLabel(loadDbs().find(d => d.id === id))}”: ${r.reason}.`);
+  openDb(id, { wait: 10000, prev });
 }
 const installedExtensions = async pg => (await pg.query(`select extname, extversion from pg_extension where extname <> 'plpgsql' order by 1`)).rows;
 /** Load whatever the database actually uses: if pg_extension lists something we didn't load, remember it and reopen once. */
@@ -4972,7 +5065,7 @@ async function reopenDb(msg) {
     S.db = await connectDb(id);
     bootMsg(null);
   } catch (e) {
-    bootMsg(`Couldn't reopen the database: ${e.message}`, true, true);
+    if (e.busy) dbBusy(id, null); else bootMsg(`Couldn't reopen the database: ${e.message}`, true, true);
     throw e;
   }
 }
