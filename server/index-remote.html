@@ -2306,6 +2306,12 @@ function readmeSections() {
       ['On production', 'It always asks before changing anything, and Approve all is hidden.'], // @remote
       ['Conversations', 'Several per database, sent with full context or compacted to save tokens; export and import them as JSON.'],
     ] },
+    { t: 'Local AI agents', items: [ // @remote
+      ['Share a database', 'Agent, at the top, shares the open database with AI agents on this computer (Claude Code, Codex, anything that speaks MCP), or stops. Agents only see shared databases, and only while one is open in pgquire; asking for one that isn\'t open offers you Open it here.'], // @remote
+      ['Set up an agent', 'Agent → Set up an agent… gives the line to add pgquire to Claude Code or Codex: pgquire mcp on stdio, or this server\'s /mcp over HTTP with a token that lasts across restarts.'], // @remote
+      ['Your approval', 'Agents run SQL the way the Clerk does: reads at once, changes wait for your stamp, production always asks, and there\'s no Approve all for them. Each agent\'s calls go in a Clerk conversation of its own.'], // @remote
+      ['Your session', 'An agent can\'t write into a transaction you have open, a transaction it leaves open is rolled back, and its SETs don\'t stick.'], // @remote
+    ] }, // @remote
     { t: 'Move data', items: [
       ['Copy to a local database', 'Copy a sample or every row from a server into this browser, and experiment without touching the server.'], // @remote
       ['SQL dump', 'Schema and data as a .sql file that loads with psql, or here as a new database.'],

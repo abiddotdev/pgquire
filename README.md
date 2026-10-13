@@ -18,7 +18,7 @@ Or try a sample database straight from a share link: **https://abiddotdev.github
 - **Share a whole database as a link.** The data rides after the `#`, which browsers never send to a server; add a passphrase to encrypt it.
   [Try one](https://abiddotdev.github.io/pgquire/docs/sample/): bird sightings with `pg_trgm` for typo-tolerant search (small enough for any chat), a sales CRM with a `tablefunc` crosstab (opens in every browser), or 180,000 bike trips, 11 MB of SQL in a 1.7 MB link (Chrome or Edge).
 - **Copy a slice of production into your browser.** A sample of each table, with the rows they reference, to break freely. The server is only read.
-- **An AI that asks before it writes.** The Clerk reads your schema and runs queries; every change waits for your approval.
+- **An AI that asks before it writes.** The Clerk reads your schema and runs queries; every change waits for your approval. With the server, local agents such as Claude Code can use the databases you share with them on the same terms.
 - **Production guardrails.** Production connections are red and start read-only, and pgquire can create a login that really can't write.
 
 <table><tr><td width="50%"><img src="docs/assets/share.webp" alt="Share as link, with a passphrase"></td><td width="50%"><img src="docs/assets/copy-to-local.webp" alt="Copy to a local database: rows per table, and the room it needs in the browser"></td></tr></table>
@@ -139,6 +139,31 @@ Otherwise pick **Connect remote Postgres…** in the database switcher and paste
 
 <table><tr><td width="50%"><img src="docs/assets/remote.webp" alt="A production connection: the red PROD · RO marker, a refused delete, and a warning that the login can still write"></td><td width="50%"><img src="docs/assets/readonly-login.webp" alt="Create a read-only login: the grants it runs, with a generated password kept on the server"></td></tr></table>
 
+**Local AI agents (Claude Code, Codex…)**
+
+An AI agent on your computer can work with databases you share with it, in-browser PGlite ones included, over MCP.
+
+1. In the page, open the database and click **Agent** at the top → **Share “…” with agents**. Do it for each database the agent may use.
+2. Add pgquire to your agent once (**Agent → Set up an agent…** fills in the path):
+   - Claude Code: `claude mcp add pgquire -- /path/to/pgquire mcp`
+   - Codex, in `~/.codex/config.toml`:
+     ```toml
+     [mcp_servers.pgquire]
+     command = "/path/to/pgquire"
+     args = ["mcp"]
+     ```
+   - Over HTTP instead (pgquire in Docker, say): `claude mcp add --transport http pgquire http://127.0.0.1:8432/mcp --header "Authorization: Bearer <agent token>"`. The agent token is in `agent-token` beside `connections.json` and stays the same across restarts. It isn't the page's token, and it opens nothing but the agent's tools.
+
+The tools are `list_databases`, `get_schema`, `run_sql`, `open_table` and `open_in_editor`; each names the database it works on. `pgquire mcp` finds the running server through `agent.json` (beside `connections.json` while pgquire runs), so restarting either side is fine.
+
+Safety:
+- Nothing is shared until you share it, per database and per browser. A call goes to the tab that has its database open and never to another database. If no tab has it open, nothing runs, and pgquire offers you **Open it here**.
+- SQL runs the way the Clerk's does: reads at once, changes wait for **Approve** in the tab unless you turned confirmations off, and production databases always ask. Agents never get **Approve all**. Each agent's calls appear in a Clerk conversation of its own, which comes forward for an approval once the Clerk isn't busy, and in the journal.
+- If the database is closed or unshared while a change waits, it doesn't run. If the agent gives up, the approval is withdrawn.
+- An agent can't leave a transaction open, because it's rolled back. It can't write into one of yours either, though it can still read. Its `SET`s don't stick.
+- If the tab goes away while it holds a call, the agent is told the outcome is unknown, not that it failed, so it checks before retrying.
+- A database is open in one tab at a time (**Use it here** moves it), so two tabs can't overwrite each other's changes.
+
 **Data**
 - Big tables show estimated row counts (`~`). Results in the page are capped at 50,000 rows (`-max-rows`); **CSV (all)** and table **Export CSV** stream every row.
 - **Move data…** in the switcher gathers every way data goes in or out:
@@ -167,7 +192,7 @@ In Docker, change the port with both: `-e PGQUIRE_LISTEN=0.0.0.0:9000 -p 127.0.0
 
 Tests (in `server/`): `PGQUIRE_TEST_DSN=postgres://… go test ./...`
 
-Browser tests (in `e2e/`, needs Go, Node and Docker): `npm ci && npx playwright install chromium && npm test`. They build the server, start a throwaway Postgres container and run the page in Chromium: connecting, queries, editing tables, read-only logins, `-dsn`, and PGlite (from its CDN) in the app and the Pages copy. To use a Postgres of your own instead of the container, set `PGQUIRE_E2E_PG=postgres://user:pass@host/postgres` (it creates the `e2e_shop` database and the `pgquire_e2e_ro` login, and drops them first if they're there). The remote tests build on each other, so run `tests/remote.spec.js` whole rather than one test with `-g`.
+Browser tests (in `e2e/`, needs Go, Node and Docker): `npm ci && npx playwright install chromium && npm test`. They build the server, start a throwaway Postgres container and run the page in Chromium: connecting, queries, editing tables, read-only logins, `-dsn`, agent access over HTTP and stdio, and PGlite (from its CDN) in the app and the Pages copy. To use a Postgres of your own instead of the container, set `PGQUIRE_E2E_PG=postgres://user:pass@host/postgres` (it creates the `e2e_shop` database and the `pgquire_e2e_ro` login, and drops them first if they're there). The remote tests build on each other, so run `tests/remote.spec.js` whole rather than one test with `-g`.
 
 ### Editing the page
 
