@@ -39,7 +39,7 @@ func newTestServer(t *testing.T, maxRows int, signIn bool) (*client, *server) {
 	ts := httptest.NewUnstartedServer(nil)
 	port := ts.Listener.Addr().(*net.TCPAddr).Port
 	profiles, _ := loadProfiles(filepath.Join(t.TempDir(), "connections.json"))
-	srv := newServer(serverConfig{token: "tok", maxRows: maxRows, stmtTO: time.Minute, profiles: profiles, port: port})
+	srv := newServer(serverConfig{token: "tok", agentToken: "agenttok", maxRows: maxRows, stmtTO: time.Minute, profiles: profiles, port: port})
 	ts.Config.Handler = srv
 	ts.Start()
 	t.Cleanup(func() { srv.sessions.closeAll(); ts.Close() })
@@ -99,6 +99,15 @@ func TestTokenLinkSetsCookieAndStripsToken(t *testing.T) {
 	c.do("GET", "/api/health", nil, &h)
 	if !h.Authed {
 		t.Fatal("cookie not accepted after the token link")
+	}
+	// A path starting // would make the redirect go to another site.
+	resp, err = c.hc.Get(c.base + "//evil.example/x?t=wrong")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if loc := resp.Header.Get("Location"); loc != "/evil.example/x" {
+		t.Fatalf("token link on //host: redirected to %q", loc)
 	}
 }
 
@@ -542,6 +551,7 @@ func TestOptionsFromEnv(t *testing.T) {
 		fs.String("token", "", "")
 		fs.String("domain", "", "")
 		fs.String("dsn", "", "")
+		fs.Bool("mcp-http", false, "")
 		describeEnv(fs)
 		if err := fs.Parse(args); err != nil {
 			t.Fatal(err)
@@ -552,14 +562,14 @@ func TestOptionsFromEnv(t *testing.T) {
 
 	fs, err := parse(map[string]string{
 		"PGQUIRE_LISTEN": "0.0.0.0:9000", "PGQUIRE_NO_OPEN": "1", "PGQUIRE_MAX_ROWS": "10",
-		"PGQUIRE_IDLE_TIMEOUT": "1h", "PGQUIRE_TOKEN": "env-token",
+		"PGQUIRE_IDLE_TIMEOUT": "1h", "PGQUIRE_TOKEN": "env-token", "PGQUIRE_MCP_HTTP": "1",
 	}, "-token", "flag-token")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]string{
 		"listen": "0.0.0.0:9000", "no-open": "true", "max-rows": "10", "idle-timeout": "1h0m0s",
-		"token": "flag-token", "statement-timeout": "5m0s", "config": "",
+		"token": "flag-token", "statement-timeout": "5m0s", "config": "", "mcp-http": "true",
 	} {
 		if got := get(fs, name); got != want {
 			t.Errorf("-%s = %q, want %q", name, got, want)

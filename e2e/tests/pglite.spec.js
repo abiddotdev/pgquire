@@ -27,6 +27,7 @@ test('the GitHub Pages copy: no server, PGlite only', async ({ page }) => {
   await sampleAndQuery(page);
   await page.click('#dbSwitch');
   await expect(page.locator('.menu')).toContainText('needs the pgquire app'); // remote is offered, but explained
+  await expect(page.locator('#agentBtn')).toHaveCount(0);   // no agent access without the server
   expect(errors).toEqual([]);
 });
 
@@ -63,4 +64,18 @@ test('a damaged share link says it is damaged or incomplete', async ({ page }) =
     await dlg.getByRole('button', { name: 'Close' }).click();
   }
   expect(errors).toEqual([]);
+});
+
+test('a database is open in one tab at a time: Use it here moves it', async ({ context }) => {
+  const a = await context.newPage(), b = await context.newPage();
+  const ea = watchErrors(a), eb = watchErrors(b);
+  await openApp(a);
+  const name = await a.locator('#dbName').innerText();
+  await b.goto(`${env('URL')}/?t=${env('TOKEN')}`);
+  await expect(b.locator('#bootMsg')).toContainText('is open in another tab', { timeout: 90_000 });
+  await b.locator('#bootActions').getByRole('button', { name: 'Use it here' }).click();
+  await bootDone(b);
+  await expect(b.locator('#dbName')).toHaveText(name);
+  await expect(a.locator('#bootMsg')).toContainText('was opened in another tab');
+  expect([...ea, ...eb]).toEqual([]);
 });

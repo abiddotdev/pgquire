@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/subtle"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -13,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -21,15 +21,18 @@ import (
 const cookieName = "pgquire_t"
 
 type serverConfig struct {
-	token     string
-	htmlPath  string // serve from disk (development) instead of the embedded page
-	maxRows   int
-	stmtTO    time.Duration
-	idleTO    time.Duration
-	profiles  *profileStore
-	port      int
-	domain    string // also accept requests for this host name (behind a proxy, say)
-	allowHost bool   // listening beyond loopback with no domain set: skip the Host check
+	token      string
+	agentToken string // for agents (/mcp, `pgquire mcp`); "" turns agent access off
+	agentFiles agentFiles
+	mcpHTTP    bool   // agents over HTTP (/mcp, and agent calls from other machines); off: only `pgquire mcp` here
+	htmlPath   string // serve from disk (development) instead of the embedded page
+	maxRows    int
+	stmtTO     time.Duration
+	idleTO     time.Duration
+	profiles   *profileStore
+	port       int
+	domain     string // also accept requests for this host name (behind a proxy, say)
+	allowHost  bool   // listening beyond loopback with no domain set: skip the Host check
 }
 
 type server struct {
@@ -38,6 +41,10 @@ type server struct {
 	mux      *http.ServeMux
 	exports  exportStore
 	startup  *startupOpen // the -dsn connection, set before serving
+	agent    *agentHub
+	mcp      mcpSessions
+	agentMu  sync.RWMutex
+	agentKey string // the agent token now (the user can replace it)
 }
 
 // startupOpen tells the page which connection to open; id is new each start, so each browser
@@ -48,7 +55,7 @@ type startupOpen struct {
 }
 
 func newServer(cfg serverConfig) *server {
-	s := &server{cfg: cfg, sessions: newSessionManager(cfg.stmtTO, cfg.idleTO), mux: http.NewServeMux()}
+	s := &server{cfg: cfg, sessions: newSessionManager(cfg.stmtTO, cfg.idleTO), mux: http.NewServeMux(), agent: newAgentHub(), agentKey: cfg.agentToken}
 	s.mux.HandleFunc("GET /{$}", s.page)
 	s.mux.HandleFunc("GET /index.html", s.page)
 	s.mux.HandleFunc("GET /api/health", s.health)
@@ -66,6 +73,13 @@ func newServer(cfg serverConfig) *server {
 	s.mux.HandleFunc("POST /api/sessions/{id}/exec", s.auth(s.withSession(s.exec)))
 	s.mux.HandleFunc("POST /api/sessions/{id}/cancel", s.auth(s.cancel))
 	s.mux.HandleFunc("POST /api/sessions/{id}/close", s.auth(s.closeSession))
+	s.mux.HandleFunc("GET /api/agent/stream", s.auth(s.agentStream))
+	s.mux.HandleFunc("POST /api/agent/state", s.auth(s.agentState))
+	s.mux.HandleFunc("POST /api/agent/reply", s.auth(s.agentReply))
+	s.mux.HandleFunc("GET /api/agent/setup", s.auth(s.agentSetup))
+	s.mux.HandleFunc("POST /api/agent/token", s.auth(s.newAgentToken))
+	s.mux.HandleFunc("POST /api/agent/call", s.bearer(s.agentCall))
+	s.mux.HandleFunc("/mcp", s.bearer(s.mcpHTTP))
 	return s
 }
 
@@ -76,7 +90,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unexpected Host header", http.StatusMisdirectedRequest)
 		return
 	}
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead && !agentRequest(r) {
 		if o := r.Header.Get("Origin"); o != "http://"+r.Host && o != "https://"+r.Host {
 			writeErr(w, http.StatusForbidden, "cross-origin request refused")
 			return
@@ -87,6 +101,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			setTokenCookie(w, r, t)
 		}
 		u := *r.URL
+		u.Path, u.RawPath = "/"+strings.TrimLeft(u.Path, "/"), "" // //host/… would send the browser to host
 		q := u.Query()
 		q.Del("t")
 		u.RawQuery = q.Encode()
@@ -115,17 +130,22 @@ func (s *server) domainHost(host string) bool {
 	return strings.EqualFold(host, s.cfg.domain)
 }
 
-func (s *server) tokenOK(t string) bool {
-	return subtle.ConstantTimeCompare([]byte(t), []byte(s.cfg.token)) == 1
-}
+func (s *server) tokenOK(t string) bool { return constEq(t, s.cfg.token) }
 
 // setTokenCookie marks the cookie Secure when the page came over HTTPS, directly or through a proxy
 // that says so, so the browser never sends it over plain HTTP. A forged header only makes the
 // cookie stricter.
 func setTokenCookie(w http.ResponseWriter, r *http.Request, t string) {
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, Secure: requestScheme(r) == "https", SameSite: http.SameSiteStrictMode})
+}
+
+// requestScheme is how the browser reached pgquire: https directly or through a proxy that says so.
+func requestScheme(r *http.Request) string {
 	proto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
-	secure := r.TLS != nil || strings.EqualFold(strings.TrimSpace(proto), "https")
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode})
+	if r.TLS != nil || strings.EqualFold(strings.TrimSpace(proto), "https") {
+		return "https"
+	}
+	return "http"
 }
 
 // signIn is the pasted-token way in, for a page opened without the link (a bookmark, or a restart

@@ -4,6 +4,9 @@
 // Served from here, it finds /api and can open remote connections, which appear next to the
 // in-browser databases. Only loopback clients holding the startup token can use the API.
 // index.html, the GitHub Pages copy, is generated from it without the remote parts (internal/pages).
+//
+// Local AI agents reach databases the user shared with them over MCP: POST /mcp, or `pgquire mcp`
+// on stdio (agent.go, mcp.go).
 package main
 
 //go:generate go run ./internal/pages/gen
@@ -36,6 +39,10 @@ var Version = "1.0.4"
 var indexHTML []byte
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "mcp" {
+		mcpMain(os.Args[2:])
+		return
+	}
 	var (
 		listen   = flag.String("listen", "127.0.0.1:8432", "address to listen on (keep it on loopback)")
 		noOpen   = flag.Bool("no-open", false, "don't open a browser")
@@ -46,6 +53,7 @@ func main() {
 		idleTO   = flag.Duration("idle-timeout", 30*time.Minute, "close remote sessions idle this long")
 		token    = flag.String("token", "", "access token (default: random each start)")
 		domain   = flag.String("domain", "", "host name pgquire is reached by, e.g. behind a proxy; requests for other names are refused")
+		mcpHTTP  = flag.Bool("mcp-http", false, "let AI agents connect over HTTP at /mcp with the agent token (pgquire in Docker or on a server; use HTTPS beyond this machine). Off: only `pgquire mcp` on this machine")
 		dsn      = flag.String("dsn", "", "connect to this Postgres at start and open it in the page, e.g. postgres://user@host/db (kept for this run only; a password can come from ~/.pgpass)")
 		showVer  = flag.Bool("version", false, "print the version and exit")
 	)
@@ -78,6 +86,13 @@ func main() {
 		log.Fatalf("-domain takes a host name only, like pgquire.example.com (got %q)", *domain)
 	}
 
+	// The agent token lasts across restarts, so an agent set up with it over HTTP keeps working.
+	files := agentFiles{token: filepath.Join(filepath.Dir(*cfgPath), "agent-token"), info: filepath.Join(filepath.Dir(*cfgPath), "agent.json")}
+	agentToken, err := loadAgentToken(files.token)
+	if err != nil {
+		log.Printf("warning: keeping the agent token: %v — it changes each start", err)
+	}
+
 	ln, err := net.Listen("tcp", *listen)
 	if err != nil {
 		log.Fatal(err)
@@ -91,15 +106,18 @@ func main() {
 	}
 
 	srv := newServer(serverConfig{
-		token:     *token,
-		htmlPath:  *htmlPath,
-		maxRows:   *maxRows,
-		stmtTO:    *stmtTO,
-		idleTO:    *idleTO,
-		profiles:  profiles,
-		port:      addr.Port,
-		domain:    *domain,
-		allowHost: !addr.IP.IsLoopback() && *domain == "",
+		token:      *token,
+		agentToken: agentToken,
+		agentFiles: files,
+		mcpHTTP:    *mcpHTTP,
+		htmlPath:   *htmlPath,
+		maxRows:    *maxRows,
+		stmtTO:     *stmtTO,
+		idleTO:     *idleTO,
+		profiles:   profiles,
+		port:       addr.Port,
+		domain:     *domain,
+		allowHost:  !addr.IP.IsLoopback() && *domain == "",
 	})
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
 
@@ -120,6 +138,19 @@ func main() {
 		fmt.Printf("  connected: %s\n", connected)
 	}
 	fmt.Printf("  connections: %s (%d saved)\n", *cfgPath, saved)
+	if *mcpHTTP {
+		fmt.Printf("  agents over HTTP: on, at /mcp with the token in %s\n", files.token)
+	}
+	// For `pgquire mcp`: where this server is, while it runs.
+	agentPath := files.info
+	info := agentInfo{URL: "http://" + browserHost(addr), Token: agentToken, PID: os.Getpid()}
+	if *domain != "" && !addr.IP.IsLoopback() && !addr.IP.IsUnspecified() { // an address that isn't loopback: only -domain passes the Host check
+		info.Host = *domain
+	}
+	if err := writeAgentFile(agentPath, info); err != nil {
+		log.Printf("warning: writing %s: %v — `pgquire mcp` won't find this server", agentPath, err)
+	}
+	defer removeAgentFile(agentPath)
 	if !*noOpen {
 		openBrowser(url)
 	}
@@ -150,6 +181,7 @@ var envFlags = []struct{ flag, env string }{
 	{"token", "PGQUIRE_TOKEN"},
 	{"domain", "PGQUIRE_DOMAIN"},
 	{"dsn", "PGQUIRE_DSN"},
+	{"mcp-http", "PGQUIRE_MCP_HTTP"},
 }
 
 // describeEnv names each option's variable in -h.
@@ -175,7 +207,10 @@ func applyEnv(fs *flag.FlagSet, getenv func(string) string) error {
 }
 
 func browserHost(a *net.TCPAddr) string {
-	if a.IP.IsUnspecified() || a.IP.IsLoopback() {
+	switch {
+	case a.IP.IsLoopback() && a.IP.To4() == nil: // listening on [::1] only: 127.0.0.1 wouldn't reach it
+		return fmt.Sprintf("[::1]:%d", a.Port)
+	case a.IP.IsUnspecified() || a.IP.IsLoopback():
 		return fmt.Sprintf("127.0.0.1:%d", a.Port)
 	}
 	return a.String()

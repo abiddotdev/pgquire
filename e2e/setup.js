@@ -38,7 +38,7 @@ export default async function setup() {
     execFileSync('go', ['build', '-o', bin, '.'], { cwd: path.join(root, 'server'), stdio: 'inherit' });
     const token = randomBytes(12).toString('hex');
     const port = await freePort();
-    const srv = spawn(bin, ['-listen', `127.0.0.1:${port}`, '-no-open', '-token', token, '-config', path.join(tmp, 'connections.json')], { stdio: ['ignore', 'ignore', 'inherit'] });
+    const srv = spawn(bin, ['-listen', `127.0.0.1:${port}`, '-no-open', '-mcp-http', '-token', token, '-config', path.join(tmp, 'connections.json')], { stdio: ['ignore', 'ignore', 'inherit'] });
     undo.push(() => srv.kill());
     const url = `http://127.0.0.1:${port}`;
     await waitFor(async () => { if (!(await fetch(url + '/api/health')).ok) throw new Error('not up'); }, 'pgquire');
