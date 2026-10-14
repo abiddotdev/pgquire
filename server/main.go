@@ -86,7 +86,8 @@ func main() {
 	}
 
 	// The agent token lasts across restarts, so an agent set up with it over HTTP keeps working.
-	agentToken, err := loadAgentToken(filepath.Join(filepath.Dir(*cfgPath), "agent-token"))
+	files := agentFiles{token: filepath.Join(filepath.Dir(*cfgPath), "agent-token"), info: filepath.Join(filepath.Dir(*cfgPath), "agent.json")}
+	agentToken, err := loadAgentToken(files.token)
 	if err != nil {
 		log.Printf("warning: keeping the agent token: %v — it changes each start", err)
 	}
@@ -106,6 +107,7 @@ func main() {
 	srv := newServer(serverConfig{
 		token:      *token,
 		agentToken: agentToken,
+		agentFiles: files,
 		htmlPath:   *htmlPath,
 		maxRows:    *maxRows,
 		stmtTO:     *stmtTO,
@@ -135,7 +137,7 @@ func main() {
 	}
 	fmt.Printf("  connections: %s (%d saved)\n", *cfgPath, saved)
 	// For `pgquire mcp`: where this server is, while it runs.
-	agentPath := filepath.Join(filepath.Dir(*cfgPath), "agent.json")
+	agentPath := files.info
 	if err := writeAgentFile(agentPath, agentInfo{URL: "http://" + browserHost(addr), Token: agentToken, PID: os.Getpid()}); err != nil {
 		log.Printf("warning: writing %s: %v — `pgquire mcp` won't find this server", agentPath, err)
 	}

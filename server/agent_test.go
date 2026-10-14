@@ -190,7 +190,7 @@ func TestAgentListDatabases(t *testing.T) {
 	if _, text, _ := agentTool(t, c, "agenttok", "list_databases", nil); text != noneShared {
 		t.Fatalf("no tabs: %q", text)
 	}
-	if _, text, isErr := agentTool(t, c, "agenttok", "run_sql", map[string]any{"sql": "select 1"}); !isErr || text != "ERROR: "+noneShared {
+	if _, text, isErr := agentTool(t, c, "agenttok", "run_sql", map[string]any{"purpose": "test", "sql": "select 1"}); !isErr || text != "ERROR: "+noneShared {
 		t.Fatalf("no tabs, run_sql: %q", text)
 	}
 	a := openTab(t, c)
@@ -217,7 +217,7 @@ func TestAgentCallGoesToTheTabWithTheDatabase(t *testing.T) {
 	a, b := openTab(t, c), openTab(t, c)
 	a.report("db1", false, shop, notes)
 	b.report("db2", true, shop, notes)
-	ch := agentToolAsync(t, c, "run_sql", map[string]any{"database": "shop", "sql": "select 1"}) // by name
+	ch := agentToolAsync(t, c, "run_sql", map[string]any{"database": "shop", "purpose": "test", "sql": "select 1"}) // by name
 	ev := a.next("call")
 	call := ev.data["call"].(map[string]any)
 	if call["tool"] != "run_sql" || call["database"] != "db1" || call["client"] != "claude-code" || call["args"].(map[string]any)["sql"] != "select 1" {
@@ -267,7 +267,7 @@ func TestAgentDatabaseNotOpenAsksTheUser(t *testing.T) {
 	a, b := openTab(t, c), openTab(t, c)
 	a.report("db1", true, shop, notes)
 	b.report("", false, shop, notes)
-	_, text, isErr := agentTool(t, c, "agenttok", "run_sql", map[string]any{"database": "notes", "sql": "delete from x"})
+	_, text, isErr := agentTool(t, c, "agenttok", "run_sql", map[string]any{"database": "notes", "purpose": "test", "sql": "delete from x"})
 	if !isErr || !strings.Contains(text, "“notes” isn't open in pgquire right now. Nothing ran.") {
 		t.Fatalf("not open: %q", text)
 	}
@@ -302,7 +302,7 @@ func TestAgentHoldCancelAndTabGone(t *testing.T) {
 	// A hold (waiting for the user's approval) outlasts the short timeout.
 	a := openTab(t, c)
 	a.report("db1", true, shop)
-	ch := agentToolAsync(t, c, "run_sql", map[string]any{"sql": "delete from t"})
+	ch := agentToolAsync(t, c, "run_sql", map[string]any{"purpose": "test", "sql": "delete from t"})
 	ev := a.next("call")
 	a.reply(ev.data["id"], nil, true)
 	time.Sleep(500 * time.Millisecond)
@@ -312,7 +312,7 @@ func TestAgentHoldCancelAndTabGone(t *testing.T) {
 	}
 
 	// No answer and no hold: it times out, and the tab, which had it, is told to drop it; maybe run.
-	ch = agentToolAsync(t, c, "run_sql", map[string]any{"sql": "delete from t"})
+	ch = agentToolAsync(t, c, "run_sql", map[string]any{"purpose": "test", "sql": "delete from t"})
 	ev = a.next("call")
 	if r := wait(t, ch); !r.isErr || !strings.HasPrefix(r.text, "UNKNOWN OUTCOME: the pgquire tab didn't answer in time") {
 		t.Fatalf("timeout: %+v", r)
@@ -344,7 +344,7 @@ func TestAgentHoldCancelAndTabGone(t *testing.T) {
 	}
 	gone := &fakeTab{t: t, c: c, id: hello.Tab}
 	gone.report("db9", true, agentDB{ID: "db9", Name: "scratch", Engine: "PGlite in the browser"})
-	ch = agentToolAsync(t, c, "run_sql", map[string]any{"database": "db9", "sql": "insert into t values (1)"})
+	ch = agentToolAsync(t, c, "run_sql", map[string]any{"database": "db9", "purpose": "test", "sql": "insert into t values (1)"})
 	for sc.Scan() && sc.Text() != "event: call" {
 	}
 	stop()
@@ -377,6 +377,49 @@ func TestAgentSetupForThePage(t *testing.T) {
 	}
 	anon, _ := newTestServer(t, 100, false)
 	if code := anon.do("GET", "/api/agent/setup", nil, nil); code != 401 {
+		t.Fatalf("anonymous: %d", code)
+	}
+}
+
+func TestAgentRunSQLNeedsAPurpose(t *testing.T) {
+	c, _ := newTestServer(t, 100, true)
+	a := openTab(t, c)
+	a.report("db1", true, shop)
+	for _, purpose := range []string{"", "  "} {
+		if _, text, isErr := agentTool(t, c, "agenttok", "run_sql", map[string]any{"sql": "select 1", "purpose": purpose}); !isErr || !strings.Contains(text, "say what this is for in `purpose`") {
+			t.Fatalf("%q: %q", purpose, text)
+		}
+	}
+	a.none("call")
+}
+
+func TestAgentNewToken(t *testing.T) {
+	c, srv := newTestServer(t, 100, true)
+	dir := t.TempDir()
+	srv.cfg.agentFiles = agentFiles{token: filepath.Join(dir, "agent-token"), info: filepath.Join(dir, "agent.json")}
+	writeAgentFile(srv.cfg.agentFiles.info, agentInfo{URL: c.base, Token: "agenttok", PID: os.Getpid()})
+	var out map[string]any
+	if code := c.do("POST", "/api/agent/token", nil, &out); code != 200 {
+		t.Fatalf("new token: %d", code)
+	}
+	tok := out["token"].(string)
+	if len(tok) != 48 || tok == "agenttok" {
+		t.Fatalf("token %q", tok)
+	}
+	if code, _, _ := agentTool(t, c, "agenttok", "list_databases", nil); code != 401 { // the old one stops working
+		t.Fatalf("old token: %d", code)
+	}
+	if code, _, _ := agentTool(t, c, tok, "list_databases", nil); code != 200 {
+		t.Fatalf("new token: %d", code)
+	}
+	if kept, _ := loadAgentToken(srv.cfg.agentFiles.token); kept != tok { // kept for the next start
+		t.Fatalf("kept %q", kept)
+	}
+	if info, _ := readAgentFile(srv.cfg.agentFiles.info); info.Token != tok { // pgquire mcp carries on
+		t.Fatalf("agent.json %v", info)
+	}
+	anon, _ := newTestServer(t, 100, false)
+	if code := anon.do("POST", "/api/agent/token", nil, nil); code != 401 {
 		t.Fatalf("anonymous: %d", code)
 	}
 }

@@ -27,6 +27,7 @@ test('the GitHub Pages copy: no server, PGlite only', async ({ page }) => {
   await sampleAndQuery(page);
   await page.click('#dbSwitch');
   await expect(page.locator('.menu')).toContainText('needs the pgquire app'); // remote is offered, but explained
+  await expect(page.locator('#agentBtn')).toHaveCount(0);   // no agent access without the server
   expect(errors).toEqual([]);
 });
 

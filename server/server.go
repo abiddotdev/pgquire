@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,6 +23,7 @@ const cookieName = "pgquire_t"
 type serverConfig struct {
 	token      string
 	agentToken string // for agents (/mcp, `pgquire mcp`); "" turns agent access off
+	agentFiles agentFiles
 	htmlPath   string // serve from disk (development) instead of the embedded page
 	maxRows    int
 	stmtTO     time.Duration
@@ -40,6 +42,8 @@ type server struct {
 	startup  *startupOpen // the -dsn connection, set before serving
 	agent    *agentHub
 	mcp      mcpSessions
+	agentMu  sync.RWMutex
+	agentKey string // the agent token now (the user can replace it)
 }
 
 // startupOpen tells the page which connection to open; id is new each start, so each browser
@@ -50,7 +54,7 @@ type startupOpen struct {
 }
 
 func newServer(cfg serverConfig) *server {
-	s := &server{cfg: cfg, sessions: newSessionManager(cfg.stmtTO, cfg.idleTO), mux: http.NewServeMux(), agent: newAgentHub()}
+	s := &server{cfg: cfg, sessions: newSessionManager(cfg.stmtTO, cfg.idleTO), mux: http.NewServeMux(), agent: newAgentHub(), agentKey: cfg.agentToken}
 	s.mux.HandleFunc("GET /{$}", s.page)
 	s.mux.HandleFunc("GET /index.html", s.page)
 	s.mux.HandleFunc("GET /api/health", s.health)
@@ -72,6 +76,7 @@ func newServer(cfg serverConfig) *server {
 	s.mux.HandleFunc("POST /api/agent/state", s.auth(s.agentState))
 	s.mux.HandleFunc("POST /api/agent/reply", s.auth(s.agentReply))
 	s.mux.HandleFunc("GET /api/agent/setup", s.auth(s.agentSetup))
+	s.mux.HandleFunc("POST /api/agent/token", s.auth(s.newAgentToken))
 	s.mux.HandleFunc("POST /api/agent/call", s.bearer(s.agentCall))
 	s.mux.HandleFunc("/mcp", s.bearer(s.mcpHTTP))
 	return s

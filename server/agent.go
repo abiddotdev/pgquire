@@ -321,9 +321,13 @@ func (s *server) agentTool(done <-chan struct{}, tool string, args json.RawMessa
 	}
 	var a struct {
 		Database string `json:"database"`
+		Purpose  string `json:"purpose"`
 	}
 	if err := json.Unmarshal(args, &a); err != nil {
 		return "ERROR: arguments must be an object", true
+	}
+	if tool == "run_sql" && strings.TrimSpace(a.Purpose) == "" {
+		return "ERROR: say what this is for in `purpose`: one short line the user sees above the SQL in pgquire. Nothing ran.", true
 	}
 	db, err := s.agent.resolve(a.Database)
 	if err != nil {
@@ -352,7 +356,7 @@ func (s *server) agentTool(done <-chan struct{}, tool string, args json.RawMessa
 }
 
 // noneShared: pages connect only while something is shared, so "no page open" looks the same.
-const noneShared = "no database is shared with agents, or pgquire isn't open in the browser — ask the user to open pgquire, open the database and choose Agent → Share with agents"
+const noneShared = "no database is shared with agents, or pgquire isn't open in the browser — ask the user to open pgquire, open the database and choose Agents → Share with agents"
 
 func describeAgentDB(d agentDB) string {
 	s := fmt.Sprintf("“%s” — %s", d.Name, d.Engine)
@@ -468,9 +472,38 @@ func (s *server) agentReply(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
+func (s *server) agentToken() string {
+	s.agentMu.RLock()
+	defer s.agentMu.RUnlock()
+	return s.agentKey
+}
+
+// newAgentToken replaces the agent token (one that leaked, say): agents set up over HTTP need the new
+// one; `pgquire mcp` reads it from agent.json, so it carries on.
+func (s *server) newAgentToken(w http.ResponseWriter, r *http.Request) {
+	t := randomHex(24)
+	f := s.cfg.agentFiles
+	if f.token != "" {
+		if err := writePrivate(f.token, []byte(t+"\n")); err != nil {
+			writeErr(w, http.StatusInternalServerError, "keeping the new token: "+err.Error())
+			return
+		}
+	}
+	s.agentMu.Lock()
+	s.agentKey = t
+	s.agentMu.Unlock()
+	if f.info != "" {
+		if info, err := readAgentFile(f.info); err == nil && info.PID == os.Getpid() {
+			info.Token = t
+			writeAgentFile(f.info, info)
+		}
+	}
+	s.agentSetup(w, r)
+}
+
 // agentSetup is what the page shows for setting up an agent.
 func (s *server) agentSetup(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{"url": "http://" + r.Host + "/mcp", "token": s.cfg.agentToken}
+	out := map[string]any{"url": "http://" + r.Host + "/mcp", "token": s.agentToken()}
 	if exe, err := os.Executable(); err == nil && !strings.Contains(exe, "go-build") { // not `go run`'s temporary build
 		out["exe"] = exe
 	}
@@ -497,7 +530,7 @@ func (s *server) agentCall(w http.ResponseWriter, r *http.Request) {
 func (s *server) bearer(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		t, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || s.cfg.agentToken == "" || !constEq(t, s.cfg.agentToken) {
+		if key := s.agentToken(); !ok || key == "" || !constEq(t, key) {
 			writeErr(w, http.StatusUnauthorized, "wrong or missing agent token")
 			return
 		}
@@ -513,6 +546,9 @@ func agentRequest(r *http.Request) bool {
 }
 
 /* ---------- files beside connections.json ---------- */
+
+// agentFiles: where the agent token is kept, and agent.json ("" in tests: memory only).
+type agentFiles struct{ token, info string }
 
 // agentInfo is agent.json: where the running pgquire is, for `pgquire mcp`. It exists while pgquire runs.
 type agentInfo struct {

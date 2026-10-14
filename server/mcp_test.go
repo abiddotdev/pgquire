@@ -73,7 +73,7 @@ func TestMCPOverHTTP(t *testing.T) {
 		}
 		tab.reply(ev.data["id"], map[string]any{"text": "ok", "db": shop}, false)
 	}()
-	_, _, r = mcpPost(t, c, sid, map[string]any{"id": 3, "method": "tools/call", "params": map[string]any{"name": "run_sql", "arguments": map[string]any{"sql": "select 1"}}})
+	_, _, r = mcpPost(t, c, sid, map[string]any{"id": 3, "method": "tools/call", "params": map[string]any{"name": "run_sql", "arguments": map[string]any{"purpose": "test", "sql": "select 1"}}})
 	if text, isErr := toolText(t, r); isErr || text != "[pgquire: “shop” — PGlite in the browser]\nok" {
 		t.Fatalf("call: %q", text)
 	}
@@ -100,7 +100,7 @@ func TestMCPOverHTTPCancel(t *testing.T) {
 	tab.report("db1", true, shop)
 	done := make(chan map[string]any)
 	go func() {
-		_, _, r := mcpPost(t, c, sid, map[string]any{"id": 7, "method": "tools/call", "params": map[string]any{"name": "run_sql", "arguments": map[string]any{"sql": "delete from t"}}})
+		_, _, r := mcpPost(t, c, sid, map[string]any{"id": 7, "method": "tools/call", "params": map[string]any{"name": "run_sql", "arguments": map[string]any{"purpose": "test", "sql": "delete from t"}}})
 		done <- r
 	}()
 	ev := tab.next("call")
@@ -193,7 +193,7 @@ func TestMCPStdioThroughPgquire(t *testing.T) {
 	}
 
 	// A call waiting for approval doesn't hold up the next one, and cancelling it withdraws it.
-	m.write(map[string]any{"id": 3, "method": "tools/call", "params": map[string]any{"name": "run_sql", "arguments": map[string]any{"database": "db1", "sql": "delete from t"}}})
+	m.write(map[string]any{"id": 3, "method": "tools/call", "params": map[string]any{"name": "run_sql", "arguments": map[string]any{"database": "db1", "purpose": "test", "sql": "delete from t"}}})
 	first := tab.next("call")
 	if call := first.data["call"].(map[string]any); call["client"] != "codex" {
 		t.Fatalf("client: %v", call)

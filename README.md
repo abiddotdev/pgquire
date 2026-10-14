@@ -143,8 +143,8 @@ Otherwise pick **Connect remote Postgres…** in the database switcher and paste
 
 An AI agent on your computer can work with databases you share with it, in-browser PGlite ones included, over MCP.
 
-1. In the page, open the database and click **Agent** at the top → **Share “…” with agents**. Do it for each database the agent may use.
-2. Add pgquire to your agent once (**Agent → Set up an agent…** fills in the path):
+1. In the page, open the database and click **Agents** at the top → **Share “…” with agents**, or **Share it read-only**. Do it for each database the agent may use.
+2. Add pgquire to your agent once (**Agents → Set up an agent…** fills in the path):
    - Claude Code: `claude mcp add pgquire -- /path/to/pgquire mcp`
    - Codex, in `~/.codex/config.toml`:
      ```toml
@@ -152,14 +152,20 @@ An AI agent on your computer can work with databases you share with it, in-brows
      command = "/path/to/pgquire"
      args = ["mcp"]
      ```
-   - Over HTTP instead (pgquire in Docker, say): `claude mcp add --transport http pgquire http://127.0.0.1:8432/mcp --header "Authorization: Bearer <agent token>"`. The agent token is in `agent-token` beside `connections.json` and stays the same across restarts. It isn't the page's token, and it opens nothing but the agent's tools.
+   - Other MCP clients (Claude Desktop, Cursor…), in their MCP config:
+     ```json
+     { "mcpServers": { "pgquire": { "command": "/path/to/pgquire", "args": ["mcp"] } } }
+     ```
+   - Over HTTP instead (pgquire in Docker, say): `claude mcp add --transport http pgquire http://127.0.0.1:8432/mcp --header "Authorization: Bearer <agent token>"`. The agent token is in `agent-token` beside `connections.json` and stays the same across restarts. It isn't the page's token, and it opens nothing but the agent's tools. **New token…** in that dialog replaces it if it leaks; `pgquire mcp` picks up the new one by itself.
 
-The tools are `list_databases`, `get_schema`, `run_sql`, `open_table` and `open_in_editor`; each names the database it works on. `pgquire mcp` finds the running server through `agent.json` (beside `connections.json` while pgquire runs), so restarting either side is fine.
+The tools are `list_databases`, `get_schema`, `run_sql`, `open_table` and `open_in_editor`; each names the database it works on. `run_sql` also takes a one-line `purpose`, shown above its card as the agent's message (the way the Clerk's are), so you can see what a change is for before you stamp it. `pgquire mcp` finds the running server through `agent.json` (beside `connections.json` while pgquire runs), so restarting either side is fine.
 
 Safety:
 - Nothing is shared until you share it, per database and per browser. A call goes to the tab that has its database open and never to another database. If no tab has it open, nothing runs, and pgquire offers you **Open it here**.
-- SQL runs the way the Clerk's does: reads at once, changes wait for **Approve** in the tab unless you turned confirmations off, and production databases always ask. Agents never get **Approve all**. Each agent's calls appear in a Clerk conversation of its own, which comes forward for an approval once the Clerk isn't busy, and in the journal.
-- If the database is closed or unshared while a change waits, it doesn't run. If the agent gives up, the approval is withdrawn.
+- SQL runs the way the Clerk's does: reads at once, changes wait for **Approve** in the tab unless you turned confirmations off, and production databases always ask. On a database shared read-only, changes are refused without asking. **Approve all from Claude** (say) lets that agent's changes to that database through until the tab closes; it's never offered on production, and **Stop approving all** in its log ends it.
+- Each agent's calls appear in a Clerk conversation of its own, which comes up (opening the Clerk) whenever the agent does something, once the Clerk isn't busy answering you; a message you were typing stays with your conversation. The journal lists them under the agent's name, with its purpose when you open the row.
+- While an agent waits for you, the tab's title starts with **● Approve?**, and a browser notification says so if the tab is in the background (pgquire asks for permission when you share a database).
+- If the database is closed or unshared while a change waits, it doesn't run. If the agent gives up, the approval is withdrawn, and on a server database its running statement is stopped (yours are left alone).
 - An agent can't leave a transaction open, because it's rolled back. It can't write into one of yours either, though it can still read. Its `SET`s don't stick.
 - If the tab goes away while it holds a call, the agent is told the outcome is unknown, not that it failed, so it checks before retrying.
 - A database is open in one tab at a time (**Use it here** moves it), so two tabs can't overwrite each other's changes.

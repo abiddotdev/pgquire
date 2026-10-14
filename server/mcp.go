@@ -23,15 +23,14 @@ import (
 	"sync"
 )
 
-const mcpInstructions = `pgquire is a Postgres workbench in the user's browser. These tools work on databases the user shared with agents in pgquire: PGlite (Postgres in the browser) or remote PostgreSQL servers.
-- Start with list_databases, then get_schema. Name the database in every call (its id, or its name if no other has it).
-- run_sql: reads run at once; changes usually wait for the user to approve them in pgquire (DECLINED = they said no). Each call must be complete on its own: BEGIN … COMMIT in one call, and SET doesn't carry over.
-- A database that isn't open in pgquire can't be used until the user opens it; pgquire offers them to.
-- UNKNOWN OUTCOME: the tab went away mid-call; the SQL may or may not have run. Check before trying again.`
+const mcpInstructions = `pgquire: Postgres databases the user shared from their browser (PGlite or remote PostgreSQL).
+- Start with list_databases, then get_schema.
+- Changes wait for the user's approval; DECLINED means they said no.
+- UNKNOWN OUTCOME: the SQL may or may not have run; check before retrying.`
 
 func mcpTool(name, desc string, props map[string]any, required ...string) map[string]any {
 	if name != "list_databases" {
-		props["database"] = map[string]any{"type": "string", "description": "The database's id or name, from list_databases. May be left out while only one is shared."}
+		props["database"] = map[string]any{"type": "string", "description": "Id or name from list_databases; optional if only one is shared."}
 	}
 	schema := map[string]any{"type": "object", "properties": props}
 	if len(required) > 0 {
@@ -42,15 +41,19 @@ func mcpTool(name, desc string, props map[string]any, required ...string) map[st
 
 var str = map[string]any{"type": "string"}
 
+// purpose: the line the user sees above the call in pgquire, so they know what it's for.
+var purpose = map[string]any{"type": "string", "description": "One line for the user, e.g. \"Adding 4 customers\"."}
+
 var mcpTools = []map[string]any{
-	mcpTool("list_databases", "The databases the user shared with agents in pgquire: PGlite in the browser or remote PostgreSQL (and whether production or read-only), whether each is open, and which one the user is looking at. Call it first.", map[string]any{}),
-	mcpTool("get_schema", "Tables, views, columns, keys and row counts of a database.", map[string]any{}),
-	mcpTool("run_sql", "Run SQL on a database. Several statements are allowed; rows come back truncated. Changes usually wait for the user's approval in pgquire. A transaction must begin and end in the same call.",
-		map[string]any{"sql": str}, "sql"),
-	mcpTool("open_table", "Show a table in the user's pgquire workspace, optionally filtered by a WHERE clause (without the keyword), to point them at rows.",
-		map[string]any{"table": str, "where": str}, "table"),
-	mcpTool("open_in_editor", "Put SQL in a new query tab in pgquire for the user to review and run themselves (not run).",
-		map[string]any{"sql": str, "title": str}, "sql"),
+	mcpTool("list_databases", "Shared databases: id, engine, production or read-only, open or not.", map[string]any{}),
+	mcpTool("get_schema", "Tables, views, columns, keys and row counts. A big schema is cut short; filter with schema or tables.",
+		map[string]any{"schema": str, "tables": map[string]any{"type": "array", "items": str}, "purpose": purpose}),
+	mcpTool("run_sql", "Run SQL; returns at most 50 rows per result. Each call stands alone: BEGIN … COMMIT together, SET doesn't persist.",
+		map[string]any{"sql": str, "purpose": purpose}, "sql", "purpose"),
+	mcpTool("open_table", "Show a table to the user, optionally filtered (where: a condition without WHERE).",
+		map[string]any{"table": str, "where": str, "purpose": purpose}, "table"),
+	mcpTool("open_in_editor", "Put SQL in a new editor tab for the user to run.",
+		map[string]any{"sql": str, "title": str, "purpose": purpose}, "sql"),
 }
 
 // toolFunc runs a tool for client and returns the text the agent reads; done: the agent gave up.
