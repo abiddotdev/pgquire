@@ -72,6 +72,34 @@ test('reads run at once, in a conversation of the agent\'s own', async () => {
   expect(holds).toBeGreaterThan(0);
 });
 
+test('get_user_view: what the user has open', async () => {
+  await runSQL(page, 'select name from pets order by id');
+  const view = await tool('get_user_view');
+  expect(view).toContain('The user is in the query editor tab');
+  expect(view).toContain('select name from pets order by id');
+  expect(view).toContain('Last result: 1 rows, columns name');
+  expect(await tool('open_table', { table: 'pets', where: 'id = 1' })).toContain('Opened. 1 rows match.');
+  expect(await tool('get_user_view')).toContain('The user is viewing the table pets (rows view), filtered by WHERE id = 1');
+});
+
+test('the agent\'s name: tidied on screen, as it gave it on hover', async () => {
+  const other = async (method, params, id) => {   // Claude's app, through mcp-remote: a session of its own
+    const r = await fetch(env('URL') + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${agentToken()}`, ...(other.sid ? { 'Mcp-Session-Id': other.sid } : {}) },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) });
+    other.sid ??= r.headers.get('mcp-session-id');
+    return r.json();
+  };
+  await other('initialize', { protocolVersion: '2025-06-18', clientInfo: { name: 'claude-ai (via mcp-remote 0.14.3)' }, capabilities: {} }, 1);
+  await other('tools/call', { name: 'run_sql', arguments: { sql: 'select 42', purpose: 'Checking the name' } }, 2);
+  await expect(page.locator('.conv-switch')).toContainText('Claude (agent)');
+  await expect(page.locator('#clerkLog .receipt .r-head').last()).toContainText('Claude · Query');
+  await expect(page.locator('#clerkLog .receipt .r-head').last()).toHaveAttribute('title', 'claude-ai (via mcp-remote 0.14.3)');
+  const sig = page.locator('#clerkLog .c-ai').last().locator('.sig > span').first();
+  await expect(sig).toHaveText('— Claude');
+  await expect(sig).toHaveAttribute('title', 'claude-ai (via mcp-remote 0.14.3)');
+  await tool('run_sql', { sql: 'select 1' });   // back to Claude Code's log for what follows
+});
+
 test('a big schema is cut between tables, says so, and can be read in parts', async () => {
   const cols = Array.from({ length: 15 }, (_, i) => `a_rather_long_column_name_${i} text default 'a fairly long default value'`).join(', ');
   await runSQL(page, `do $$ begin for i in 1..60 loop execute format('create table wide_%s (id int primary key, ${cols.replace(/'/g, "''")})', i); end loop; end $$`);

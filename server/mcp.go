@@ -16,11 +16,13 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
+	"time"
 )
 
 const mcpInstructions = `pgquire: Postgres databases the user shared from their browser (PGlite or remote PostgreSQL).
@@ -48,6 +50,8 @@ var mcpTools = []map[string]any{
 	mcpTool("list_databases", "Shared databases: id, engine, production or read-only, open or not.", map[string]any{}),
 	mcpTool("get_schema", "Tables, views, columns, keys and row counts. A big schema is cut short; filter with schema or tables.",
 		map[string]any{"schema": str, "tables": map[string]any{"type": "array", "items": str}, "purpose": purpose}),
+	mcpTool("get_user_view", "What the user has open in pgquire: a table (filter, sort, selected rows) or the query in the editor and its result.",
+		map[string]any{"purpose": purpose}),
 	mcpTool("run_sql", "Run SQL; returns at most 50 rows per result. Each call stands alone: BEGIN … COMMIT together, SET doesn't persist.",
 		map[string]any{"sql": str, "purpose": purpose}, "sql", "purpose"),
 	mcpTool("open_table", "Show a table to the user, optionally filtered (where: a condition without WHERE).",
@@ -168,26 +172,34 @@ type mcpSessions struct {
 	conns map[string]*mcpConn
 }
 
-// conn finds the session a request belongs to. An id this server doesn't know (it restarted, say)
-// gets a fresh connection rather than an error: nothing in it is worth refusing a call over.
-func (ss *mcpSessions) conn(id string) *mcpConn {
+// start opens a session (initialize), returning its id.
+func (ss *mcpSessions) start() (string, *mcpConn) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	if ss.conns == nil {
 		ss.conns = map[string]*mcpConn{}
 	}
-	c := ss.conns[id]
-	if c == nil {
-		if len(ss.conns) > 1000 { // agents that never said goodbye
-			clear(ss.conns)
-		}
-		c = newMCPConn()
-		ss.conns[id] = c
+	if len(ss.conns) > 1000 { // agents that never said goodbye; the rest start again (see conn)
+		clear(ss.conns)
 	}
-	return c
+	id, c := randomHex(16), newMCPConn()
+	ss.conns[id] = c
+	return id, c
+}
+
+// conn finds an open session, or nil: one this server doesn't know (it restarted, say) is answered
+// 404, after which the agent starts a new one, telling its name again.
+func (ss *mcpSessions) conn(id string) *mcpConn {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	return ss.conns[id]
 }
 
 func (s *server) mcpHTTP(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.mcpHTTP {
+		writeErr(w, http.StatusNotFound, "agents over HTTP are off: start pgquire with -mcp-http (or PGQUIRE_MCP_HTTP=1), or use `pgquire mcp` on stdio")
+		return
+	}
 	switch r.Method {
 	case http.MethodDelete:
 		s.mcp.mu.Lock()
@@ -208,10 +220,19 @@ func (s *server) mcpHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sid := r.Header.Get("Mcp-Session-Id")
-	if m.Method == "initialize" {
-		sid = randomHex(16)
+	var c *mcpConn
+	switch {
+	case m.Method == "initialize":
+		sid, c = s.mcp.start()
+	case sid == "":
+		writeErr(w, http.StatusBadRequest, "Mcp-Session-Id missing: send initialize first")
+		return
+	default:
+		if c = s.mcp.conn(sid); c == nil {
+			writeErr(w, http.StatusNotFound, "no such session (pgquire restarted?): send initialize again")
+			return
+		}
 	}
-	c := s.mcp.conn(sid)
 	if len(m.ID) == 0 || m.Method == "" { // a notification, or a reply to something never asked
 		c.notify(m)
 		w.WriteHeader(http.StatusAccepted)
@@ -237,7 +258,7 @@ func mcpMain(args []string) {
 		}
 		dir = filepath.Join(d, "pgquire")
 	}
-	b := &mcpBridge{agentPath: filepath.Join(dir, "agent.json"), hc: &http.Client{}}
+	b := &mcpBridge{agentPath: filepath.Join(dir, "agent.json")}
 	if err := serveMCP(os.Stdin, os.Stdout, b.run); err != nil {
 		fmt.Fprintln(os.Stderr, "pgquire mcp:", err)
 		os.Exit(1)
@@ -287,7 +308,6 @@ func serveMCP(in io.Reader, out io.Writer, run toolFunc) error {
 // mcpBridge runs tools through the running pgquire.
 type mcpBridge struct {
 	agentPath string
-	hc        *http.Client
 }
 
 func (b *mcpBridge) run(done <-chan struct{}, tool string, args json.RawMessage, client string) (string, bool) {
@@ -305,10 +325,7 @@ func (b *mcpBridge) run(done <-chan struct{}, tool string, args json.RawMessage,
 		}
 	}()
 	body, _ := json.Marshal(map[string]any{"tool": tool, "args": args, "client": client})
-	req, _ := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(info.URL, "/")+"/api/agent/call", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+info.Token)
-	resp, err := b.hc.Do(req)
+	resp, err := postLocal(ctx, info, "/api/agent/call", body)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			if tool == "run_sql" {
@@ -334,6 +351,37 @@ func (b *mcpBridge) run(done <-chan struct{}, tool string, args json.RawMessage,
 		return fmt.Sprintf("ERROR: pgquire answered %d", resp.StatusCode), true
 	}
 	return r.Text, r.IsError
+}
+
+// postLocal sends one POST to the running pgquire, written by hand over TCP: net/http's client (with its
+// connection pool and HTTP/2) would add over half a megabyte to the binary for this one request.
+// Cancelling ctx closes the connection, which the server takes as the agent giving up.
+func postLocal(ctx context.Context, info agentInfo, path string, body []byte) (*http.Response, error) {
+	u, err := url.Parse(info.URL)
+	if err != nil || u.Scheme != "http" || u.Host == "" {
+		return nil, fmt.Errorf("bad address %q in agent.json", info.URL)
+	}
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", u.Host)
+	if err != nil {
+		return nil, err
+	}
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer func() {
+		if !stop() || err != nil {
+			conn.Close()
+		}
+	}()
+	if _, err = fmt.Fprintf(conn, "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nAuthorization: Bearer %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
+		path, u.Host, info.Token, len(body), body); err != nil {
+		return nil, err
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := io.ReadAll(resp.Body) // all of it before the connection goes
+	resp.Body = io.NopCloser(bytes.NewReader(raw))
+	return resp, err
 }
 
 func constEq(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }

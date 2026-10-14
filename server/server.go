@@ -24,6 +24,7 @@ type serverConfig struct {
 	token      string
 	agentToken string // for agents (/mcp, `pgquire mcp`); "" turns agent access off
 	agentFiles agentFiles
+	mcpHTTP    bool   // agents over HTTP (/mcp, and agent calls from other machines); off: only `pgquire mcp` here
 	htmlPath   string // serve from disk (development) instead of the embedded page
 	maxRows    int
 	stmtTO     time.Duration

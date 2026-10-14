@@ -45,7 +45,8 @@ func toolText(t *testing.T, reply map[string]any) (string, bool) {
 }
 
 func TestMCPOverHTTP(t *testing.T) {
-	c, _ := newTestServer(t, 100, true)
+	c, srv := newTestServer(t, 100, true)
+	srv.cfg.mcpHTTP = true
 	code, h, r := mcpPost(t, c, "", map[string]any{"id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2025-06-18", "clientInfo": map[string]any{"name": "claude-code"}, "capabilities": map[string]any{}}})
 	sid := h.Get("Mcp-Session-Id")
 	res := r["result"].(map[string]any)
@@ -60,7 +61,7 @@ func TestMCPOverHTTP(t *testing.T) {
 	for _, tool := range r["result"].(map[string]any)["tools"].([]any) {
 		names = append(names, tool.(map[string]any)["name"].(string))
 	}
-	if strings.Join(names, ",") != "list_databases,get_schema,run_sql,open_table,open_in_editor" {
+	if strings.Join(names, ",") != "list_databases,get_schema,get_user_view,run_sql,open_table,open_in_editor" {
 		t.Fatalf("tools: %v", names)
 	}
 
@@ -93,7 +94,8 @@ func TestMCPOverHTTP(t *testing.T) {
 }
 
 func TestMCPOverHTTPCancel(t *testing.T) {
-	c, _ := newTestServer(t, 100, true)
+	c, srv := newTestServer(t, 100, true)
+	srv.cfg.mcpHTTP = true
 	_, h, _ := mcpPost(t, c, "", map[string]any{"id": 1, "method": "initialize", "params": map[string]any{}})
 	sid := h.Get("Mcp-Session-Id")
 	tab := openTab(t, c)
@@ -126,7 +128,7 @@ func startMCP(t *testing.T, agentPath string) *stdioMCP {
 	t.Helper()
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	b := &mcpBridge{agentPath: agentPath, hc: &http.Client{Timeout: 5 * time.Second}}
+	b := &mcpBridge{agentPath: agentPath}
 	go func() { serveMCP(inR, outW, b.run); outW.Close() }()
 	t.Cleanup(func() { inW.Close() })
 	m := &stdioMCP{t: t, in: inW, out: make(chan map[string]any, 8)}
@@ -171,7 +173,7 @@ func TestMCPStdioWithoutPgquire(t *testing.T) {
 		t.Fatalf("initialize: %v", r)
 	}
 	m.write(map[string]any{"id": 2, "method": "tools/list"})
-	if r := m.read(); len(r["result"].(map[string]any)["tools"].([]any)) != 5 { // tools are there before pgquire runs
+	if r := m.read(); len(r["result"].(map[string]any)["tools"].([]any)) != 6 { // tools are there before pgquire runs
 		t.Fatalf("tools/list: %v", r)
 	}
 	if text, isErr := m.tool(3, "list_databases", nil); !isErr || !strings.Contains(text, "pgquire isn't running") {
@@ -215,5 +217,47 @@ func TestMCPStdioThroughPgquire(t *testing.T) {
 	writeAgentFile(agentPath, agentInfo{URL: c.base, Token: "stale", PID: 1}) // read afresh each call
 	if text, _ := m.tool(5, "list_databases", nil); !strings.Contains(text, "refused the token") {
 		t.Fatalf("stale token: %q", text)
+	}
+}
+
+func TestMCPStdioBadAddress(t *testing.T) {
+	agentPath := filepath.Join(t.TempDir(), "agent.json")
+	for _, url := range []string{"https://127.0.0.1:1", "not a url", "http://127.0.0.1:1"} { // only plain http to a listening pgquire
+		writeAgentFile(agentPath, agentInfo{URL: url, Token: "agenttok", PID: 1})
+		b := &mcpBridge{agentPath: agentPath}
+		if text, isErr := b.run(make(chan struct{}), "list_databases", nil, "test"); !isErr || !strings.HasPrefix(text, "ERROR: pgquire isn't answering at "+url) {
+			t.Fatalf("%s: %q", url, text)
+		}
+	}
+}
+
+func TestMCPOverHTTPOffByDefault(t *testing.T) {
+	c, _ := newTestServer(t, 100, true)
+	code, _, r := mcpPost(t, c, "", map[string]any{"id": 1, "method": "initialize", "params": map[string]any{}})
+	if code != 404 || !strings.Contains(r["error"].(map[string]any)["message"].(string), "-mcp-http") {
+		t.Fatalf("off: %d %v", code, r)
+	}
+}
+
+func TestMCPOverHTTPSessions(t *testing.T) {
+	c, srv := newTestServer(t, 100, true)
+	srv.cfg.mcpHTTP = true
+	if code, _, _ := mcpPost(t, c, "", map[string]any{"id": 1, "method": "tools/list"}); code != 400 { // no session yet
+		t.Fatalf("no session: %d", code)
+	}
+	if code, _, _ := mcpPost(t, c, "made-up", map[string]any{"id": 1, "method": "tools/list"}); code != 404 { // one pgquire doesn't know: start again
+		t.Fatalf("unknown session: %d", code)
+	}
+	_, h, _ := mcpPost(t, c, "", map[string]any{"id": 1, "method": "initialize", "params": map[string]any{"clientInfo": map[string]any{"name": "claude-ai"}}})
+	sid := h.Get("Mcp-Session-Id")
+	if code, _, _ := mcpPost(t, c, sid, map[string]any{"id": 2, "method": "tools/list"}); code != 200 {
+		t.Fatalf("known session: %d", code)
+	}
+	req, _ := http.NewRequest("DELETE", c.base+"/mcp", nil)
+	req.Header.Set("Authorization", "Bearer agenttok")
+	req.Header.Set("Mcp-Session-Id", sid)
+	http.DefaultClient.Do(req)
+	if code, _, _ := mcpPost(t, c, sid, map[string]any{"id": 3, "method": "tools/list"}); code != 404 { // ended by the agent
+		t.Fatalf("ended session: %d", code)
 	}
 }

@@ -2311,6 +2311,7 @@ function readmeSections() {
     { t: 'Local AI agents', items: [ // @remote
       ['Share a database', 'Agents, at the top, shares the open database with AI agents on this computer (Claude Code, Codex, anything that speaks MCP), or stops. Agents only see shared databases, and only while one is open in pgquire; asking for one that isn\'t open offers you Open it here.'], // @remote
       ['Set up an agent', 'Agents → Set up an agent… gives the line to add pgquire to Claude Code or Codex: pgquire mcp on stdio, or this server\'s /mcp over HTTP with a token that lasts across restarts (New token… replaces it).'], // @remote
+      ['What you\'re looking at', 'Agents can ask what you have open in a shared database (a table with its filter and selected rows, or the query in your editor), so you can say “this query” or “these rows”.'], // @remote
       ['What it\'s doing', 'Each query an agent runs comes with one line on what it\'s for, shown above its card like the Clerk\'s messages, and in the journal when you open the row.'], // @remote
       ['Your approval', 'Agents run SQL the way the Clerk does: reads at once, changes wait for your stamp, and production always asks. Share read-only to refuse changes outright, or Approve all from an agent to let its changes through until the tab closes (never on production). Each agent\'s calls go in a Clerk conversation of its own, which comes up whenever it does something; the tab\'s title shows ● Approve? while one waits for you.'], // @remote
       ['Your session', 'An agent can\'t write into a transaction you have open, a transaction it leaves open is rolled back, and its SETs don\'t stick.'], // @remote
@@ -7745,10 +7746,11 @@ async function agentSetupDialog() {
       h('label', { class: 'lab', style: 'margin-top:14px' }, 'Codex: add to ~/.codex/config.toml'), ...block(`[mcp_servers.pgquire]\ncommand = ${JSON.stringify(exe)}\nargs = ["mcp"]`),
       h('label', { class: 'lab', style: 'margin-top:14px' }, 'Other MCP clients (Claude Desktop, Cursor…): add to their MCP config'),
       ...block(JSON.stringify({ mcpServers: { pgquire: { command: exe, args: ['mcp'] } } }, null, 2)),
-      h('label', { class: 'lab', style: 'margin-top:14px' }, 'Or over HTTP (pgquire in Docker, say): this URL with this token, which stays the same across restarts'),
-      ...block(`claude mcp add --transport http pgquire ${s.url} --header "Authorization: Bearer ${s.token}"`)),
+      ...(s.http ? [h('label', { class: 'lab', style: 'margin-top:14px' }, 'Or over HTTP (pgquire in Docker, say): this URL with this token, which stays the same across restarts'),
+        ...block(`claude mcp add --transport http pgquire ${s.url} --header "Authorization: Bearer ${s.token}"`)]
+        : [h('p', { style: 'color:var(--ink3);font-size:12.5px;margin-top:14px' }, 'Agents over HTTP (pgquire in Docker or on a server) are off. To turn them on, start pgquire with ', h('code', {}, '-mcp-http'), ' or ', h('code', {}, 'PGQUIRE_MCP_HTTP=1'), '.')])),
     h('div', { class: 'modal-f' },
-      h('button', { class: 'btn', style: 'margin-right:auto', title: 'If the token leaked: the old one stops working at once', onclick: newToken }, 'New token…'),
+      s.http && h('button', { class: 'btn', style: 'margin-right:auto', title: 'If the token leaked: the old one stops working at once', onclick: newToken }, 'New token…'),
       h('button', { class: 'btn ink', onclick: () => m.close() }, 'Done'))], { wide: true });
   async function newToken() {
     if (!(await confirmDlg({ title: 'Replace the agent token?', ok: 'Replace', danger: true,
@@ -7814,6 +7816,10 @@ async function agentRun({ tool, args = {}, client, database }, id, signal) {
     return agentStale(database, db) || (!list.length ? `ERROR: no ${want.length ? 'such tables' : 'tables'}${sch ? ` in schema ${args.schema}` : ''}.`
       : sch || want.length ? schemaTables(list, { more: 'Ask for fewer at a time.' })
       : schemaText() + (schemaText().includes(' not shown in full ') ? ' Call get_schema with tables (or schema) for the rest.' : ''));
+  }
+  if (tool === 'get_user_view') {   // what's on screen in this tab, as the Clerk is told it
+    note('looked at what you have open');
+    return describeView().text || 'Nothing the agent can describe is open.';
   }
   if (tool === 'run_sql') return agentSql(String(args.sql || '').trim(), { database, db, who, client, purpose, conv, id, signal });
   if (tool === 'open_table') {

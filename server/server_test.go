@@ -542,6 +542,7 @@ func TestOptionsFromEnv(t *testing.T) {
 		fs.String("token", "", "")
 		fs.String("domain", "", "")
 		fs.String("dsn", "", "")
+		fs.Bool("mcp-http", false, "")
 		describeEnv(fs)
 		if err := fs.Parse(args); err != nil {
 			t.Fatal(err)
@@ -552,14 +553,14 @@ func TestOptionsFromEnv(t *testing.T) {
 
 	fs, err := parse(map[string]string{
 		"PGQUIRE_LISTEN": "0.0.0.0:9000", "PGQUIRE_NO_OPEN": "1", "PGQUIRE_MAX_ROWS": "10",
-		"PGQUIRE_IDLE_TIMEOUT": "1h", "PGQUIRE_TOKEN": "env-token",
+		"PGQUIRE_IDLE_TIMEOUT": "1h", "PGQUIRE_TOKEN": "env-token", "PGQUIRE_MCP_HTTP": "1",
 	}, "-token", "flag-token")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name, want := range map[string]string{
 		"listen": "0.0.0.0:9000", "no-open": "true", "max-rows": "10", "idle-timeout": "1h0m0s",
-		"token": "flag-token", "statement-timeout": "5m0s", "config": "",
+		"token": "flag-token", "statement-timeout": "5m0s", "config": "", "mcp-http": "true",
 	} {
 		if got := get(fs, name); got != want {
 			t.Errorf("-%s = %q, want %q", name, got, want)

@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -421,5 +423,74 @@ func TestAgentNewToken(t *testing.T) {
 	anon, _ := newTestServer(t, 100, false)
 	if code := anon.do("POST", "/api/agent/token", nil, nil); code != 401 {
 		t.Fatalf("anonymous: %d", code)
+	}
+}
+
+func TestAgentCallsOnlyFromThisMachine(t *testing.T) {
+	c, srv := newTestServer(t, 100, true)
+	call := func(header string) int {
+		req, _ := http.NewRequest("POST", c.base+"/api/agent/call", strings.NewReader(`{"tool":"list_databases"}`))
+		req.Header.Set("Authorization", "Bearer agenttok")
+		req.Header.Set("Content-Type", "application/json")
+		if header != "" {
+			req.Header.Set(header, "203.0.113.9")
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	if code := call(""); code != 200 { // pgquire mcp, beside it
+		t.Fatalf("local: %d", code)
+	}
+	for _, h := range []string{"X-Forwarded-For", "Forwarded", "X-Real-Ip"} { // through a proxy: from elsewhere
+		if code := call(h); code != 403 {
+			t.Fatalf("%s: %d", h, code)
+		}
+	}
+	srv.cfg.mcpHTTP = true
+	if code := call("X-Forwarded-For"); code != 200 {
+		t.Fatalf("with -mcp-http: %d", code)
+	}
+}
+
+func TestFromThisMachine(t *testing.T) {
+	lan := &net.TCPAddr{IP: net.ParseIP("192.168.1.5"), Port: 8432}
+	for _, tc := range []struct {
+		remote string
+		local  *net.TCPAddr
+		proxy  bool
+		want   bool
+	}{
+		{"127.0.0.1:5000", nil, false, true},
+		{"[::1]:5000", nil, false, true},
+		{"192.168.1.5:5000", lan, false, true},                                                     // listening on a LAN address, called from this machine
+		{"192.168.1.9:5000", lan, false, false},                                                    // another machine on the LAN
+		{"172.17.0.1:5000", &net.TCPAddr{IP: net.ParseIP("172.17.0.2"), Port: 8432}, false, false}, // Docker's port forwarding
+		{"127.0.0.1:5000", nil, true, false},                                                       // a proxy on this machine that says so
+	} {
+		r := httptest.NewRequest("POST", "/api/agent/call", nil)
+		r.RemoteAddr = tc.remote
+		if tc.local != nil {
+			r = r.WithContext(context.WithValue(r.Context(), http.LocalAddrContextKey, tc.local))
+		}
+		if tc.proxy {
+			r.Header.Set("X-Forwarded-For", "203.0.113.9")
+		}
+		if got := fromThisMachine(r); got != tc.want {
+			t.Errorf("%s (local %v, proxy %v): %v, want %v", tc.remote, tc.local, tc.proxy, got, tc.want)
+		}
+	}
+}
+
+func TestBrowserHost(t *testing.T) {
+	for addr, want := range map[string]string{"127.0.0.1:8432": "127.0.0.1:8432", "0.0.0.0:8432": "127.0.0.1:8432", "[::]:8432": "127.0.0.1:8432",
+		"[::1]:8432": "[::1]:8432", "192.168.1.5:8432": "192.168.1.5:8432"} {
+		a, _ := net.ResolveTCPAddr("tcp", addr)
+		if got := browserHost(a); got != want {
+			t.Errorf("%s: %s, want %s", addr, got, want)
+		}
 	}
 }

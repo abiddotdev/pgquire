@@ -156,9 +156,9 @@ An AI agent on your computer can work with databases you share with it, in-brows
      ```json
      { "mcpServers": { "pgquire": { "command": "/path/to/pgquire", "args": ["mcp"] } } }
      ```
-   - Over HTTP instead (pgquire in Docker, say): `claude mcp add --transport http pgquire http://127.0.0.1:8432/mcp --header "Authorization: Bearer <agent token>"`. The agent token is in `agent-token` beside `connections.json` and stays the same across restarts. It isn't the page's token, and it opens nothing but the agent's tools. **New token…** in that dialog replaces it if it leaks; `pgquire mcp` picks up the new one by itself.
+   - Over HTTP instead (pgquire in Docker, say), which is off unless pgquire starts with `-mcp-http` (or `PGQUIRE_MCP_HTTP=1`): `claude mcp add --transport http pgquire http://127.0.0.1:8432/mcp --header "Authorization: Bearer <agent token>"`. The agent token is in `agent-token` beside `connections.json` and stays the same across restarts. It isn't the page's token, and it opens nothing but the agent's tools. **New token…** in that dialog replaces it if it leaks; `pgquire mcp` picks up the new one by itself.
 
-The tools are `list_databases`, `get_schema`, `run_sql`, `open_table` and `open_in_editor`; each names the database it works on. `run_sql` also takes a one-line `purpose`, shown above its card as the agent's message (the way the Clerk's are), so you can see what a change is for before you stamp it. `pgquire mcp` finds the running server through `agent.json` (beside `connections.json` while pgquire runs), so restarting either side is fine.
+The tools are `list_databases`, `get_schema`, `get_user_view` (what you have open: a table with its filter and selected rows, or the query in your editor and its result), `run_sql`, `open_table` and `open_in_editor`; each names the database it works on. `run_sql` also takes a one-line `purpose`, shown above its card as the agent's message (the way the Clerk's are), so you can see what a change is for before you stamp it. `pgquire mcp` finds the running server through `agent.json` (beside `connections.json` while pgquire runs), so restarting either side is fine.
 
 Safety:
 - Nothing is shared until you share it, per database and per browser. A call goes to the tab that has its database open and never to another database. If no tab has it open, nothing runs, and pgquire offers you **Open it here**.
@@ -188,6 +188,7 @@ Options are `-name value`, in any order; each can also be an environment variabl
 | `-token` | `PGQUIRE_TOKEN` | new each start |
 | `-domain` | `PGQUIRE_DOMAIN` | none |
 | `-dsn` | `PGQUIRE_DSN` | none; a database to connect to and open at start |
+| `-mcp-http` | `PGQUIRE_MCP_HTTP` | off; lets AI agents connect over HTTP at `/mcp` (Docker, a server). Off, only `pgquire mcp` on the same machine can reach agent access. Behind a reverse proxy, make sure it sends `X-Forwarded-For` (nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`), or requests through it look local |
 | `-config` | `PGQUIRE_CONFIG` | `pgquire/connections.json` in your OS config folder |
 | `-no-open` | `PGQUIRE_NO_OPEN` | opens a browser |
 | `-max-rows` | `PGQUIRE_MAX_ROWS` | `50000` |

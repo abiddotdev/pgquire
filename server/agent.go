@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -316,7 +317,7 @@ func (s *server) agentTool(done <-chan struct{}, tool string, args json.RawMessa
 	if tool == "list_databases" {
 		return s.listAgentDatabases(), false
 	}
-	if !slices.Contains([]string{"get_schema", "run_sql", "open_table", "open_in_editor"}, tool) {
+	if !slices.Contains([]string{"get_schema", "get_user_view", "run_sql", "open_table", "open_in_editor"}, tool) {
 		return "ERROR: unknown tool " + tool, true
 	}
 	var a struct {
@@ -503,7 +504,7 @@ func (s *server) newAgentToken(w http.ResponseWriter, r *http.Request) {
 
 // agentSetup is what the page shows for setting up an agent.
 func (s *server) agentSetup(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{"url": "http://" + r.Host + "/mcp", "token": s.agentToken()}
+	out := map[string]any{"url": "http://" + r.Host + "/mcp", "token": s.agentToken(), "http": s.cfg.mcpHTTP}
 	if exe, err := os.Executable(); err == nil && !strings.Contains(exe, "go-build") { // not `go run`'s temporary build
 		out["exe"] = exe
 	}
@@ -512,8 +513,13 @@ func (s *server) agentSetup(w http.ResponseWriter, r *http.Request) {
 
 /* ---------- HTTP: the agent's side ---------- */
 
-// agentCall is how `pgquire mcp` runs a tool: {tool, args, client} → {text, isError}.
+// agentCall is how `pgquire mcp` runs a tool: {tool, args, client} → {text, isError}. Unless agents
+// over HTTP are on (-mcp-http), only from this machine: `pgquire mcp` always runs beside pgquire.
 func (s *server) agentCall(w http.ResponseWriter, r *http.Request) {
+	if !s.cfg.mcpHTTP && !fromThisMachine(r) {
+		writeErr(w, http.StatusForbidden, "agent calls come only from this machine (`pgquire mcp`); for agents elsewhere, start pgquire with -mcp-http")
+		return
+	}
 	var in struct {
 		Tool   string          `json:"tool"`
 		Args   json.RawMessage `json:"args"`
@@ -536,6 +542,22 @@ func (s *server) bearer(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+// fromThisMachine: the request came straight from this machine, not through a proxy (which would
+// look local too) or Docker's port forwarding (which doesn't). From this machine means a loopback
+// address, or the very address it arrived on (pgquire listening on one LAN address, say).
+func fromThisMachine(r *http.Request) bool {
+	if r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("Forwarded") != "" || r.Header.Get("X-Real-Ip") != "" {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	ip := net.ParseIP(host)
+	if err != nil || ip == nil {
+		return false
+	}
+	local, _ := r.Context().Value(http.LocalAddrContextKey).(*net.TCPAddr)
+	return ip.IsLoopback() || (local != nil && local.IP.Equal(ip))
 }
 
 // agentRequest: a request from an agent rather than the page. It has no Origin (a browser always
