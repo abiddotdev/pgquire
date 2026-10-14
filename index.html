@@ -3190,6 +3190,10 @@ const TX_CTL = /^(begin|start\s+transaction|commit|end|rollback|abort|savepoint|
 const NO_TX = /^(vacuum|create\s+database|drop\s+database|alter\s+system|create\s+tablespace|drop\s+tablespace|(create|drop)\s+(unique\s+)?index\s+concurrently|reindex\b.*\bconcurrently|reindex\s+(database|system)|(create|drop)\s+subscription)\b/is;
 const ownsTx = t => TX_CTL.test(t) || NO_TX.test(t);
 const stripLead = t => t.replace(/^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)+/, '');
+// As Postgres lexes them: an identifier goes on through letters (any non-ASCII too), digits, _ and $,
+// so the $$ in a$$ or the e' in a$e' starts nothing.
+const IDENT_CH = /[A-Za-z0-9_$\u0080-\uffff]/;
+const DOLLAR_TAG = /^\$([A-Za-z_\u0080-\uffff][A-Za-z0-9_\u0080-\uffff]*)?\$/;
 const lineOf = (text, at) => { let n = 1; for (let i = text.indexOf('\n'); i >= 0 && i < at; i = text.indexOf('\n', i + 1)) n++; return n; };
 
 /** A script's statements as { s, e } offsets, split at top-level semicolons. Quotes, E'' strings, nested
@@ -3220,11 +3224,11 @@ function splitSql(sql) {
         if (text.trim() !== ';') out.push({ s: start, e: i + 1 });
         start = i + 1;
       }
-      else if (ch === "'") state = /[eE]/.test(sql[i - 1] || '') && !/\w/.test(sql[i - 2] || '') ? 'equote' : 'quote';
+      else if (ch === "'") state = /[eE]/.test(sql[i - 1] || '') && !IDENT_CH.test(sql[i - 2] || '') ? 'equote' : 'quote';
       else if (ch === '"') state = 'ident';
       else if (ch === '-' && sql[i + 1] === '-') state = 'line';
       else if (ch === '/' && sql[i + 1] === '*') { state = 'block'; depth = 1; i += 2; continue; }
-      else if (ch === '$') { const d = /^\$([A-Za-z_]\w*)?\$/.exec(sql.slice(i, i + 64)); if (d) { state = 'dollar'; tag = d[0]; i += tag.length; continue; } }
+      else if (ch === '$' && !IDENT_CH.test(sql[i - 1] || '')) { const d = DOLLAR_TAG.exec(sql.slice(i, i + 256)); if (d) { state = 'dollar'; tag = d[0]; i += tag.length; continue; } }
     }
     else if (state === 'quote' && ch === "'") state = null;
     else if (state === 'equote') { if (ch === '\\') { i += 2; continue; } if (ch === "'") state = null; }
@@ -6387,7 +6391,7 @@ async function clerkEnableExtension(name, reason) {
 /** Whether SQL can't be tried in a read-only transaction: a statement that ends it or steps out of it
  *  (COMMIT, END, ABORT, PREPARE TRANSACTION… — then later statements would run with nothing stopping
  *  a write), turns read-only off, or can't run in a transaction at all. Checked per statement. */
-const RO_OFF = /^(set\s+(local\s+|session\s+)?(transaction\b|transaction_read_only\b)|set\s+session\s+characteristics\b|reset\s+(all|transaction_read_only)\b)/i;
+const RO_OFF = /^(set\s+(local\s+|session\s+)?(transaction\b|"?transaction_read_only\b)|set\s+session\s+characteristics\b|reset\s+(all\b|"?transaction_read_only\b))/i;
 const leavesReadOnly = sql => splitSql(sql).some(sp => { const t = stripLead(sql.slice(sp.s, sp.e)); return ownsTx(t) || RO_OFF.test(t); });
 
 const sqlOpts = by => ({ rowMode: 'array', ...(by && S.db?.remote ? { by } : {}) });   // by: who runs it, for a Stop of their own
@@ -6395,14 +6399,21 @@ async function execRO(sql, by) {
   let out;
   const t0 = performance.now();
   try {
+    // One statement per message, as split here: the extended protocol refuses a message with two, so if
+    // the split is wrong (a COMMIT hidden from it, say) that fails instead of stepping out of read-only.
+    const stmts = splitSql(sql).filter(sp => stripLead(sql.slice(sp.s, sp.e)).replace(/;$/, '').trim());
+    if (stmts.some(sp => sp.copy)) return { needsWrite: true };
     await appTransaction(async tx => {
       await tx.exec('SET TRANSACTION READ ONLY');
-      out = { results: (await tx.exec(sql, sqlOpts(by))).map(shapeResult) };
+      const results = [];
+      for (const sp of stmts) results.push(shapeResult(await tx.query(sql.slice(sp.s, sp.e), [], sqlOpts(by))));
+      out = { results };
       await tx.rollback();
     });
   } catch (e) {
     if (!out) {
       if (e.code === '25006' || /read-only transaction/i.test(e.message)) return { needsWrite: true };
+      if (/cannot insert multiple commands/i.test(e.message)) return { error: "pgquire couldn't tell where one statement ends and the next begins, so nothing ran. Send them in separate calls.", ms: Math.round(performance.now() - t0) };
       out = { error: e.message };
     }
   }

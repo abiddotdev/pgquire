@@ -101,6 +101,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			setTokenCookie(w, r, t)
 		}
 		u := *r.URL
+		u.Path, u.RawPath = "/"+strings.TrimLeft(u.Path, "/"), "" // //host/… would send the browser to host
 		q := u.Query()
 		q.Del("t")
 		u.RawQuery = q.Encode()

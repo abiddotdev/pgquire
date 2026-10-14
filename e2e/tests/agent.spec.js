@@ -130,6 +130,15 @@ test('changes wait for approval; declined ones don\'t run', async () => {
   expect((await runSQL(page, 'select count(*) from pets')).rows[0][0]).toBe('2');
 });
 
+test('a change can\'t pass for a read: a COMMIT hidden in a$$, read-only switched off by a quoted name', async () => {
+  for (const sql of ['select 1 as a$$; commit; delete from pets; select 1 as b$$;', 'set "transaction_read_only" = off; delete from pets']) {
+    const pending = tool('run_sql', { sql });
+    await page.locator('.r-ask').getByRole('button', { name: 'Decline' }).click();
+    expect(await pending).toContain('DECLINED');
+    expect(await pets()).toBe('2');
+  }
+});
+
 test('a transaction left open is rolled back; SET is put back', async () => {
   const pending = tool('run_sql', { sql: 'begin; insert into pets values (3, \'Kit\')' });
   await page.locator('.r-ask').getByRole('button', { name: 'Approve', exact: true }).click();

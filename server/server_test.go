@@ -100,6 +100,15 @@ func TestTokenLinkSetsCookieAndStripsToken(t *testing.T) {
 	if !h.Authed {
 		t.Fatal("cookie not accepted after the token link")
 	}
+	// A path starting // would make the redirect go to another site.
+	resp, err = c.hc.Get(c.base + "//evil.example/x?t=wrong")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if loc := resp.Header.Get("Location"); loc != "/evil.example/x" {
+		t.Fatalf("token link on //host: redirected to %q", loc)
+	}
 }
 
 func TestAPIRequiresToken(t *testing.T) {
