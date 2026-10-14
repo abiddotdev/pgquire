@@ -1,16 +1,30 @@
 # pgquire: inquire into Postgres
 
-A single-file Postgres workbench with a clean interface in two looks, Ledger and Prism. On its own it runs a real PostgreSQL (PGlite) entirely in your browser; with its small optional server it also works on your real Postgres servers.
+A single-file Postgres workbench with a clean interface in two looks, Ledger and Prism. On its own it runs a real PostgreSQL (PGlite) entirely in your browser; with its small optional server it also works on your real Postgres servers, and lets local AI agents such as Claude Code and Codex use your databases over MCP.
 
 https://github.com/user-attachments/assets/91cf1d1f-2c4c-497b-aee9-7b774eafbcab
 
 A two-minute tour. No player? [Download it](docs/assets/pgquire-tour.mp4).
 
-## Live Demo
+**Live demo: https://abiddotdev.github.io/pgquire/** · [Open a sample database from a share link](https://abiddotdev.github.io/pgquire/docs/sample/)
 
-Open the app: **https://abiddotdev.github.io/pgquire/**
+## Quick start
 
-Or try a sample database straight from a share link: **https://abiddotdev.github.io/pgquire/docs/sample/**
+**In the browser.** Open the [live page](https://abiddotdev.github.io/pgquire/). Nothing to install.
+
+**On your Postgres servers.** Download `pgquire` for your system from [Releases](https://github.com/abiddotdev/pgquire/releases) and run it, or use Docker:
+
+```sh
+./pgquire                                   # opens the workbench in your browser
+./pgquire -dsn postgres://me@db.example.com/shop
+docker run --rm -p 127.0.0.1:8432:8432 ghcr.io/abiddotdev/pgquire
+```
+
+**With an AI agent.** With `pgquire` running, click **Agents → Share “…” with agents** on a database, then:
+
+```sh
+claude mcp add pgquire -- /path/to/pgquire mcp
+```
 
 ## What makes it different
 
@@ -18,7 +32,7 @@ Or try a sample database straight from a share link: **https://abiddotdev.github
 - **Share a whole database as a link.** The data rides after the `#`, which browsers never send to a server; add a passphrase to encrypt it.
   [Try one](https://abiddotdev.github.io/pgquire/docs/sample/): bird sightings with `pg_trgm` for typo-tolerant search (small enough for any chat), a sales CRM with a `tablefunc` crosstab (opens in every browser), or 180,000 bike trips, 11 MB of SQL in a 1.7 MB link (Chrome or Edge).
 - **Copy a slice of production into your browser.** A sample of each table, with the rows they reference, to break freely. The server is only read.
-- **An AI that asks before it writes.** The Clerk reads your schema and runs queries; every change waits for your approval. With the server, local agents such as Claude Code can use the databases you share with them on the same terms.
+- **AI that asks before it writes.** The built-in Clerk, and local agents such as Claude Code over MCP, read your schema and run queries; every change waits for your approval.
 - **Production guardrails.** Production connections are red and start read-only, and pgquire can create a login that really can't write.
 
 <table><tr><td width="50%"><img src="docs/assets/share.webp" alt="Share as link, with a passphrase"></td><td width="50%"><img src="docs/assets/copy-to-local.webp" alt="Copy to a local database: rows per table, and the room it needs in the browser"></td></tr></table>
@@ -37,7 +51,7 @@ Or try a sample database straight from a share link: **https://abiddotdev.github
 - SQL editor with highlighting; every statement's result is kept, and results download as CSV or copy for a spreadsheet
 - Open `.sql` files or save to them; big scripts and `pg_dump` output run in chunks with progress and Stop
 - A `BEGIN` stays open across runs, with a banner to commit or roll back
-- Saved queries, and a journal of every statement run (yours, the grid's and the Clerk's)
+- Saved queries, and a journal of every statement run (yours, the grid's, the Clerk's and agents')
 
 <table><tr><td width="50%"><img src="docs/assets/query.webp" alt="The SQL editor with a query and its results"></td><td width="50%"><img src="docs/assets/journal.webp" alt="The journal: every statement run, by you, the grid or the Clerk, with timings"></td></tr></table>
 
@@ -51,10 +65,11 @@ Or try a sample database straight from a share link: **https://abiddotdev.github
 <tr><td colspan="2" align="center"><img src="docs/assets/extensions.webp" alt="The Extensions dialog, with pg_trgm and vector added" width="50%"></td></tr>
 </table>
 
-**The Clerk (optional AI)**
-- Any OpenAI-compatible endpoint (OpenRouter, OpenAI, Groq, Ollama, LM Studio); your key stays in the tab's memory and is never saved
+**AI: the Clerk and local agents**
+- The Clerk works with any OpenAI-compatible endpoint (OpenRouter, OpenAI, Groq, Ollama, LM Studio); your key stays in the tab's memory and is never saved
 - It reads the schema, runs queries and writes SQL into the editor; changes wait for your approval
 - Several conversations per database, with token and cost tracking; export them as JSON or Markdown
+- With the server, [local agents](#local-ai-agents-mcp) (Claude Code, Codex, Cursor…) use the databases you share with them, in-browser ones included, on the same terms
 
 ![The Clerk has run a query and proposes a view, waiting for approval](docs/assets/clerk.webp)
 
@@ -70,37 +85,36 @@ Or try a sample database straight from a share link: **https://abiddotdev.github
 
 ![The same table in all four looks: Ledger and Prism, by day and by night](docs/assets/looks.webp)
 
-No build step: one HTML file. PGlite and the extensions download from a CDN the first time, then the browser caches them.
+## Run it
 
-## Usage
+### In the browser
 
-Open the [live page](https://abiddotdev.github.io/pgquire/) or `index.html` directly in your browser. For a pinned version, download `pgquire_<version>.html` from [Releases](https://github.com/abiddotdev/pgquire/releases) and open it from disk or host it anywhere; like the live page, it loads PGlite from a CDN the first time. Everything runs client-side; nothing leaves your machine unless you ask the Clerk, share a link or export a file.
+Open the [live page](https://abiddotdev.github.io/pgquire/) or `index.html` directly. For a pinned version, download `pgquire_<version>.html` from [Releases](https://github.com/abiddotdev/pgquire/releases) and open it from disk or host it anywhere. PGlite and the extensions load from a CDN the first time, then the browser caches them. Everything runs client-side; nothing leaves your machine unless you ask the Clerk, share a link or export a file.
 
-## Remote Postgres (optional server)
+### With the server
 
-To work with a real Postgres server, run pgquire through its small Go server. It serves the same page and lets it connect to remote databases, which show up in the database switcher next to your in-browser ones.
+The server is a single binary under 10 MB with the page built in. It serves the same workbench, lets it connect to remote Postgres databases (they show up in the database switcher next to your in-browser ones), and gives local AI agents access over MCP.
 
-It's a single binary under 10 MB with the page built in, and nothing else to install. Download the build for your system from [Releases](https://github.com/abiddotdev/pgquire/releases) (about 4 MB), unpack it and run `pgquire`; it opens the workbench in your browser.
-
-| System | File |
+| System | File on [Releases](https://github.com/abiddotdev/pgquire/releases) |
 |---|---|
 | macOS, Apple silicon (M1 and later) | `pgquire_<version>_darwin_arm64.tar.gz` |
 | macOS, Intel | `pgquire_<version>_darwin_amd64.tar.gz` |
 | Windows | `pgquire_<version>_windows_amd64.zip` (`arm64` for ARM PCs) |
 | Linux | `pgquire_<version>_linux_amd64.tar.gz` (`arm64` for ARM, e.g. Raspberry Pi) |
 
-The builds aren't signed, so macOS refuses to open it the first time: run `xattr -d com.apple.quarantine pgquire` once, or allow it under System Settings → Privacy & Security. Windows SmartScreen may ask too (More info → Run anyway). `checksums.txt` on the release lets you verify the download.
+Unpack it and run `pgquire`; it opens the workbench in your browser. The builds aren't signed, so macOS refuses them the first time: run `xattr -d com.apple.quarantine pgquire` once, or allow it under System Settings → Privacy & Security. Windows SmartScreen may ask too (More info → Run anyway). `checksums.txt` on the release lets you verify the download.
 
-Or build it yourself:
+Or build it (Go 1.27+):
 
 ```sh
 git clone https://github.com/abiddotdev/pgquire.git
-cd pgquire/server
-go build -o pgquire .   # Go 1.27+
+cd pgquire/server && go build -o pgquire .
 ./pgquire               # opens http://127.0.0.1:8432/?t=<token>
 ```
 
-Or run it with Docker. To try it, this prints the link to open; Ctrl+C stops it and removes the container:
+### With Docker
+
+To try it (prints the link to open; Ctrl+C stops it and removes the container):
 
 ```sh
 docker run --rm -p 127.0.0.1:8432:8432 ghcr.io/abiddotdev/pgquire
@@ -112,9 +126,13 @@ To keep it running, give it a volume for remembered connections and a fixed toke
 docker run -d --name pgquire -p 127.0.0.1:8432:8432 -v pgquire-config:/config -e PGQUIRE_TOKEN=<secret> ghcr.io/abiddotdev/pgquire
 ```
 
-Keep the `127.0.0.1:` in `-p`: your saved connections are reachable through pgquire, so don't publish it to the network. pgquire warns at start that it's listening beyond loopback; inside the container it has to, and the `127.0.0.1:` is what keeps it on your machine. `docker build -t pgquire .` builds the image from a clone.
+Keep the `127.0.0.1:` in `-p`: your saved connections are reachable through pgquire, so don't publish it to the network. In Docker, `localhost` is the container itself: use `host.docker.internal` for a database on your machine (on Linux, add `--add-host=host.docker.internal:host-gateway`).
 
-To open straight into a database, give it with `-dsn` (or `PGQUIRE_DSN`, which keeps the password out of your shell history). pgquire connects before it starts, so a wrong address or password stops it with the reason, and the page opens in that database:
+## Remote Postgres
+
+Pick **Connect remote Postgres…** in the database switcher and paste a connection string (`postgres://user:password@host:5432/db`) or fill in separate fields. **Test** shows the server version and whether the connection is encrypted. If the server has several databases, you choose which ones to add; they're grouped under the server in the switcher.
+
+To open straight into a database, start with `-dsn` (or `PGQUIRE_DSN`, which keeps the password out of your shell history). pgquire connects before it starts, so a wrong address or password stops it with the reason:
 
 ```sh
 ./pgquire -dsn postgres://me@db.example.com:5432/shop        # password from ~/.pgpass
@@ -122,63 +140,62 @@ To open straight into a database, give it with `-dsn` (or `PGQUIRE_DSN`, which k
 PGQUIRE_DSN=postgres://me:secret@db.example.com/shop ./pgquire
 ```
 
-It's kept for this run only. To keep it, add it once through **Connect remote Postgres…** with **Remember on the server** ticked; from then on `-dsn` with the same string uses that remembered connection (its name, production tag and read-only setting). Each start opens it once; after that the page stays wherever you go. In Docker, `localhost` is the container itself: use `host.docker.internal` for a database on your machine (on Linux, add `--add-host=host.docker.internal:host-gateway` to `docker run`).
-
-Otherwise pick **Connect remote Postgres…** in the database switcher and paste a connection string (`postgres://user:password@host:5432/db`) or fill in separate fields. **Test** shows the server version and whether the connection is encrypted. If the server has several databases, you choose which ones to add; they're grouped under the server in the switcher, and **Other databases on this server…** adds more later.
+A `-dsn` connection lasts for this run only. Add it once with **Remember on the server** ticked, and from then on `-dsn` with the same string uses the remembered one (its name, production tag and read-only setting).
 
 **Credentials and access**
-- Passwords stay with the server. Connections are kept in its memory until it stops, unless you tick **Remember on the server**. Remembered ones go in `pgquire/connections.json` in your OS config folder (`~/.config` on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows; change it with `-config`), readable only by you, and never reach the browser.
-- The server listens on 127.0.0.1 only and needs the token from the link it prints. A page opened another way (a bookmark, or after a restart) asks you to paste that link or token. The token is new each time pgquire starts; set a fixed one with `-token` or `PGQUIRE_TOKEN`.
-- Behind a reverse proxy, or listening beyond 127.0.0.1, set `-domain` (or `PGQUIRE_DOMAIN`) to the host name you reach it by; requests for any other name are refused. When the proxy serves HTTPS and sends `X-Forwarded-Proto: https`, the sign-in cookie is marked Secure.
+- Passwords stay with the server and never reach the browser. Connections are kept in memory until it stops, unless you tick **Remember on the server**; remembered ones go in `pgquire/connections.json` in your OS config folder (`~/.config` on Linux, `~/Library/Application Support` on macOS, `%AppData%` on Windows; change it with `-config`), readable only by you.
+- The server listens on 127.0.0.1 only and needs the token from the link it prints. The token is new each start; set a fixed one with `-token` or `PGQUIRE_TOKEN`.
+- Behind a reverse proxy, or listening beyond 127.0.0.1, set `-domain` to the host name you reach it by; requests for any other name are refused. With `X-Forwarded-Proto: https`, the sign-in cookie is marked Secure.
 
 **Safety**
 - Connections marked **Production** get a red marker, start read-only, and ask before any write once you make them writable.
-- Read-only is a guard rail (SQL can switch it off), so pgquire checks what the login can really do. If a "read-only" connection's login can write, it says so and offers **Create a read-only login…**. That creates a login that can read everything and change nothing (`pg_read_all_data`, or per-schema grants before PostgreSQL 14), switches the connection to it, and keeps its generated password on the server. If your login can't create logins, **Copy SQL** gives your admin the statements. The login is named `pgquire_ro` by default; forgetting the connection offers to remove it again (`drop owned by …; drop role …`).
+- Read-only is a guard rail (SQL can switch it off), so pgquire checks what the login can really do. If it can write, **Create a read-only login…** makes one that can read everything and change nothing (`pg_read_all_data`, or per-schema grants before PostgreSQL 14) and switches the connection to it. If you can't create logins, **Copy SQL** gives your admin the statements.
 - Statements stop after 5 minutes (`-statement-timeout`), a transaction left idle for 2 minutes is rolled back, and sessions idle for 30 minutes are closed (`-idle-timeout`). Running queries can be stopped.
-- The green dot next to the database name shows the connection is up (its tooltip says whether it's encrypted). It turns red with a **Reconnect** banner if the pgquire server stops.
 
 <table><tr><td width="50%"><img src="docs/assets/remote.webp" alt="A production connection: the red PROD · RO marker, a refused delete, and a warning that the login can still write"></td><td width="50%"><img src="docs/assets/readonly-login.webp" alt="Create a read-only login: the grants it runs, with a generated password kept on the server"></td></tr></table>
 
-**Local AI agents (Claude Code, Codex…)**
-
-An AI agent on your computer can work with databases you share with it, in-browser PGlite ones included, over MCP.
-
-1. In the page, open the database and click **Agents** at the top → **Share “…” with agents**, or **Share it read-only**. Do it for each database the agent may use.
-2. Add pgquire to your agent once (**Agents → Set up an agent…** fills in the path):
-   - Claude Code: `claude mcp add pgquire -- /path/to/pgquire mcp`
-   - Codex, in `~/.codex/config.toml`:
-     ```toml
-     [mcp_servers.pgquire]
-     command = "/path/to/pgquire"
-     args = ["mcp"]
-     ```
-   - Other MCP clients (Claude Desktop, Cursor…), in their MCP config:
-     ```json
-     { "mcpServers": { "pgquire": { "command": "/path/to/pgquire", "args": ["mcp"] } } }
-     ```
-   - Over HTTP instead (pgquire in Docker, say), which is off unless pgquire starts with `-mcp-http` (or `PGQUIRE_MCP_HTTP=1`): `claude mcp add --transport http pgquire http://127.0.0.1:8432/mcp --header "Authorization: Bearer <agent token>"`. The agent token is in `agent-token` beside `connections.json` and stays the same across restarts. It isn't the page's token, and it opens nothing but the agent's tools. **New token…** in that dialog replaces it if it leaks; `pgquire mcp` picks up the new one by itself.
-
-The tools are `list_databases`, `get_schema`, `get_user_view` (what you have open: a table with its filter and selected rows, or the query in your editor and its result), `run_sql`, `open_table` and `open_in_editor`; each names the database it works on. `run_sql` also takes a one-line `purpose`, shown above its card as the agent's message (the way the Clerk's are), so you can see what a change is for before you stamp it. `pgquire mcp` finds the running server through `agent.json` (beside `connections.json` while pgquire runs), so restarting either side is fine.
-
-Safety:
-- Nothing is shared until you share it, per database and per browser. A call goes to the tab that has its database open and never to another database. If no tab has it open, nothing runs, and pgquire offers you **Open it here**.
-- SQL runs the way the Clerk's does: reads at once, changes wait for **Approve** in the tab unless you turned confirmations off, and production databases always ask. On a database shared read-only, changes are refused without asking. **Approve all from Claude** (say) lets that agent's changes to that database through until the tab closes; it's never offered on production, and **Stop approving all** in its log ends it.
-- Each agent's calls appear in a Clerk conversation of its own, which comes up (opening the Clerk) whenever the agent does something, once the Clerk isn't busy answering you; a message you were typing stays with your conversation. The journal lists them under the agent's name, with its purpose when you open the row.
-- While an agent waits for you, the tab's title starts with **● Approve?**, and a browser notification says so if the tab is in the background (pgquire asks for permission when you share a database).
-- If the database is closed or unshared while a change waits, it doesn't run. If the agent gives up, the approval is withdrawn, and on a server database its running statement is stopped (yours are left alone).
-- An agent can't leave a transaction open, because it's rolled back. It can't write into one of yours either, though it can still read. Its `SET`s don't stick.
-- If the tab goes away while it holds a call, the agent is told the outcome is unknown, not that it failed, so it checks before retrying.
-- A database is open in one tab at a time (**Use it here** moves it), so two tabs can't overwrite each other's changes.
-
 **Data**
 - Big tables show estimated row counts (`~`). Results in the page are capped at 50,000 rows (`-max-rows`); **CSV (all)** and table **Export CSV** stream every row.
-- **Move data…** in the switcher gathers every way data goes in or out:
-  - **Copy to a local database**: a sample or all rows, from the tables you pick by schema (with the tables they reference), checked against the room the browser allows. Use it to experiment safely.
-  - **Download SQL dump**: read in one consistent snapshot, no `pg_dump` needed.
-  - Session export, and importing files.
+- **Move data…** in the switcher gathers every way data goes in or out: **Copy to a local database** (a sample or all rows, with the tables they reference, checked against the room the browser allows), **Download SQL dump** (one consistent snapshot, no `pg_dump` needed), session export and importing files.
 - The browser keeps in-browser databases per address, so ones made on the live page don't appear at `127.0.0.1:8432`, and the other way round. Move them with **Export session / Open session file**.
 
-**Options**
+## Local AI agents (MCP)
+
+An AI agent on your computer can work with the databases you share with it, in-browser PGlite ones included. This needs the server running.
+
+1. In the page, open the database and click **Agents → Share “…” with agents** (or **Share it read-only**). Do it for each database the agent may use.
+2. Add pgquire to your agent once (**Agents → Set up an agent…** fills in the path):
+
+   **Claude Code**
+   ```sh
+   claude mcp add pgquire -- /path/to/pgquire mcp
+   ```
+   **Codex** (`~/.codex/config.toml`)
+   ```toml
+   [mcp_servers.pgquire]
+   command = "/path/to/pgquire"
+   args = ["mcp"]
+   ```
+   **Other MCP clients** (Claude Desktop, Cursor…)
+   ```json
+   { "mcpServers": { "pgquire": { "command": "/path/to/pgquire", "args": ["mcp"] } } }
+   ```
+   **Over HTTP** (pgquire in Docker, say), once pgquire starts with `-mcp-http`:
+   ```sh
+   claude mcp add --transport http pgquire http://127.0.0.1:8432/mcp --header "Authorization: Bearer <agent token>"
+   ```
+   The agent token is in `agent-token` beside `connections.json`. It isn't the page's token, opens nothing but the agent's tools, and **New token…** replaces it if it leaks.
+
+**Tools:** `list_databases`, `get_schema`, `get_user_view` (what you have open: a table with its filter and selected rows, or your editor's query and result), `run_sql`, `open_table` and `open_in_editor`. `run_sql` takes a one-line `purpose`, shown above the change so you know what it's for before you approve it.
+
+**Safety**
+- Nothing is shared until you share it, per database. Calls go only to the tab that has that database open; if none does, nothing runs.
+- Reads run at once; changes wait for **Approve** in the tab, production databases always ask, and read-only shares refuse changes. **Approve all** lasts until the tab closes and is never offered on production.
+- An agent can't leave a transaction open or write into one of yours, and its `SET`s don't stick. If it gives up, the approval is withdrawn and its running statement stopped.
+- Each agent gets its own Clerk conversation and its own name in the journal; the tab title shows **● Approve?** while one waits.
+- If the tab goes away mid-call, the agent is told the outcome is unknown rather than that it failed, so it checks before retrying.
+
+## Options
 
 Options are `-name value`, in any order; each can also be an environment variable (handy for Docker), and the command line wins. `./pgquire -h` lists them.
 
@@ -197,22 +214,10 @@ Options are `-name value`, in any order; each can also be an environment variabl
 
 In Docker, change the port with both: `-e PGQUIRE_LISTEN=0.0.0.0:9000 -p 127.0.0.1:9000:9000`.
 
-Tests (in `server/`): `PGQUIRE_TEST_DSN=postgres://… go test ./...`
+## Contributing
 
-Browser tests (in `e2e/`, needs Go, Node and Docker): `npm ci && npx playwright install chromium && npm test`. They build the server, start a throwaway Postgres container and run the page in Chromium: connecting, queries, editing tables, read-only logins, `-dsn`, agent access over HTTP and stdio, and PGlite (from its CDN) in the app and the Pages copy. To use a Postgres of your own instead of the container, set `PGQUIRE_E2E_PG=postgres://user:pass@host/postgres` (it creates the `e2e_shop` database and the `pgquire_e2e_ro` login, and drops them first if they're there). The remote tests build on each other, so run `tests/remote.spec.js` whole rather than one test with `-g`.
-
-### Editing the page
-
-Edit `server/index-remote.html`: it's the page the server embeds. `index.html` at the root (the GitHub Pages copy, PGlite only) is generated from it by `go generate` in `server/`. Generation:
-- drops everything marked remote-only: `/* @remote */`, `// @remote` or `<!-- @remote -->` at the end of a line, `/* @remote { */ … /* } @remote */` blocks, and inline `/*remote:*/ … /*:remote*/` in JS and CSS;
-- switches on `// @pages:` lines.
-
-A test fails when `index.html` is out of date.
-
-### Releasing
-
-Bump `APP_VERSION` in `server/index-remote.html` and `Version` in `server/main.go` together (a test checks that they match), run `go generate`, then push a tag like `v1.1.0` (`v` + that version). The release workflow builds Linux, macOS and Windows binaries (amd64 and arm64) with GoReleaser (`.goreleaser.yaml`), attaches them and the page on its own (`pgquire_<version>.html`, listed in `checksums.txt`) to a GitHub release, and publishes the Docker image to `ghcr.io/abiddotdev/pgquire` (amd64 and arm64). `goreleaser release --snapshot --clean` tries the build locally.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the layout, building, tests and releases. In short: edit `server/index-remote.html`, never `index.html` (it's generated by `go generate` in `server/`).
 
 ## License
 
-MIT
+[MIT](LICENSE)

@@ -2179,6 +2179,7 @@ function readmeSections() {
       ['In this browser', 'A real PostgreSQL 18 (PGlite, compiled to WebAssembly), stored in this browser\'s IndexedDB. Nothing leaves the machine unless you ask the Clerk, share a link or export a file.'],
       ['Per address', 'Each web address has its own storage: databases made on the website don\'t appear in the page the pgquire server opens, and the other way round. Move them with Export session and Open a session file.'],
       ['Many databases', 'Create as many as you like from the switcher; each has its own colour, tabs, saved queries and chats.'],
+      ['With the pgquire server', 'A small app you download from GitHub (link below). It runs this same page on your machine and adds real PostgreSQL servers next to the in-browser databases, and lets local AI agents (Claude Code, Codex, anything that speaks MCP) use the databases you share with them, every change waiting for your approval.'],
     ] },
     { t: 'Browse and edit', items: [
       ['Tables and views', 'The Index lists them, grouped by schema when there\'s more than one; Ctrl K jumps to any of them.'],
@@ -2186,6 +2187,8 @@ function readmeSections() {
       ['Edit in place', 'Double-click or Enter to edit a cell, + Row to add one, select rows to delete them.'],
       ['Undo', 'Ctrl+Z puts back the last grid change, and the message says what it can\'t restore (cascaded deletes, triggers that ran).'],
       ['Follow keys', 'Right-click a cell to jump to the row a foreign key points to.'],
+      ['Row details', 'The panel beside the grid shows the selected row whole, the rows it points to and the rows that point at it.'],
+      ['Relations diagram', 'A small diagram above the table: what it points to and what points at it. Export it as SVG or PNG.'],
       ['Structure', 'Columns, indexes and constraints with the table\'s CREATE statement; add, rename or drop columns there.'],
     ] },
     { t: 'Query', items: [
@@ -2193,7 +2196,7 @@ function readmeSections() {
       ['Results', 'Download as CSV or copy for a spreadsheet.'],
       ['Big scripts', 'Past 100 KB, or with pg_dump\'s COPY … FROM stdin, a script runs in chunks with progress and Stop, as one transaction unless it manages its own; an error names the statement and line. SQL file… in the database menu opens one in the editor or runs it straight from disk.'],
       ['Transactions', 'BEGIN in the editor stays open across runs. A banner says so, with Commit and Roll back; edits in the grid meanwhile become part of it.'],
-      ['Saved queries and journal', 'Save a tab with Ctrl+S. The journal (Ctrl+Shift+J) lists every statement run (yours, the grid\'s and the Clerk\'s) with timings.'],
+      ['Saved queries and journal', 'Save a tab with Ctrl+S. The journal (Ctrl+Shift+J) lists every statement run (yours, the grid\'s, the Clerk\'s and agents\') with timings.'],
     ] },
     { t: 'Design the schema', items: [
       ['New table', 'Define columns visually, in the schema you pick, and see the SQL it writes.'],
@@ -2206,14 +2209,19 @@ function readmeSections() {
       ['Bring your own model', 'Any OpenAI-compatible endpoint: OpenRouter, OpenAI, Groq, or a local Ollama or LM Studio. Your API key stays in this tab\'s memory. It\'s never saved and only goes to that endpoint.'],
       ['What it can do', 'Read the schema, run SQL, open tables, write queries into the editor and enable extensions. It sees the tab you\'re on, and you can attach tables or query tabs.'],
       ['Your approval', 'Changes wait for your stamp (unless you turn that off); reads are tried read-only first.'],
-      ['Conversations', 'Several per database, sent with full context or compacted to save tokens; export and import them as JSON.'],
+      ['Conversations', 'Several per database, sent with full context or compacted to save tokens; export them as JSON or Markdown, and import JSON.'],
     ] },
     { t: 'Move data', items: [
       ['SQL dump', 'Schema and data as a .sql file that loads with psql, or here as a new database.'],
       ['Clone', 'An exact copy as a new database in this browser, named with the next free v1, v2….'],
       ['Sessions', 'Export in-browser databases with their tabs, saved queries and chats as one .pgquire file; open it in another browser or address.'],
-      ['Share as link', 'The data rides in the link itself (the part after #, which browsers never send to a server).'],
+      ['Share as link', 'The data rides in the link itself (the part after #, which browsers never send to a server). Add a passphrase to encrypt it, and send the passphrase separately.'],
       ['New database from a file', 'A .sql dump or a PGlite data folder (.tar.gz).'],
+      ['Storage', 'Storage in this browser (Ctrl K, or About pgquire) shows how much room each database takes against the browser\'s limit, and lets you export or delete them to free it.'],
+    ] },
+    { t: 'Look', items: [
+      ['Ledger and Prism', 'Two looks, each by day and by night: Ledger is ink on paper; Prism is crisper, with column profiles in the grid. Switch from the Appearance button at the top right.'],
+      ['Right-click', 'Right-click menus throughout: tables in the Index, tabs, cells and rows.'],
     ] },
   ];
 }
@@ -2229,7 +2237,7 @@ function renderReadme(pane) {
       h('ul', {}, sec.items.filter(Boolean).map(([b, text]) => h('li', {}, h('b', {}, b), ': ', text))))),
     h('section', {}, h('h2', {}, 'Keys', h('small', {}, 'Cmd instead of Ctrl on a Mac')),
       h('div', { class: 'keys' }, keys.flatMap(([k, what]) => [h('span', {}, k.split(/(?<=[^+ ])[+ ](?=\S)/).flatMap((x, i) => [i ? '+' : null, h('kbd', {}, x)]).filter(Boolean), ' '), h('span', {}, what)]))),
-    h('div', { class: 'foot' }, 'Source code, and releases of the pgquire server (for connecting to real Postgres): ', h('a', { href: 'https://github.com/abiddotdev/pgquire', target: '_blank', rel: 'noopener' }, 'github.com/abiddotdev/pgquire'), '.')));
+    h('div', { class: 'foot' }, 'Source code, and releases of the pgquire server (for real Postgres servers, and local AI agents over MCP): ', h('a', { href: 'https://github.com/abiddotdev/pgquire', target: '_blank', rel: 'noopener' }, 'github.com/abiddotdev/pgquire'), '.')));
   pgVersion().then(v => { const el = pane.querySelector('.pg-ver'); if (el && v) el.textContent = ` (Postgres ${v} via PGlite ${PGLITE_VER})`; });
 }
 
