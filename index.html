@@ -6457,10 +6457,8 @@ async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, che
  *  conv, shown once the Clerk isn't busy; onAsk runs as the wait starts; signal withdraws it (not run). */
 async function approve(it, { who, conv, onAsk, onTrust, signal } = {}) {
   onAsk?.();
-  if (conv && !(await showConv(conv, signal))) {
-    Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` });
-    return false;
-  }
+  const withdrawn = () => Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` });
+  if (conv && !(await showConv(conv, signal))) { withdrawn(); return false; }
   return new Promise(res => {
     C.items.push(it); saveClerk();
     const card = receipt(it, true);
@@ -6476,8 +6474,9 @@ async function approve(it, { who, conv, onAsk, onTrust, signal } = {}) {
     card.append(bar); it._ask = bar;
     if (!who) C.approve = done;
     else attention(`${who} wants to change “${dbLabel(currentDb())}”`, it.sql);
-    signal?.addEventListener('abort', () => { Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` }); done(false); });
-    if (signal?.aborted) { Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` }); done(false); }
+    const withdraw = () => { withdrawn(); done(false); };
+    signal?.addEventListener('abort', withdraw);
+    if (signal?.aborted) withdraw();
     const log = $('clerkLog');
     if (log) { const w = $('clerkWorking'); w ? log.insertBefore(card, w) : log.append(card); log.scrollTop = log.scrollHeight; }
     if (app.classList.contains('clerk-closed')) openClerk();

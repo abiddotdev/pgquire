@@ -135,9 +135,16 @@ func (s *server) tokenOK(t string) bool { return constEq(t, s.cfg.token) }
 // that says so, so the browser never sends it over plain HTTP. A forged header only makes the
 // cookie stricter.
 func setTokenCookie(w http.ResponseWriter, r *http.Request, t string) {
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, Secure: requestScheme(r) == "https", SameSite: http.SameSiteStrictMode})
+}
+
+// requestScheme is how the browser reached pgquire: https directly or through a proxy that says so.
+func requestScheme(r *http.Request) string {
 	proto, _, _ := strings.Cut(r.Header.Get("X-Forwarded-Proto"), ",")
-	secure := r.TLS != nil || strings.EqualFold(strings.TrimSpace(proto), "https")
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: t, Path: "/", HttpOnly: true, Secure: secure, SameSite: http.SameSiteStrictMode})
+	if r.TLS != nil || strings.EqualFold(strings.TrimSpace(proto), "https") {
+		return "https"
+	}
+	return "http"
 }
 
 // signIn is the pasted-token way in, for a page opened without the link (a bookmark, or a restart

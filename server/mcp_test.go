@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -259,5 +260,37 @@ func TestMCPOverHTTPSessions(t *testing.T) {
 	http.DefaultClient.Do(req)
 	if code, _, _ := mcpPost(t, c, sid, map[string]any{"id": 3, "method": "tools/list"}); code != 404 { // ended by the agent
 		t.Fatalf("ended session: %d", code)
+	}
+}
+
+func TestMCPBridgeStatus(t *testing.T) {
+	code := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) }))
+	defer srv.Close()
+	agentPath := filepath.Join(t.TempDir(), "agent.json")
+	writeAgentFile(agentPath, agentInfo{URL: srv.URL, Token: "agenttok", PID: 1})
+	b := &mcpBridge{agentPath: agentPath}
+	for c, want := range map[int]string{403: "ERROR: pgquire answered 403", 400: "ERROR: pgquire answered 400", 502: "UNKNOWN OUTCOME"} { // a 4xx never reached a tab
+		code = c
+		if text, isErr := b.run(make(chan struct{}), "run_sql", nil, "test"); !isErr || !strings.HasPrefix(text, want) {
+			t.Fatalf("%d: %q", c, text)
+		}
+	}
+}
+
+func TestMCPSessionsEvictIdle(t *testing.T) {
+	var ss mcpSessions
+	busy, bc := ss.start()
+	bc.start(json.RawMessage("1")) // a call in flight
+	idle, _ := ss.start()
+	for range 997 {
+		ss.start()
+	}
+	ss.conn(idle) // used just now: no longer the idlest
+	for range 3 {
+		ss.start()
+	}
+	if len(ss.conns) != 1000 || ss.conn(busy) == nil || ss.conn(idle) == nil {
+		t.Fatalf("kept %d; busy %v, idle %v", len(ss.conns), ss.conn(busy) != nil, ss.conn(idle) != nil)
 	}
 }

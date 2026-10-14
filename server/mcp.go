@@ -75,6 +75,7 @@ type mcpConn struct {
 	mu      sync.Mutex
 	client  string
 	pending map[string]chan struct{} // request id → closed when cancelled
+	used    time.Time                // last request (under mcpSessions.mu)
 }
 
 func newMCPConn() *mcpConn { return &mcpConn{pending: map[string]chan struct{}{}} }
@@ -179,10 +180,20 @@ func (ss *mcpSessions) start() (string, *mcpConn) {
 	if ss.conns == nil {
 		ss.conns = map[string]*mcpConn{}
 	}
-	if len(ss.conns) > 1000 { // agents that never said goodbye; the rest start again (see conn)
-		clear(ss.conns)
+	if len(ss.conns) >= 1000 { // agents that never said goodbye: drop the one idle longest, with no calls in flight
+		var old string
+		for id, c := range ss.conns {
+			c.mu.Lock()
+			busy := len(c.pending) > 0
+			c.mu.Unlock()
+			if !busy && (old == "" || c.used.Before(ss.conns[old].used)) {
+				old = id
+			}
+		}
+		delete(ss.conns, old)
 	}
 	id, c := randomHex(16), newMCPConn()
+	c.used = time.Now()
 	ss.conns[id] = c
 	return id, c
 }
@@ -192,7 +203,11 @@ func (ss *mcpSessions) start() (string, *mcpConn) {
 func (ss *mcpSessions) conn(id string) *mcpConn {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
-	return ss.conns[id]
+	c := ss.conns[id]
+	if c != nil {
+		c.used = time.Now()
+	}
+	return c
 }
 
 func (s *server) mcpHTTP(w http.ResponseWriter, r *http.Request) {
@@ -265,8 +280,8 @@ func mcpMain(args []string) {
 	}
 }
 
-// serveMCP answers JSON-RPC messages, one per line, until in ends. Calls run side by side (one
-// waiting for the user's approval doesn't hold up the rest) and can be cancelled.
+// serveMCP answers JSON-RPC messages, one per line, until in ends. Calls are handled side by side
+// and can be cancelled; ones for the same database still run one at a time in its tab.
 func serveMCP(in io.Reader, out io.Writer, run toolFunc) error {
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 1<<20), 64<<20)
@@ -345,7 +360,7 @@ func (b *mcpBridge) run(done <-chan struct{}, tool string, args json.RawMessage,
 		IsError bool   `json:"isError"`
 	}
 	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &r) != nil {
-		if tool == "run_sql" { // the server had it: it may have reached the tab
+		if tool == "run_sql" && resp.StatusCode/100 != 4 { // a 4xx was refused before reaching any tab; anything else may have
 			return fmt.Sprintf("UNKNOWN OUTCOME: pgquire answered %d; the SQL may or may not have run. Check before trying it again.", resp.StatusCode), true
 		}
 		return fmt.Sprintf("ERROR: pgquire answered %d", resp.StatusCode), true
@@ -366,11 +381,7 @@ func postLocal(ctx context.Context, info agentInfo, path string, body []byte) (*
 		return nil, err
 	}
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
-	defer func() {
-		if !stop() || err != nil {
-			conn.Close()
-		}
-	}()
+	defer func() { stop(); conn.Close() }() // the body is read in full below
 	if _, err = fmt.Fprintf(conn, "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nAuthorization: Bearer %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
 		path, u.Host, info.Token, len(body), body); err != nil {
 		return nil, err

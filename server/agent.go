@@ -424,11 +424,11 @@ func (s *server) agentStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev := <-t.send:
+			if ev.call != nil { // before writing: once any of it is out, the tab may run it
+				s.agent.delivered(ev.call)
+			}
 			if write(ev.name, ev.data) != nil {
 				return
-			}
-			if ev.call != nil {
-				s.agent.delivered(ev.call)
 			}
 		case <-beat.C:
 			if _, err := fmt.Fprint(w, ": beat\n\n"); err != nil {
@@ -504,7 +504,7 @@ func (s *server) newAgentToken(w http.ResponseWriter, r *http.Request) {
 
 // agentSetup is what the page shows for setting up an agent.
 func (s *server) agentSetup(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{"url": "http://" + r.Host + "/mcp", "token": s.agentToken(), "http": s.cfg.mcpHTTP}
+	out := map[string]any{"url": requestScheme(r) + "://" + r.Host + "/mcp", "token": s.agentToken(), "http": s.cfg.mcpHTTP}
 	if exe, err := os.Executable(); err == nil && !strings.Contains(exe, "go-build") { // not `go run`'s temporary build
 		out["exe"] = exe
 	}

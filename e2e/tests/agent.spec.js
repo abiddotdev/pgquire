@@ -169,6 +169,22 @@ test('the agent gives up while its change waits: withdrawn, nothing runs', async
   expect(await pets()).toBe('2');
 });
 
+test('a call queued behind a waiting change can be given up: it never runs', async () => {
+  const first = tool('run_sql', { sql: 'insert into pets values (3, \'Kit\')' });
+  await expect(page.locator('.r-ask')).toBeVisible();
+  const held = page.waitForRequest(r => r.url().endsWith('/api/agent/reply') && JSON.parse(r.postData()).hold);   // the tab has it, queued
+  const queued = mcp('tools/call', { name: 'run_sql', arguments: { sql: 'delete from pets', purpose: 'Emptying pets' } }, 778);
+  await held;
+  await giveUp(778);
+  expect((await queued).result.content[0].text).toMatch(/^UNKNOWN OUTCOME/);
+  await page.locator('.r-ask').getByRole('button', { name: 'Approve', exact: true }).click();
+  expect(await first).toContain('OK (1 rows affected)');
+  await page.waitForTimeout(500);   // its turn came and went
+  await expect(page.locator('.r-ask')).toHaveCount(0);
+  expect(await pets()).toBe('3');
+  await runSQL(page, 'delete from pets where id = 3');
+});
+
 test('made read-only while a change waits: it doesn\'t run; the Approve bar survives a redraw', async () => {
   const pending = tool('run_sql', { sql: 'delete from pets' });
   await expect(page.locator('.r-ask')).toBeVisible();

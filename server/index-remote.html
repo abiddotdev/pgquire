@@ -7588,10 +7588,8 @@ async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, che
  *  conv, shown once the Clerk isn't busy; onAsk runs as the wait starts; signal withdraws it (not run). */
 async function approve(it, { who, conv, onAsk, onTrust, signal } = {}) {
   onAsk?.();
-  if (conv && !(await showConv(conv, signal))) {
-    Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` });
-    return false;
-  }
+  const withdrawn = () => Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` });
+  if (conv && !(await showConv(conv, signal))) { withdrawn(); return false; }
   return new Promise(res => {
     C.items.push(it); saveClerk();
     const card = receipt(it, true);
@@ -7607,8 +7605,9 @@ async function approve(it, { who, conv, onAsk, onTrust, signal } = {}) {
     card.append(bar); it._ask = bar;
     if (!who) C.approve = done;
     else attention(`${who} wants to change “${dbLabel(currentDb())}”`, it.sql);
-    signal?.addEventListener('abort', () => { Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` }); done(false); });
-    if (signal?.aborted) { Object.assign(it, { interrupted: true, why: `Not run — ${who || 'the agent'} stopped waiting` }); done(false); }
+    const withdraw = () => { withdrawn(); done(false); };
+    signal?.addEventListener('abort', withdraw);
+    if (signal?.aborted) withdraw();
     const log = $('clerkLog');
     if (log) { const w = $('clerkWorking'); w ? log.insertBefore(card, w) : log.append(card); log.scrollTop = log.scrollHeight; }
     if (app.classList.contains('clerk-closed')) openClerk();
@@ -7652,7 +7651,7 @@ function agentConnect() {
   const es = AG.es = new EventSource('/api/agent/stream');
   const on = (name, fn) => es.addEventListener(name, e => { if (AG.es === es) fn(JSON.parse(e.data)); });
   on('hello', d => { AG.tab = d.tab; AG.retry = 0; agentReport(); paintAgent(); });
-  on('call', d => { AG.queue = AG.queue.then(() => agentCall(d.id, d.call)); });   // one at a time
+  on('call', d => agentCall(d.id, d.call));
   on('cancel', d => AG.calls.get(d.id)?.gone.abort());
   on('want', agentWant);
   es.onerror = () => {                           // server restarted, network dropped: try again
@@ -7769,20 +7768,28 @@ function agentStale(id, db) {
   return null;
 }
 /* A call's approval is withdrawn when the agent gives up on it (gone: no answer is sent) or the tab moves
-   to another database (moved: answered MOVED). */
+   to another database (moved: answered MOVED). Calls run one at a time, but each is held and can be given
+   up from the moment it arrives: one queued behind an approval doesn't time out, and isn't run once it has. */
 async function agentCall(id, call) {
   const c = { gone: new AbortController(), moved: new AbortController() }, signal = AbortSignal.any([c.gone.signal, c.moved.signal]);
-  AG.calls.set(id, c); AG.busy++; paintAgent();
-  // Still working (a long query, an approval): pgquire would otherwise give up after a minute and call it unknown.
+  AG.calls.set(id, c);
+  // Still working (queued, a long query, an approval): pgquire would otherwise give up after a minute and call it unknown.
   const working = () => AG.tab && api('POST', '/api/agent/reply', { tab: AG.tab, id, hold: true }).catch(() => {});
   working();
   const beat = setInterval(working, 60000);
-  const db = S.db;
-  signal.addEventListener('abort', () => { if (db?.remote) db.cancel(id); });   // the agent gave up: stop its statement, not anyone else's
   let text;
-  try { text = await agentRun(call || {}, id, signal); }
-  catch (e) { text = `ERROR: ${e.message}`; }
-  finally { clearInterval(beat); AG.calls.delete(id); AG.busy--; paintAgent(); }
+  const turn = AG.queue.then(async () => {
+    if (c.gone.signal.aborted) return;
+    AG.busy++; paintAgent();
+    const db = S.db;
+    signal.addEventListener('abort', () => { if (db?.remote) db.cancel(id); });   // the agent gave up: stop its statement, not anyone else's
+    try { text = await agentRun(call || {}, id, signal); }
+    catch (e) { text = `ERROR: ${e.message}`; }
+    finally { AG.busy--; paintAgent(); }
+  });
+  AG.queue = turn.catch(() => {});
+  try { await turn; }
+  finally { clearInterval(beat); AG.calls.delete(id); }
   if (c.gone.signal.aborted || !AG.tab) return;  // given up: the server has no one to hand an answer to
   const d = currentDb();
   await api('POST', '/api/agent/reply', { tab: AG.tab, id, result: { text, error: AG_FAILED.test(text), db: S.id === call?.database && d ? agentDescribe(d) : null } }).catch(() => {});
@@ -7815,7 +7822,7 @@ async function agentRun({ tool, args = {}, client, database }, id, signal) {
     note(`read the schema${sch ? ` of ${args.schema}` : ''}${want.length ? `: ${want.join(', ')}` : ''}`);
     return agentStale(database, db) || (!list.length ? `ERROR: no ${want.length ? 'such tables' : 'tables'}${sch ? ` in schema ${args.schema}` : ''}.`
       : sch || want.length ? schemaTables(list, { more: 'Ask for fewer at a time.' })
-      : schemaText() + (schemaText().includes(' not shown in full ') ? ' Call get_schema with tables (or schema) for the rest.' : ''));
+      : (t => t + (t.includes(' not shown in full ') ? ' Call get_schema with tables (or schema) for the rest.' : ''))(schemaText()));
   }
   if (tool === 'get_user_view') {   // what's on screen in this tab, as the Clerk is told it
     note('looked at what you have open');
