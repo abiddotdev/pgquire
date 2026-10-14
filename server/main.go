@@ -143,7 +143,11 @@ func main() {
 	}
 	// For `pgquire mcp`: where this server is, while it runs.
 	agentPath := files.info
-	if err := writeAgentFile(agentPath, agentInfo{URL: "http://" + browserHost(addr), Token: agentToken, PID: os.Getpid()}); err != nil {
+	info := agentInfo{URL: "http://" + browserHost(addr), Token: agentToken, PID: os.Getpid()}
+	if *domain != "" && !addr.IP.IsLoopback() && !addr.IP.IsUnspecified() { // an address that isn't loopback: only -domain passes the Host check
+		info.Host = *domain
+	}
+	if err := writeAgentFile(agentPath, info); err != nil {
 		log.Printf("warning: writing %s: %v — `pgquire mcp` won't find this server", agentPath, err)
 	}
 	defer removeAgentFile(agentPath)

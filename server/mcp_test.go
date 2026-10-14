@@ -198,7 +198,7 @@ func TestMCPStdioThroughPgquire(t *testing.T) {
 	// A call waiting for approval doesn't hold up the next one, and cancelling it withdraws it.
 	m.write(map[string]any{"id": 3, "method": "tools/call", "params": map[string]any{"name": "run_sql", "arguments": map[string]any{"database": "db1", "purpose": "test", "sql": "delete from t"}}})
 	first := tab.next("call")
-	if call := first.data["call"].(map[string]any); call["client"] != "codex" {
+	if call := first.data["call"].(map[string]any); call["client"] != "codex" || len(call["conn"].(string)) != 24 {
 		t.Fatalf("client: %v", call)
 	}
 	tab.reply(first.data["id"], nil, true)
@@ -226,7 +226,7 @@ func TestMCPStdioBadAddress(t *testing.T) {
 	for _, url := range []string{"https://127.0.0.1:1", "not a url", "http://127.0.0.1:1"} { // only plain http to a listening pgquire
 		writeAgentFile(agentPath, agentInfo{URL: url, Token: "agenttok", PID: 1})
 		b := &mcpBridge{agentPath: agentPath}
-		if text, isErr := b.run(make(chan struct{}), "list_databases", nil, "test"); !isErr || !strings.HasPrefix(text, "ERROR: pgquire isn't answering at "+url) {
+		if text, isErr := b.run(make(chan struct{}), "list_databases", nil, "test", "c1"); !isErr || !strings.HasPrefix(text, "ERROR: pgquire isn't answering at "+url) {
 			t.Fatalf("%s: %q", url, text)
 		}
 	}
@@ -272,7 +272,7 @@ func TestMCPBridgeStatus(t *testing.T) {
 	b := &mcpBridge{agentPath: agentPath}
 	for c, want := range map[int]string{403: "ERROR: pgquire answered 403", 400: "ERROR: pgquire answered 400", 502: "UNKNOWN OUTCOME"} { // a 4xx never reached a tab
 		code = c
-		if text, isErr := b.run(make(chan struct{}), "run_sql", nil, "test"); !isErr || !strings.HasPrefix(text, want) {
+		if text, isErr := b.run(make(chan struct{}), "run_sql", nil, "test", "c1"); !isErr || !strings.HasPrefix(text, want) {
 			t.Fatalf("%d: %q", c, text)
 		}
 	}
@@ -292,5 +292,32 @@ func TestMCPSessionsEvictIdle(t *testing.T) {
 	}
 	if len(ss.conns) != 1000 || ss.conn(busy) == nil || ss.conn(idle) == nil {
 		t.Fatalf("kept %d; busy %v, idle %v", len(ss.conns), ss.conn(busy) != nil, ss.conn(idle) != nil)
+	}
+}
+
+func TestMCPSessionsAllBusy(t *testing.T) {
+	var ss mcpSessions
+	for range 1000 {
+		_, c := ss.start()
+		c.start(json.RawMessage("1"))
+	}
+	if id, c := ss.start(); c != nil || id != "" || len(ss.conns) != 1000 { // none to drop: refused, not one more
+		t.Fatalf("got %q, %d sessions", id, len(ss.conns))
+	}
+}
+
+// Listening on one address with -domain set, only the domain passes the Host check: pgquire mcp sends it.
+func TestMCPBridgeSendsTheHostGiven(t *testing.T) {
+	host := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { host <- r.Host; w.Write([]byte(`{"text":"ok"}`)) }))
+	defer srv.Close()
+	agentPath := filepath.Join(t.TempDir(), "agent.json")
+	writeAgentFile(agentPath, agentInfo{URL: srv.URL, Host: "pgquire.example.com", Token: "agenttok", PID: 1})
+	b := &mcpBridge{agentPath: agentPath}
+	if text, isErr := b.run(make(chan struct{}), "list_databases", nil, "test", "c1"); isErr || text != "ok" {
+		t.Fatalf("%q", text)
+	}
+	if h := <-host; h != "pgquire.example.com" {
+		t.Fatalf("Host %q", h)
 	}
 }

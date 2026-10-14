@@ -229,6 +229,17 @@ test('approve all from an agent, until stopped; the tab title says when it waits
   await expect(page).not.toHaveTitle(/●/);
   await expect(page.locator('.agent-compose')).toContainText('Approving all from Claude Code');
   expect(await tool('run_sql', { sql: 'insert into pets values (6, \'Mo\')' })).toContain('1 rows affected');   // no stamp asked
+  // Another program giving the same name doesn't get it: approve all is for the connection it was given to
+  const other = async (method, params, id) => {
+    const r = await fetch(env('URL') + '/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${agentToken()}`, ...(other.sid ? { 'Mcp-Session-Id': other.sid } : {}) },
+      body: JSON.stringify({ jsonrpc: '2.0', id, method, params }) });
+    other.sid ??= r.headers.get('mcp-session-id');
+    return r.json();
+  };
+  await other('initialize', { protocolVersion: '2025-06-18', clientInfo: { name: 'claude-code' }, capabilities: {} }, 1);
+  const posing = other('tools/call', { name: 'run_sql', arguments: { sql: 'insert into pets values (7, \'Ix\')', purpose: 'Posing' } }, 2);
+  await page.locator('.r-ask').getByRole('button', { name: 'Decline' }).click();
+  expect((await posing).result.content[0].text).toContain('DECLINED');
   await page.locator('.agent-compose').getByRole('button', { name: 'Stop approving all' }).click();
   const asked = tool('run_sql', { sql: 'delete from pets where id >= 5' });
   await page.locator('.r-ask').getByRole('button', { name: 'Approve', exact: true }).click();
@@ -262,6 +273,11 @@ test('shared read-only: changes are refused without asking', async () => {
   await expect.poll(() => tool('list_databases')).toContain('PGlite in the browser, read-only');
   expect(await tool('run_sql', { sql: 'delete from pets' })).toContain('shared this database with agents read-only');
   await expect(page.locator('.r-ask')).toHaveCount(0);
+  // A filter is SQL too: one that writes fails, rather than running unasked
+  await runSQL(page, "create table bumps(x int); create function bump() returns int language sql as 'insert into bumps values (1) returning 1'");
+  expect(await tool('open_table', { table: 'pets', where: '(select bump()) is not null' })).toMatch(/\nERROR: cannot execute INSERT in a read-only transaction/);
+  expect((await runSQL(page, 'select count(*) from bumps')).rows[0][0]).toBe('0');
+  await runSQL(page, 'drop function bump(); drop table bumps');
   expect(await tool('run_sql', { sql: 'select count(*) from pets' })).toContain('["2"]');
   await page.click('#agentBtn');
   await page.locator('.menu').getByText('Let agents change it too').click();
@@ -355,6 +371,53 @@ test('a remote database: the same tools, through the tab\'s connection', async (
   await page.locator('.modal').last().getByRole('button', { name: 'Forget' }).click();
   await expect(page.locator('.remote-row:has-text("agent-e2e")')).toHaveCount(0);
   await page.keyboard.press('Escape');   // close the Connect dialog
+  await expect(page.locator('.modal-bg')).toHaveCount(0);
+});
+
+test('what the user does while a change waits stays theirs: their transaction, their SET', async () => {
+  await connect(page, 'agent-wait', dsn());
+  await page.click('#agentBtn');
+  await page.locator('.menu').getByText(/^Share “.*” with agents…$/).click();
+  await page.locator('.modal').last().getByRole('button', { name: 'Share' }).click();
+  await expect.poll(() => tool('list_databases')).toContain(`“${DB}” — PostgreSQL`);
+  await admin('create table if not exists wait_notes(id int primary key, body text); truncate wait_notes');
+  const approve = () => page.locator('.r-ask').getByRole('button', { name: 'Approve', exact: true }).click();
+
+  // The user opens a transaction while the agent's change waits: the change doesn't run, theirs is kept
+  let pending = tool('run_sql', { database: DB, sql: "insert into wait_notes values (1, 'agent')" });
+  await expect(page.locator('.r-ask')).toBeVisible();
+  await runSQL(page, "begin; insert into wait_notes values (2, 'user')");
+  await approve();
+  expect(await pending).toContain('NOT RUN: the user opened a transaction meanwhile');
+  await expect(page.locator('#clerkLog .receipt').last()).toContainText('Not run — you opened a transaction meanwhile');
+  await runSQL(page, 'commit');
+  expect(await admin('select id from wait_notes order by id')).toEqual([{ id: 2 }]);
+
+  // …or runs a SET: it stays, while the agent's own SET is put back
+  await runSQL(page, "set statement_timeout = '123s'");
+  pending = tool('run_sql', { database: DB, sql: "set application_name = 'agent'; insert into wait_notes values (3, 'agent')" });
+  await expect(page.locator('.r-ask')).toBeVisible();
+  await runSQL(page, "set statement_timeout = '124s'");
+  await approve();
+  expect(await pending).toContain('session settings (SET …) are put back');
+  expect((await runSQL(page, 'show statement_timeout')).rows[0][0]).toBe('124s');
+  expect((await runSQL(page, 'show application_name')).rows[0][0]).not.toBe('agent');
+  await runSQL(page, 'reset statement_timeout');
+
+  // A filter that writes fails, on a remote database too
+  await admin("create or replace function wait_bump() returns int language sql as 'insert into wait_notes values (99, null) returning 1'");
+  expect(await tool('open_table', { database: DB, table: 'wait_notes', where: '(select wait_bump()) is not null' })).toMatch(/\nERROR: cannot execute INSERT in a read-only transaction/);
+  expect(await admin('select count(*)::int n from wait_notes where id = 99')).toEqual([{ n: 0 }]);
+  await admin('drop function wait_bump(); drop table wait_notes');
+
+  await page.click('#agentBtn');
+  await page.locator('.menu').getByText(/^Stop sharing/).click();
+  await page.click('#dbSwitch');
+  await page.getByText('Connect remote Postgres…').click();
+  await page.locator('.remote-row:has-text("agent-wait")').first().locator('button').last().click();
+  await page.locator('.modal').last().getByRole('button', { name: 'Forget' }).click();
+  await expect(page.locator('.remote-row:has-text("agent-wait")')).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await expect(page.locator('.modal-bg')).toHaveCount(0);
 });
 

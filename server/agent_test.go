@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -492,5 +493,69 @@ func TestBrowserHost(t *testing.T) {
 		if got := browserHost(a); got != want {
 			t.Errorf("%s: %s, want %s", addr, got, want)
 		}
+	}
+}
+
+// A call given up before the tab's stream wrote it is never written (the agent was told it didn't run);
+// one the tab had is cancelled there, even when the tab's queue is full.
+func TestAgentGivenUpCalls(t *testing.T) {
+	h := newAgentHub()
+	tab := h.join()
+	h.report(tab.id, "db1", []agentDB{{ID: "db1", Name: "shop"}}, true)
+	gone := make(chan struct{})
+	close(gone)
+	_, err := h.call(gone, agentDB{ID: "db1"}, "x", nil)
+	if ae := (*agentError)(nil); !errors.As(err, &ae) || ae.Unknown {
+		t.Fatalf("not delivered: %v", err)
+	}
+	if ev := <-tab.send; ev.call == nil || h.deliver(ev.call) {
+		t.Fatal("a call given up before it was written would still be written")
+	}
+	if ids := h.takeCancels(tab); len(ids) != 0 {
+		t.Fatalf("cancels for a call the tab never had: %v", ids)
+	}
+
+	stop, res := make(chan struct{}), make(chan error, 1)
+	go func() { _, err := h.call(stop, agentDB{ID: "db1"}, "x", nil); res <- err }()
+	ev := <-tab.send
+	if !h.deliver(ev.call) {
+		t.Fatal("deliver")
+	}
+	for len(tab.send) < cap(tab.send) {
+		tab.send <- agentEvent{name: "noise"}
+	}
+	close(stop)
+	if ae := (*agentError)(nil); !errors.As(<-res, &ae) || !ae.Unknown {
+		t.Fatal("delivered: should be unknown")
+	}
+	select {
+	case <-tab.wake:
+	default:
+		t.Fatal("the stream wasn't woken for the cancel")
+	}
+	if ids := h.takeCancels(tab); len(ids) != 1 || ids[0] != ev.call.id {
+		t.Fatalf("cancels %v", ids)
+	}
+}
+
+func TestAgentNewTokenAgentFileUnwritable(t *testing.T) {
+	c, srv := newTestServer(t, 100, true)
+	dir := t.TempDir()
+	srv.cfg.agentFiles = agentFiles{info: filepath.Join(dir, "agent.json")}
+	writeAgentFile(srv.cfg.agentFiles.info, agentInfo{URL: c.base, Token: "agenttok", PID: os.Getpid()})
+	os.Chmod(dir, 0o500)
+	defer os.Chmod(dir, 0o700)
+	if os.WriteFile(filepath.Join(dir, "probe"), nil, 0o600) == nil {
+		t.Skip("the directory is still writable (running as root?)")
+	}
+	var out map[string]any
+	if code := c.do("POST", "/api/agent/token", nil, &out); code != 200 {
+		t.Fatalf("new token: %d", code)
+	}
+	if w, _ := out["warning"].(string); !strings.Contains(w, "Restart pgquire") {
+		t.Fatalf("warning %q", w)
+	}
+	if code, _, _ := agentTool(t, c, "agenttok", "list_databases", nil); code != 401 { // the old one stops working all the same
+		t.Fatalf("old token: %d", code)
 	}
 }

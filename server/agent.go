@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -44,11 +45,13 @@ type agentDB struct {
 }
 
 type agentTab struct {
-	id     string
-	send   chan agentEvent
-	open   string    // the shared database open in this tab, or ""
-	shared []agentDB // what this tab's browser shares
-	seen   time.Time // when the user last had this tab in front
+	id      string
+	send    chan agentEvent
+	cancels []string      // calls it had and should drop: kept here, as send can be full (under agentHub.mu)
+	wake    chan struct{} // there are cancels
+	open    string        // the shared database open in this tab, or ""
+	shared  []agentDB     // what this tab's browser shares
+	seen    time.Time     // when the user last had this tab in front
 }
 
 type agentEvent struct {
@@ -86,7 +89,7 @@ func newAgentHub() *agentHub {
 func (h *agentHub) join() *agentTab {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	t := &agentTab{id: randomHex(8), send: make(chan agentEvent, 64), seen: time.Now()}
+	t := &agentTab{id: randomHex(8), send: make(chan agentEvent, 64), wake: make(chan struct{}, 1), seen: time.Now()}
 	h.tabs[t.id] = t
 	return t
 }
@@ -274,10 +277,23 @@ func (h *agentHub) abandon(c *agentCall, err *agentError) (json.RawMessage, erro
 	}
 	delete(h.calls, c.id)
 	err.Unknown = c.delivered
-	if t := h.tabs[c.tab]; t != nil {
-		h.queueLocked(t, agentEvent{name: "cancel", data: map[string]any{"id": c.id}})
+	if t := h.tabs[c.tab]; t != nil && c.delivered { // one not written yet never will be (deliver)
+		t.cancels = append(t.cancels, c.id)
+		select {
+		case t.wake <- struct{}{}:
+		default:
+		}
 	}
 	return nil, err
+}
+
+// takeCancels returns the calls a tab should drop, and forgets them.
+func (h *agentHub) takeCancels(t *agentTab) []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ids := t.cancels
+	t.cancels = nil
+	return ids
 }
 
 // answer takes a tab's reply to a call it was sent: the result, or hold (waiting for the user).
@@ -300,17 +316,22 @@ func (h *agentHub) answer(tab, id string, hold bool, raw json.RawMessage) bool {
 	return true
 }
 
-func (h *agentHub) delivered(c *agentCall) {
+// deliver marks a call as about to be written to its tab; false: it was given up first, so it isn't.
+func (h *agentHub) deliver(c *agentCall) bool {
 	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.calls[c.id] != c {
+		return false
+	}
 	c.delivered = true
-	h.mu.Unlock()
+	return true
 }
 
 /* ---------- the tools, as text for the agent ---------- */
 
 // agentTool runs one tool for an agent (client: its name, shown to the user) and returns what the
 // agent reads. done: the agent gave up waiting.
-func (s *server) agentTool(done <-chan struct{}, tool string, args json.RawMessage, client string) (string, bool) {
+func (s *server) agentTool(done <-chan struct{}, tool string, args json.RawMessage, client, conn string) (string, bool) {
 	if len(args) == 0 || string(args) == "null" {
 		args = json.RawMessage("{}")
 	}
@@ -334,7 +355,7 @@ func (s *server) agentTool(done <-chan struct{}, tool string, args json.RawMessa
 	if err != nil {
 		return "ERROR: " + err.Error(), true
 	}
-	raw, err := s.agent.call(done, db.agentDB, client, map[string]any{"tool": tool, "args": args, "client": client, "database": db.ID})
+	raw, err := s.agent.call(done, db.agentDB, client, map[string]any{"tool": tool, "args": args, "client": client, "conn": conn, "database": db.ID})
 	var ae *agentError
 	if errors.As(err, &ae) {
 		if ae.Unknown && tool == "run_sql" {
@@ -424,11 +445,17 @@ func (s *server) agentStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case ev := <-t.send:
-			if ev.call != nil { // before writing: once any of it is out, the tab may run it
-				s.agent.delivered(ev.call)
+			if ev.call != nil && !s.agent.deliver(ev.call) { // before writing: once any of it is out, the tab may run it
+				continue
 			}
 			if write(ev.name, ev.data) != nil {
 				return
+			}
+		case <-t.wake:
+			for _, id := range s.agent.takeCancels(t) {
+				if write("cancel", map[string]any{"id": id}) != nil {
+					return
+				}
 			}
 		case <-beat.C:
 			if _, err := fmt.Fprint(w, ": beat\n\n"); err != nil {
@@ -491,24 +518,32 @@ func (s *server) newAgentToken(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.agentMu.Lock()
-	s.agentKey = t
+	s.agentKey = t // in effect even if agent.json can't be updated: the old token may have leaked
 	s.agentMu.Unlock()
+	out := s.setupInfo(r)
 	if f.info != "" {
 		if info, err := readAgentFile(f.info); err == nil && info.PID == os.Getpid() {
 			info.Token = t
-			writeAgentFile(f.info, info)
+			if err := writeAgentFile(f.info, info); err != nil {
+				log.Printf("warning: writing %s: %v", f.info, err)
+				out["warning"] = "New agent token in effect, but pgquire mcp couldn't be given it (" + err.Error() + "). Restart pgquire so it can."
+			}
 		}
 	}
-	s.agentSetup(w, r)
+	writeJSON(w, http.StatusOK, out)
 }
 
 // agentSetup is what the page shows for setting up an agent.
 func (s *server) agentSetup(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.setupInfo(r))
+}
+
+func (s *server) setupInfo(r *http.Request) map[string]any {
 	out := map[string]any{"url": requestScheme(r) + "://" + r.Host + "/mcp", "token": s.agentToken(), "http": s.cfg.mcpHTTP}
 	if exe, err := os.Executable(); err == nil && !strings.Contains(exe, "go-build") { // not `go run`'s temporary build
 		out["exe"] = exe
 	}
-	writeJSON(w, http.StatusOK, out)
+	return out
 }
 
 /* ---------- HTTP: the agent's side ---------- */
@@ -524,11 +559,12 @@ func (s *server) agentCall(w http.ResponseWriter, r *http.Request) {
 		Tool   string          `json:"tool"`
 		Args   json.RawMessage `json:"args"`
 		Client string          `json:"client"`
+		Conn   string          `json:"conn"`
 	}
 	if !readJSON(w, r, &in) {
 		return
 	}
-	text, isErr := s.agentTool(r.Context().Done(), in.Tool, in.Args, in.Client)
+	text, isErr := s.agentTool(r.Context().Done(), in.Tool, in.Args, in.Client, in.Conn)
 	writeJSON(w, http.StatusOK, map[string]any{"text": text, "isError": isErr})
 }
 
@@ -575,6 +611,7 @@ type agentFiles struct{ token, info string }
 // agentInfo is agent.json: where the running pgquire is, for `pgquire mcp`. It exists while pgquire runs.
 type agentInfo struct {
 	URL   string `json:"url"`
+	Host  string `json:"host,omitempty"` // the Host to send, when not URL's (-domain, listening on one address)
 	Token string `json:"token"`
 	PID   int    `json:"pid"`
 }

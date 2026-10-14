@@ -1751,6 +1751,7 @@ function openTable(key, opts = {}) {
   if (opts.view) tab.view = opts.view;
   if (opts.rel) tab.rel = true;                               // from the ERD: show the relations diagram
   if (opts.filter != null) { tab.filter = opts.filter; tab.page = 0; tab.dirty = true; }
+  if (opts.guard) tab.guard = tab.filter;                     // a filter an agent or the Clerk wrote: read in a read-only transaction
   activate(tab.id);
   return tab;
 }
@@ -2252,13 +2253,25 @@ async function loadRows(tab) {
   const where = tab.filter.trim() ? ` where ${tab.filter}` : '';
   const order = tab.sort ? ` order by _t.${qi(tab.sort.col)} ${tab.sort.dir} nulls last`
     : t.pk.length ? ` order by ${t.pk.map(p => '_t.' + qi(p)).join(', ')}` : t.editable ? ' order by _t.ctid' : '';
+  // A filter is SQL run as it stands: one the user didn't type (tab.guard) runs where it can't change anything.
+  const read = where && tab.guard === tab.filter ? async fn => {
+    let out;
+    await appTransaction(async tx => {
+      await tx.exec('SET TRANSACTION READ ONLY');
+      out = await fn((sql, params = [], array = false) => tx.query(sql, params, array ? { rowMode: 'array' } : undefined));
+      await tx.rollback();
+    });
+    return out;
+  } : fn => fn(q);
   try {
-    {
-      const cnt = await q(`select count(*)::int as n from ${qt(t)} _t${where}`);
-      tab.total = cnt.rows[0].n; tab.approx = false;
-    }
-    if (tab.page * pageSize() >= tab.total && tab.page > 0) tab.page = Math.max(0, Math.ceil(tab.total / pageSize()) - 1);
-    const res = await q(`select ${sel} from ${qt(t)} _t${where}${order} limit ${pageSize()} offset ${tab.page * pageSize()}`, [], true);
+    const res = await read(async q => {
+      {
+        const cnt = await q(`select count(*)::int as n from ${qt(t)} _t${where}`);
+        tab.total = cnt.rows[0].n; tab.approx = false;
+      }
+      if (tab.page * pageSize() >= tab.total && tab.page > 0) tab.page = Math.max(0, Math.ceil(tab.total / pageSize()) - 1);
+      return q(`select ${sel} from ${qt(t)} _t${where}${order} limit ${pageSize()} offset ${tab.page * pageSize()}`, [], true);
+    });
     tab.rows = res.rows; tab.error = null;
   } catch (e) { tab.error = e.message; tab.rows = []; tab.total = 0; }
   tab.dirty = false;
@@ -6336,7 +6349,7 @@ async function clerkTool(tc) {
   if (name === 'open_table') {
     const key = S.byKey[a.table] ? a.table : S.tables.find(t => t.name === a.table || t.key.toLowerCase() === String(a.table).toLowerCase())?.key;
     if (!key) return `ERROR: no table named ${a.table}`;
-    const tab = openTable(key, { view: 'rows', filter: a.where || '' });
+    const tab = openTable(key, { view: 'rows', filter: a.where || '', guard: true });
     await loadRows(tab); if (activeTab() === tab) renderPane();
     clerkPush({ k: 'note', text: `opened ${key}${a.where ? ` where ${a.where}` : ''}` });
     return tab.error ? `ERROR: ${tab.error}` : `Opened. ${tab.total} rows match.`;
@@ -6396,9 +6409,12 @@ async function execRO(sql, by) {
   out.ms = Math.round(performance.now() - t0);
   return out;
 }
-async function execRW(sql, check, by) {
+/** run: prep() is awaited just before the last check(), started() is called once nothing can stop it. */
+async function execRW(sql, check, by, run) {
+  await run?.prep?.();
   const stale = check?.();                        // the production prompt waited: still the same database?
   if (stale) return { error: stale, ms: 0 };
+  run?.started?.();                               // nothing awaited from the check to the SQL: nothing else gets in between
   const t0 = performance.now();
   try { return { results: (await S.db.exec(sql, sqlOpts(by))).map(shapeResult), ms: Math.round(performance.now() - t0) }; }
   catch (e) { return { error: e.message, ms: Math.round(performance.now() - t0) }; }
@@ -6408,8 +6424,9 @@ async function execRW(sql, check, by) {
  *  which never take the Clerk's approve-all (trusted: the user approved all of theirs), and conv is the
  *  conversation they go in; check() says why it may no longer run (checked again after approval);
  *  noWrite refuses changes outright; ask is passed on to approve(); by tags its requests (see cancel);
- *  purpose (an agent's line on what it's doing) goes in the journal; client is its name as it gave it. */
-async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, check, noWrite, ask, trusted, by } = {}) {
+ *  purpose (an agent's line on what it's doing) goes in the journal; client is its name as it gave it;
+ *  run is passed on to execRW. */
+async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, check, noWrite, ask, trusted, by, run } = {}) {
   if (!sql) return 'ERROR: empty sql';
   const it = { k: 'sql', sql, status: 'pending', ts: Date.now(), who, client };
   const allowAll = src === 'clerk' ? C.allowAll : !!trusted;
@@ -6422,11 +6439,12 @@ async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, che
       it.write = true;
       const ok = await approve(it, { who, conv, ...ask });
       stale = check?.();
-      r = !ok || stale ? { rejected: true } : await execRW(sql, check, by);
-      if (stale) Object.assign(it, { interrupted: true, why: 'Not run — the database was closed here meanwhile' });
+      r = !ok || stale ? { rejected: true } : await execRW(sql, check, by, run);
+      if (stale) Object.assign(it, { interrupted: true, why: `Not run — ${/^MOVED\b/.test(stale) ? 'the database was closed here meanwhile'
+        : stale.replace(/^NOT RUN: /, '').replace(/^the user\b/, 'you').replace(/\. Nothing ran\b.*$/s, '')}` });
     }
   } else {
-    r = await execRW(sql, check, by);
+    r = await execRW(sql, check, by, run);
     it.write = !isReadish(sql);
   }
   it.ms = r.ms; it.error = r.error;
@@ -6437,7 +6455,7 @@ async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, che
   it.summary = r.results ? r.results.map(x => x.fields.length ? plural(x.rows.length, 'row') : x.affected ? `${plural(x.affected, 'row')} affected` : 'ok').join(' · ') : '';
   // Replace the pending card (if any) with the final one.
   const items = conv?.items || C.items, idx = items.indexOf(it);
-  if (stale) {}                                   // its card went with the database
+  if (/^MOVED\b/.test(stale)) {}                  // its card went with the database
   else if (idx >= 0) { items[idx] = it; conv ? saveConv(conv) : saveClerk(); it._node?.replaceWith(receipt(it)); }
   else conv ? pushTo(conv, it) : clerkPush(it);
   if (!r.rejected) journalAdd({ src, who, client, purpose, sql, ms: r.ms, error: r.error, info: it.summary });

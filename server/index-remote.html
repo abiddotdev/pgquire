@@ -1817,6 +1817,7 @@ function openTable(key, opts = {}) {
   if (opts.view) tab.view = opts.view;
   if (opts.rel) tab.rel = true;                               // from the ERD: show the relations diagram
   if (opts.filter != null) { tab.filter = opts.filter; tab.page = 0; tab.dirty = true; }
+  if (opts.guard) tab.guard = tab.filter;                     // a filter an agent or the Clerk wrote: read in a read-only transaction
   activate(tab.id);
   return tab;
 }
@@ -2369,20 +2370,32 @@ async function loadRows(tab) {
   const where = tab.filter.trim() ? ` where ${tab.filter}` : '';
   const order = tab.sort ? ` order by _t.${qi(tab.sort.col)} ${tab.sort.dir} nulls last`
     : t.pk.length ? ` order by ${t.pk.map(p => '_t.' + qi(p)).join(', ')}` : t.editable ? ' order by _t.ctid' : '';
+  // A filter is SQL run as it stands: one the user didn't type (tab.guard) runs where it can't change anything.
+  const read = where && tab.guard === tab.filter ? async fn => {
+    let out;
+    await appTransaction(async tx => {
+      await tx.exec('SET TRANSACTION READ ONLY');
+      out = await fn((sql, params = [], array = false) => tx.query(sql, params, array ? { rowMode: 'array' } : undefined));
+      await tx.rollback();
+    });
+    return out;
+  } : fn => fn(q);
   try {
-    /* @remote { */
-    if (S.db.remote && !where && S.approx?.has(t.key)) { tab.total = S.counts[t.key]; tab.approx = true; }
-    else if (S.db.remote) {                                  // count, but stop at a limit
-      const cnt = await q(`select count(*)::int as n from (select 1 from ${qt(t)} _t${where} limit ${REMOTE_COUNT_CAP + 1}) _c`);
-      tab.total = cnt.rows[0].n; tab.approx = tab.total > REMOTE_COUNT_CAP;
-    } else {
-    /* } @remote */
-    // @pages: {
-      const cnt = await q(`select count(*)::int as n from ${qt(t)} _t${where}`);
-      tab.total = cnt.rows[0].n; tab.approx = false;
-    }
-    if (tab.page * pageSize() >= tab.total && tab.page > 0) tab.page = Math.max(0, Math.ceil(tab.total / pageSize()) - 1);
-    const res = await q(`select ${sel} from ${qt(t)} _t${where}${order} limit ${pageSize()} offset ${tab.page * pageSize()}`, [], true);
+    const res = await read(async q => {
+      /* @remote { */
+      if (S.db.remote && !where && S.approx?.has(t.key)) { tab.total = S.counts[t.key]; tab.approx = true; }
+      else if (S.db.remote) {                                  // count, but stop at a limit
+        const cnt = await q(`select count(*)::int as n from (select 1 from ${qt(t)} _t${where} limit ${REMOTE_COUNT_CAP + 1}) _c`);
+        tab.total = cnt.rows[0].n; tab.approx = tab.total > REMOTE_COUNT_CAP;
+      } else {
+      /* } @remote */
+      // @pages: {
+        const cnt = await q(`select count(*)::int as n from ${qt(t)} _t${where}`);
+        tab.total = cnt.rows[0].n; tab.approx = false;
+      }
+      if (tab.page * pageSize() >= tab.total && tab.page > 0) tab.page = Math.max(0, Math.ceil(tab.total / pageSize()) - 1);
+      return q(`select ${sel} from ${qt(t)} _t${where}${order} limit ${pageSize()} offset ${tab.page * pageSize()}`, [], true);
+    });
     tab.rows = res.rows; tab.error = null;
   } catch (e) { tab.error = e.message; tab.rows = []; tab.total = 0; }
   tab.dirty = false;
@@ -6988,7 +7001,7 @@ function renderClerk() {
   const agentNote = cv.agent && h('div', { class: 'agent-compose' },
     trusted ? h('span', { style: 'color:var(--red)' }, `Approving all from ${cv.agent} on this database until this tab closes.`)
       : h('span', {}, `Agent access log${cv.title === 'Agent' ? '' : ` for ${cv.agent}`}. The changes it asks for wait here for your stamp.`),
-    /*remote:*/trusted ? h('button', { class: 'btn sm', onclick: () => { agentTrust(cv.agent, false); renderClerk(); } }, 'Stop approving all') :/*:remote*/ h('button', { class: 'btn sm', onclick: startNewConv }, 'Ask the Clerk'));
+    /*remote:*/trusted ? h('button', { class: 'btn sm', onclick: () => { agentTrust(cv.agent, null); renderClerk(); } }, 'Stop approving all') :/*:remote*/ h('button', { class: 'btn sm', onclick: startNewConv }, 'Ask the Clerk'));
   inner.replaceChildren(...[head, usageBar, log, agentNote || compose].filter(Boolean));
   renderClerkCtx();
   if (C.busy) log.append(h('div', { class: 'c-working', id: 'clerkWorking' }, h('span', { class: 'quill' }), 'writing…'));
@@ -7463,7 +7476,7 @@ async function clerkTool(tc) {
   if (name === 'open_table') {
     const key = S.byKey[a.table] ? a.table : S.tables.find(t => t.name === a.table || t.key.toLowerCase() === String(a.table).toLowerCase())?.key;
     if (!key) return `ERROR: no table named ${a.table}`;
-    const tab = openTable(key, { view: 'rows', filter: a.where || '' });
+    const tab = openTable(key, { view: 'rows', filter: a.where || '', guard: true });
     await loadRows(tab); if (activeTab() === tab) renderPane();
     clerkPush({ k: 'note', text: `opened ${key}${a.where ? ` where ${a.where}` : ''}` });
     return tab.error ? `ERROR: ${tab.error}` : `Opened. ${tab.total} rows match.`;
@@ -7523,10 +7536,13 @@ async function execRO(sql, by) {
   out.ms = Math.round(performance.now() - t0);
   return out;
 }
-async function execRW(sql, check, by) {
+/** run: prep() is awaited just before the last check(), started() is called once nothing can stop it. */
+async function execRW(sql, check, by, run) {
   if (!(await prodWriteOk(sql))) return { error: 'The user declined to run this on the production database.', ms: 0 }; // @remote
+  await run?.prep?.();
   const stale = check?.();                        // the production prompt waited: still the same database?
   if (stale) return { error: stale, ms: 0 };
+  run?.started?.();                               // nothing awaited from the check to the SQL: nothing else gets in between
   const t0 = performance.now();
   try { return { results: (await S.db.exec(sql, sqlOpts(by))).map(shapeResult), ms: Math.round(performance.now() - t0) }; }
   catch (e) { return { error: e.message, ms: Math.round(performance.now() - t0) }; }
@@ -7536,8 +7552,9 @@ async function execRW(sql, check, by) {
  *  which never take the Clerk's approve-all (trusted: the user approved all of theirs), and conv is the
  *  conversation they go in; check() says why it may no longer run (checked again after approval);
  *  noWrite refuses changes outright; ask is passed on to approve(); by tags its requests (see cancel);
- *  purpose (an agent's line on what it's doing) goes in the journal; client is its name as it gave it. */
-async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, check, noWrite, ask, trusted, by } = {}) {
+ *  purpose (an agent's line on what it's doing) goes in the journal; client is its name as it gave it;
+ *  run is passed on to execRW. */
+async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, check, noWrite, ask, trusted, by, run } = {}) {
   if (!sql) return 'ERROR: empty sql';
   const it = { k: 'sql', sql, status: 'pending', ts: Date.now(), who, client };
   const allowAll = src === 'clerk' ? C.allowAll : !!trusted;
@@ -7553,11 +7570,12 @@ async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, che
       it.write = true;
       const ok = await approve(it, { who, conv, ...ask });
       stale = check?.();
-      r = !ok || stale ? { rejected: true } : await execRW(sql, check, by);
-      if (stale) Object.assign(it, { interrupted: true, why: 'Not run — the database was closed here meanwhile' });
+      r = !ok || stale ? { rejected: true } : await execRW(sql, check, by, run);
+      if (stale) Object.assign(it, { interrupted: true, why: `Not run — ${/^MOVED\b/.test(stale) ? 'the database was closed here meanwhile'
+        : stale.replace(/^NOT RUN: /, '').replace(/^the user\b/, 'you').replace(/\. Nothing ran\b.*$/s, '')}` });
     }
   } else {
-    r = await execRW(sql, check, by);
+    r = await execRW(sql, check, by, run);
     it.write = !isReadish(sql);
   }
   it.ms = r.ms; it.error = r.error;
@@ -7568,7 +7586,7 @@ async function clerkRunSql(sql, { src = 'clerk', who, client, purpose, conv, che
   it.summary = r.results ? r.results.map(x => x.fields.length ? plural(x.rows.length, 'row') : x.affected ? `${plural(x.affected, 'row')} affected` : 'ok').join(' · ') : '';
   // Replace the pending card (if any) with the final one.
   const items = conv?.items || C.items, idx = items.indexOf(it);
-  if (stale) {}                                   // its card went with the database
+  if (/^MOVED\b/.test(stale)) {}                  // its card went with the database
   else if (idx >= 0) { items[idx] = it; conv ? saveConv(conv) : saveClerk(); it._node?.replaceWith(receipt(it)); }
   else conv ? pushTo(conv, it) : clerkPush(it);
   if (!r.rejected) journalAdd({ src, who, client, purpose, sql, ms: r.ms, error: r.error, info: it.summary });
@@ -7623,7 +7641,7 @@ async function approve(it, { who, conv, onAsk, onTrust, signal } = {}) {
    An agent's call names a database and comes to the tab that has it open, which runs it the way the
    Clerk's run (the same approvals; production always asks), in a conversation of the agent's own, and
    posts the answer back. Nothing runs unless that database is still open here and still shared. */
-const AG = { es: null, tab: null, busy: 0, retry: 0, timer: null, queue: Promise.resolve(), calls: new Map(), wants: new Map(), trust: new Set() };
+const AG = { es: null, tab: null, busy: 0, retry: 0, timer: null, queue: Promise.resolve(), calls: new Map(), wants: new Map(), trust: new Map() };
 const agentShared = () => loadDbs().filter(d => d.agents);
 const agentWanted = () => !!S.server?.authed && agentShared().length > 0;
 function agentDescribe(d) {
@@ -7631,9 +7649,12 @@ function agentDescribe(d) {
     production: isProdDb(d) || undefined, readOnly: (d.agents === 'read' || (d.kind === 'remote' && !!d.remote?.readOnly)) || undefined };
 }
 /* Approve all from an agent: per database, in this tab's memory only, never on production. */
+/* Approve all from an agent: its name on this database → the connection it was given to (conn, from
+   pgquire), so another program giving the same name doesn't get it. Without conn: from any of its connections. */
 const agentTrustKey = (who, id = S.id) => `${id}\n${who}`;
-const agentTrusted = who => !isProd() && currentDb()?.agents === true && AG.trust.has(agentTrustKey(who));
-function agentTrust(who, on) { on ? AG.trust.add(agentTrustKey(who)) : AG.trust.delete(agentTrustKey(who)); }
+const agentTrusted = (who, conn) => !isProd() && currentDb()?.agents === true && AG.trust.has(agentTrustKey(who))
+  && (conn === undefined || AG.trust.get(agentTrustKey(who)) === conn);
+function agentTrust(who, conn) { conn == null ? AG.trust.delete(agentTrustKey(who)) : AG.trust.set(agentTrustKey(who), conn); }   // null: stop
 /** The shared database open in this tab, or null. */
 const agentOpen = () => { const d = currentDb(); return S.db && d?.agents ? d : null; };
 
@@ -7701,7 +7722,7 @@ async function agentShare(d = currentDb(), mode = true) {
       + ' Agents never see databases you haven\'t shared.' }))) return;
   if (mode && !d.agents && self.Notification?.permission === 'default') Notification.requestPermission();   // to say when an agent waits for you
   saveDbs(loadDbs().map(x => x.id === d.id ? { ...x, agents: mode || undefined } : x));
-  if (mode !== true) for (const k of [...AG.trust]) if (k.startsWith(d.id + '\n')) AG.trust.delete(k);
+  if (mode !== true) for (const k of [...AG.trust.keys()]) if (k.startsWith(d.id + '\n')) AG.trust.delete(k);
   if (!mode && d.id === S.id) agentMoved();
   toast(!mode ? `“${dbLabel(d)}” is no longer shared with agents.` : read ? `Agents can read “${dbLabel(d)}”, not change it.` : `Agents can use “${dbLabel(d)}”.`);
   if (d.id === S.id && !app.classList.contains('clerk-closed')) renderClerk();
@@ -7754,8 +7775,10 @@ async function agentSetupDialog() {
   async function newToken() {
     if (!(await confirmDlg({ title: 'Replace the agent token?', ok: 'Replace', danger: true,
       body: 'The old token stops working at once. Agents set up over HTTP need the new one; pgquire mcp picks it up by itself.' }))) return;
-    try { await api('POST', '/api/agent/token'); } catch (e) { return toast(e.message, 'bad'); }
-    m.close(); agentSetupDialog(); toast('New agent token. Give it to agents set up over HTTP.');
+    let r;
+    try { r = await api('POST', '/api/agent/token'); } catch (e) { return toast(e.message, 'bad'); }
+    m.close(); agentSetupDialog();
+    r.warning ? toast(r.warning, 'bad') : toast('New agent token. Give it to agents set up over HTTP.');
   }
 }
 
@@ -7809,7 +7832,7 @@ const AG_DOING = { add: 'adding', check: 'checking', verify: 'verifying', create
   summarize: 'summarizing', summarise: 'summarising', explore: 'exploring', measure: 'measuring', sample: 'sampling', backfill: 'backfilling',
   clean: 'cleaning', merge: 'merging', copy: 'copying', move: 'moving', index: 'indexing', analyze: 'analyzing', analyse: 'analysing', join: 'joining' };
 const agentDoing = text => text.replace(/^([A-Za-z]+)\b/, w => { const ing = AG_DOING[w.toLowerCase()]; return !ing ? w : w[0] === w[0].toUpperCase() ? ing[0].toUpperCase() + ing.slice(1) : ing; });
-async function agentRun({ tool, args = {}, client, database }, id, signal) {
+async function agentRun({ tool, args = {}, client, conn = '', database }, id, signal) {
   const stale = agentStale(database);
   if (stale) return stale;
   const who = agentWho(client), conv = agentConv(who), db = S.db;
@@ -7828,11 +7851,11 @@ async function agentRun({ tool, args = {}, client, database }, id, signal) {
     note('looked at what you have open');
     return describeView().text || 'Nothing the agent can describe is open.';
   }
-  if (tool === 'run_sql') return agentSql(String(args.sql || '').trim(), { database, db, who, client, purpose, conv, id, signal });
+  if (tool === 'run_sql') return agentSql(String(args.sql || '').trim(), { database, db, who, client, conn, purpose, conv, id, signal });
   if (tool === 'open_table') {
     const key = S.byKey[args.table] ? args.table : S.tables.find(t => t.name === args.table || t.key.toLowerCase() === String(args.table).toLowerCase())?.key;
     if (!key) return `ERROR: no table named ${args.table}`;
-    const tab = openTable(key, { view: 'rows', filter: args.where || '' });
+    const tab = openTable(key, { view: 'rows', filter: args.where || '', guard: true });
     await loadRows(tab); if (activeTab() === tab) renderPane();
     note(`opened ${key}${args.where ? ` where ${args.where}` : ''}`);
     return tab.error ? `ERROR: ${tab.error}` : `Opened. ${tab.total} rows match.`;
@@ -7847,18 +7870,23 @@ async function agentRun({ tool, args = {}, client, database }, id, signal) {
 }
 /** run_sql for an agent: the Clerk's path, plus what a second client on the user's connection needs —
  *  no writes into the user's open transaction, none left open, session settings put back. */
-async function agentSql(sql, { database, db, who, client, purpose, conv, id, signal }) {
+async function agentSql(sql, { database, db, who, client, conn, purpose, conv, id, signal }) {
   if (!sql) return 'ERROR: empty sql';
-  const before = txState(db), d = currentDb(), key = agentTrustKey(who);
+  const d = currentDb();
   const settings = async () => JSON.stringify((await db.query(`select name, setting from pg_settings where source = 'session' order by 1`)).rows);
-  const was = await settings().catch(() => null);
-  let text = await clerkRunSql(sql, { src: 'agent', who, client, purpose, conv, by: id, trusted: agentTrusted(who),
-    check: () => agentStale(database, db) || (currentDb()?.agents === 'read' ? 'NOT RUN: the user made this database read-only for agents meanwhile. Nothing ran.' : null),
+  // The session is looked at just before the SQL runs, after any wait for approval: what the user did meanwhile is theirs.
+  let was = null, ran = false;
+  let text = await clerkRunSql(sql, { src: 'agent', who, client, purpose, conv, by: id, trusted: agentTrusted(who, conn),
+    check: () => agentStale(database, db)
+      || (signal.aborted ? `NOT RUN: ${who} stopped waiting. Nothing ran.` : null)
+      || (currentDb()?.agents === 'read' ? 'NOT RUN: the user made this database read-only for agents meanwhile. Nothing ran.' : null)
+      || (txState(db) !== 'I' ? 'NOT RUN: the user opened a transaction meanwhile. Nothing ran; changes are refused until they commit or roll it back.' : null),
     noWrite: d.agents === 'read' ? 'ERROR: the user shared this database with agents read-only. Reads work; changes are refused, and nothing was changed.'
-      : before !== 'I' ? 'ERROR: the user has a transaction of their own open in pgquire, so changes are refused until they commit or roll it back. Reads still work.' : null,
-    ask: { signal, onTrust: () => { AG.trust.add(key); setTimeout(renderClerk); } } });
-  if (S.db !== db) return text;
-  if (before === 'I' && txState(db) !== 'I') {
+      : txState(db) !== 'I' ? 'ERROR: the user has a transaction of their own open in pgquire, so changes are refused until they commit or roll it back. Reads still work.' : null,
+    run: { prep: async () => { was = await settings().catch(() => null); }, started: () => { ran = true; } },
+    ask: { signal, onTrust: () => { agentTrust(who, conn); setTimeout(renderClerk); } } });
+  if (S.db !== db || !ran) return text;           // reads tried read-only were rolled back: nothing to put back
+  if (txState(db) !== 'I') {                      // none was open when it started (check), so the agent opened it
     await db.exec('ROLLBACK').catch(() => {});
     journalAdd({ src: 'agent', who, client, sql: 'ROLLBACK', info: 'a transaction the agent left open' });
     paintTx(); await afterWrite();

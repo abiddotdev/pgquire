@@ -60,8 +60,9 @@ var mcpTools = []map[string]any{
 		map[string]any{"sql": str, "title": str, "purpose": purpose}, "sql"),
 }
 
-// toolFunc runs a tool for client and returns the text the agent reads; done: the agent gave up.
-type toolFunc func(done <-chan struct{}, tool string, args json.RawMessage, client string) (string, bool)
+// toolFunc runs a tool for client (on connection conn) and returns the text the agent reads; done: the
+// agent gave up.
+type toolFunc func(done <-chan struct{}, tool string, args json.RawMessage, client, conn string) (string, bool)
 
 type rpcMsg struct {
 	JSONRPC string          `json:"jsonrpc"`
@@ -70,15 +71,17 @@ type rpcMsg struct {
 	Params  json.RawMessage `json:"params,omitempty"`
 }
 
-// mcpConn is one agent's connection: its name, and the calls it may still cancel.
+// mcpConn is one agent's connection: its name, and the calls it may still cancel. key tells this
+// connection from another giving the same name (the page's Approve all is for one connection).
 type mcpConn struct {
+	key     string
 	mu      sync.Mutex
 	client  string
 	pending map[string]chan struct{} // request id → closed when cancelled
 	used    time.Time                // last request (under mcpSessions.mu)
 }
 
-func newMCPConn() *mcpConn { return &mcpConn{pending: map[string]chan struct{}{}} }
+func newMCPConn() *mcpConn { return &mcpConn{key: randomHex(12), pending: map[string]chan struct{}{}} }
 
 func (c *mcpConn) start(id json.RawMessage) (<-chan struct{}, func()) {
 	ch := make(chan struct{})
@@ -157,7 +160,7 @@ func (c *mcpConn) handle(done <-chan struct{}, run toolFunc, m rpcMsg) map[strin
 		c.mu.Lock()
 		client := c.client
 		c.mu.Unlock()
-		text, isErr := run(stop, p.Name, p.Arguments, client)
+		text, isErr := run(stop, p.Name, p.Arguments, client, c.key)
 		close(finished)
 		reply["result"] = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}, "isError": isErr}
 	default:
@@ -173,7 +176,7 @@ type mcpSessions struct {
 	conns map[string]*mcpConn
 }
 
-// start opens a session (initialize), returning its id.
+// start opens a session (initialize), returning its id; nil when there are too many, all busy.
 func (ss *mcpSessions) start() (string, *mcpConn) {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
@@ -189,6 +192,9 @@ func (ss *mcpSessions) start() (string, *mcpConn) {
 			if !busy && (old == "" || c.used.Before(ss.conns[old].used)) {
 				old = id
 			}
+		}
+		if old == "" {
+			return "", nil
 		}
 		delete(ss.conns, old)
 	}
@@ -238,7 +244,10 @@ func (s *server) mcpHTTP(w http.ResponseWriter, r *http.Request) {
 	var c *mcpConn
 	switch {
 	case m.Method == "initialize":
-		sid, c = s.mcp.start()
+		if sid, c = s.mcp.start(); c == nil {
+			writeErr(w, http.StatusServiceUnavailable, "too many agent sessions, all with calls in flight: try again in a moment")
+			return
+		}
 	case sid == "":
 		writeErr(w, http.StatusBadRequest, "Mcp-Session-Id missing: send initialize first")
 		return
@@ -325,7 +334,7 @@ type mcpBridge struct {
 	agentPath string
 }
 
-func (b *mcpBridge) run(done <-chan struct{}, tool string, args json.RawMessage, client string) (string, bool) {
+func (b *mcpBridge) run(done <-chan struct{}, tool string, args json.RawMessage, client, conn string) (string, bool) {
 	info, err := readAgentFile(b.agentPath)
 	if err != nil {
 		return "ERROR: pgquire isn't running (no " + b.agentPath + "). Ask the user to start pgquire.", true
@@ -339,7 +348,7 @@ func (b *mcpBridge) run(done <-chan struct{}, tool string, args json.RawMessage,
 		case <-ctx.Done():
 		}
 	}()
-	body, _ := json.Marshal(map[string]any{"tool": tool, "args": args, "client": client})
+	body, _ := json.Marshal(map[string]any{"tool": tool, "args": args, "client": client, "conn": conn})
 	resp, err := postLocal(ctx, info, "/api/agent/call", body)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
@@ -380,10 +389,14 @@ func postLocal(ctx context.Context, info agentInfo, path string, body []byte) (*
 	if err != nil {
 		return nil, err
 	}
+	host := u.Host
+	if info.Host != "" {
+		host = info.Host
+	}
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer func() { stop(); conn.Close() }() // the body is read in full below
 	if _, err = fmt.Fprintf(conn, "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Type: application/json\r\nAuthorization: Bearer %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
-		path, u.Host, info.Token, len(body), body); err != nil {
+		path, host, info.Token, len(body), body); err != nil {
 		return nil, err
 	}
 	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
